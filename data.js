@@ -16,7 +16,7 @@ const RACE_DATA = {
 
   teams: [
     {
-      id: "t1", name: "[队伍名 1]", rank: 1, bossHP: 18.3, phase: "P4", region: "JP", isLive: true,
+      id: "t1", name: "[队伍名 1]", rank: 1, bossHP: 15.0, phase: "P4", region: "JP", isLive: true,
       players: [
         { job: "PLD", role: "tank", stream: "#", streaming: true },
         { job: "WAR", role: "tank", stream: "#", streaming: true },
