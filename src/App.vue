@@ -131,9 +131,7 @@ function startEntrySequence() {
   position: fixed; inset: 0; z-index: 900;
   background: rgba(0,0,0,0.55);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-  animation: overlay-in 0.3s ease;
 }
-@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* 入场动画 */
 .anim-entry {
@@ -143,7 +141,6 @@ function startEntrySequence() {
 .anim-entry.is-visible { opacity: 1; transform: translateY(0); }
 
 @media (prefers-reduced-motion: reduce) {
-  .ranking-overlay { animation: none; }
   .anim-entry { opacity: 1; transform: none; transition: none; }
 }
 </style>
