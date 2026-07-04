@@ -16,7 +16,7 @@
 
 ### PEM 密钥
 
-PEM 私钥位置由用户告知。Agent **只读验证**（`test -f` 检查存在性），**不做任何移动、复制、写入操作**。
+PEM 私钥路径优先从 `.pi/settings.json` 的 `pemPath` 读取；如未配置则向用户询问。Agent **只读验证**（`test -f` 检查存在性），**不做任何移动、复制、写入操作**。
 
 - PEM 存在 → 完整运营写入（push/PR/merge）
 - PEM 不存在 → 仅本地读写 data.js + `validate-data.js`
