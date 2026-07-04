@@ -30,12 +30,15 @@ jobs:
           echo "::group::dev 分支 data.json 触碰检查"
           git fetch origin "${{ github.base_ref }}"
           if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -q '^public/data\.json$'; then
-            echo "::error::feature/* / fix/* PR 不得修改 public/data.json"
-            echo "::error::数据值变更请走 content/* 分支（由运营 Agent 执行）"
-            echo "::error::如需新增字段/修改结构，请修改 schema/ 和 constants.js"
-            exit 1
+            # 仅当 base 分支已有 public/data.json 时阻断（允许首次创建）
+            if git show "origin/${{ github.base_ref }}:public/data.json" >/dev/null 2>&1; then
+              echo "::error::feature/* / fix/* PR 不得修改 public/data.json"
+              echo "::error::数据值变更请走 content/* 分支（由运营 Agent 执行）"
+              exit 1
+            fi
+            echo "⚠ public/data.json 首次引入（base 分支中不存在），允许通过"
           fi
-          echo "检查通过：public/data.json 未被修改"
+          echo "检查通过"
           echo "::endgroup::"
 
       - name: Check file scope (content/* PR only)
