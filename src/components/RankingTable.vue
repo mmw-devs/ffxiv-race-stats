@@ -16,18 +16,16 @@
 </template>
 
 <script setup>
-import { computed, inject } from 'vue'
+import { computed } from 'vue'
 import RankingRow from './RankingRow.vue'
+import { useExpand } from '../composables/useExpand.js'
 
 const props = defineProps({ teams: { type: Array, default: () => [] } })
 const topTeams = computed(() => props.teams.filter(t => t.rank <= 10))
 const restTeams = computed(() => props.teams.filter(t => t.rank > 10))
 
-const expandedId = inject('expandedId')
-const expanded = computed({
-  get: () => expandedId.value === 'ranking',
-  set: (v) => { expandedId.value = v ? 'ranking' : null }
-})
+const expandedId = useExpand()
+const expanded = computed(() => expandedId.value === 'ranking')
 function toggle() { expandedId.value = expandedId.value === 'ranking' ? null : 'ranking' }
 </script>
 

@@ -27,7 +27,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, provide, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
+import { useExpand } from './composables/useExpand.js'
 import StatusBar from './components/StatusBar.vue'
 import HeroSection from './components/HeroSection.vue'
 import RankingTable from './components/RankingTable.vue'
@@ -44,8 +45,7 @@ const sponsors = ref([])
 const loading = ref(true)
 
 // 展开态互斥：同一时间只有一个模块展开（'ranking' | 'sponsor' | 'notice' | null）
-const expandedId = ref(null)
-provide('expandedId', expandedId)
+const expandedId = useExpand()
 
 // 直播覆盖统计
 const streamCoverage = computed(() => {

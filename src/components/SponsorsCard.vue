@@ -12,14 +12,12 @@
 </template>
 
 <script setup>
-import { computed, inject } from 'vue'
+import { computed } from 'vue'
+import { useExpand } from '../composables/useExpand.js'
 defineProps({ sponsors: { type: Array, default: () => [] } })
 const threshold = 3
-const expandedId = inject('expandedId')
-const expanded = computed({
-  get: () => expandedId.value === 'sponsor',
-  set: (v) => { expandedId.value = v ? 'sponsor' : null }
-})
+const expandedId = useExpand()
+const expanded = computed(() => expandedId.value === 'sponsor')
 function toggle() { expandedId.value = expandedId.value === 'sponsor' ? null : 'sponsor' }
 </script>
 

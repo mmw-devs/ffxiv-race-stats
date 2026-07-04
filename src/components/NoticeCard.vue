@@ -11,10 +11,11 @@
 </template>
 
 <script setup>
-import { computed, inject } from 'vue'
+import { computed } from 'vue'
+import { useExpand } from '../composables/useExpand.js'
 defineProps({ notices: { type: Array, default: () => [] } })
 const threshold = 1
-const expandedId = inject('expandedId')
+const expandedId = useExpand()
 const expanded = computed(() => expandedId.value === 'notice')
 function toggle() { expandedId.value = expandedId.value === 'notice' ? null : 'notice' }
 </script>
