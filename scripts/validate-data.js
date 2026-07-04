@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * data.js 校验脚本 — CI 在每次 PR 时运行。
+ * data.json 校验脚本 — CI 在每次 PR 时运行。
  * 零运行时依赖：仅使用 Node.js 内置模块 + CI 环境中的 ajv（devDependency）。
  *
  * 三阶段校验：
@@ -43,31 +43,20 @@ function ok(msg) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 阶段 1：加载 data.js（获取 RACE_DATA）
+// 阶段 1：加载 data.json（获取 RACE_DATA）
 // ══════════════════════════════════════════════════════════════
 
-console.log(`${BOLD}── 1. 加载 data.js ──${RESET}`);
+console.log(`${BOLD}── 1. 加载 data.json ──${RESET}`);
 
-const dataJsPath = path.resolve(__dirname, "..", "data.js");
-
-let raw;
-try {
-  raw = fs.readFileSync(dataJsPath, "utf-8");
-  ok("data.js 读取成功");
-} catch (e) {
-  fail(`无法读取 data.js: ${e.message}`);
-  process.exit(1);
-}
+const dataPath = path.resolve(__dirname, "..", "data.json");
 
 let RACE_DATA;
 try {
-  const wrapped = raw + "\n;({ RACE_DATA });";
-  const script = new vm.Script(wrapped, { filename: "data.js" });
-  const result = script.runInNewContext({ console });
-  RACE_DATA = result.RACE_DATA;
-  ok("data.js 在沙箱中执行成功");
+  const raw = fs.readFileSync(dataPath, "utf-8");
+  RACE_DATA = JSON.parse(raw);
+  ok("data.json 读取并解析成功");
 } catch (e) {
-  fail(`data.js 语法/执行错误: ${e.message}`);
+  fail(`无法读取/解析 data.json: ${e.message}`);
   process.exit(1);
 }
 

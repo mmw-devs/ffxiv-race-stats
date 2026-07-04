@@ -1,7 +1,7 @@
 // FFXIV 高难首杀竞速聚合平台 — 运行时显示常量 + 数据校验白名单
 // 开发者维护，feature/* / fix/* 可改。运营侧数据请修改 data.js。
 //
-// 此文件在 index.html 中先于 data.js 加载，同时被 validate-data.js 引用
+// 此文件在 index.html 中先于 data.json 加载，同时被 validate-data.js 引用
 // 作为值域校验的单一真相来源。
 
 const PHASE_ORDER = ["P1", "P2", "P3", "P4", "CLEAR"];

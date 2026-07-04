@@ -620,9 +620,12 @@
   </footer>
 
   <script src="constants.js"></script>
-  <script src="data.js"></script>
   <script>
-    (function () {
+    (async function () {
+      var resp = await fetch('data.json');
+      if (!resp.ok) throw new Error('无法加载 data.json: ' + resp.status);
+      var RACE_DATA = await resp.json();
+
       var teams = RACE_DATA.teams;
       var news  = RACE_DATA.news;
       var broadcasters = RACE_DATA.broadcasters;
