@@ -11,11 +11,12 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, inject } from 'vue'
 defineProps({ notices: { type: Array, default: () => [] } })
 const threshold = 1
-const expanded = ref(false)
-function toggle() { expanded.value = !expanded.value }
+const expandedId = inject('expandedId')
+const expanded = computed(() => expandedId.value === 'notice')
+function toggle() { expandedId.value = expandedId.value === 'notice' ? null : 'notice' }
 </script>
 
 <style scoped>

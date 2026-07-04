@@ -1,5 +1,5 @@
 <template>
-  <div class="sidebar-card" :class="{ 'is-popped': expanded }">
+  <div class="sidebar-card anim-entry" :class="{ 'is-popped': expanded }">
     <h3>赞助公示</h3>
     <div v-for="(s, i) in sponsors" :key="i" class="sponsor-item" :class="{ 'is-hidden': i >= threshold && !expanded }">
       <p style="font-weight:600">{{ s.name }}</p>
@@ -12,11 +12,15 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, inject } from 'vue'
 defineProps({ sponsors: { type: Array, default: () => [] } })
 const threshold = 3
-const expanded = ref(false)
-function toggle() { expanded.value = !expanded.value }
+const expandedId = inject('expandedId')
+const expanded = computed({
+  get: () => expandedId.value === 'sponsor',
+  set: (v) => { expandedId.value = v ? 'sponsor' : null }
+})
+function toggle() { expandedId.value = expandedId.value === 'sponsor' ? null : 'sponsor' }
 </script>
 
 <style scoped>

@@ -1,5 +1,5 @@
 <template>
-  <div class="crt-module" :class="{ 'is-popped': expanded }">
+  <div class="crt-module anim-entry" :class="{ 'is-popped': expanded }">
     <h2>实时排名 TOP 10</h2>
     <RankingRow v-for="(team, i) in topTeams" :key="team.id" :team="team" :index="i" />
     <RankingRow
@@ -16,15 +16,19 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed, inject } from 'vue'
 import RankingRow from './RankingRow.vue'
 
 const props = defineProps({ teams: { type: Array, default: () => [] } })
 const topTeams = computed(() => props.teams.filter(t => t.rank <= 10))
 const restTeams = computed(() => props.teams.filter(t => t.rank > 10))
-const expanded = ref(false)
 
-function toggle() { expanded.value = !expanded.value }
+const expandedId = inject('expandedId')
+const expanded = computed({
+  get: () => expandedId.value === 'ranking',
+  set: (v) => { expandedId.value = v ? 'ranking' : null }
+})
+function toggle() { expandedId.value = expandedId.value === 'ranking' ? null : 'ranking' }
 </script>
 
 <style scoped>

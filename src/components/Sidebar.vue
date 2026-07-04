@@ -1,8 +1,8 @@
 <template>
   <aside>
-    <LiveTimer :startTime="meta.startTime" :startLabel="startLabel" />
+    <div class="anim-entry"><LiveTimer :startTime="meta.startTime" :startLabel="startLabel" /></div>
     <SponsorsCard :sponsors="sponsors" />
-    <StreamCover :coverage="coverage" :teamCount="teamCount" />
+    <div class="anim-entry"><StreamCover :coverage="coverage" :teamCount="teamCount" /></div>
   </aside>
 </template>
 

@@ -2,11 +2,8 @@
   <div v-if="loading" class="loading">加载中...</div>
   <template v-else>
     <StatusBar
-      :eventName="meta.eventName"
-      :dataCenter="meta.dataCenter"
-      :dungeon="meta.dungeon"
-      :startTime="meta.startTime"
-      :status="meta.status"
+      :eventName="meta.eventName" :dataCenter="meta.dataCenter"
+      :dungeon="meta.dungeon" :startTime="meta.startTime" :status="meta.status"
     />
     <header class="header">
       <div><div class="header-brand">FFXIV 高难首杀竞速网站</div></div>
@@ -22,11 +19,13 @@
       <p>此区域预留给未来的副本攻略窗口，当前版本暂不实现。</p>
     </section>
     <AppFooter :eventName="meta.eventName" />
+    <!-- 全屏遮罩层（展开排名/赞助/公告时显示） -->
+    <div class="ranking-overlay" :class="{ 'is-on': expandedId !== null }" @click="expandedId = null"></div>
   </template>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, provide } from 'vue'
 import StatusBar from './components/StatusBar.vue'
 import HeroSection from './components/HeroSection.vue'
 import RankingTable from './components/RankingTable.vue'
@@ -41,6 +40,10 @@ const broadcasters = ref([])
 const notices = ref([])
 const sponsors = ref([])
 const loading = ref(true)
+
+// 展开态互斥：同一时间只有一个模块展开（'ranking' | 'sponsor' | 'notice' | null）
+const expandedId = ref(null)
+provide('expandedId', expandedId)
 
 // 直播覆盖统计
 const streamCoverage = computed(() => {
@@ -71,49 +74,70 @@ onMounted(async () => {
     console.error('数据加载失败:', e)
   } finally {
     loading.value = false
+    // 数据加载完成后启动入场序列
+    startEntrySequence()
   }
 })
+
+// 入场序列：70ms 间隔逐个显示 anim-entry 元素
+function startEntrySequence() {
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const entries = document.querySelectorAll('.anim-entry')
+  if (prefersReduced) {
+    entries.forEach(el => el.classList.add('is-visible'))
+    return
+  }
+  entries.forEach((el, i) => {
+    setTimeout(() => el.classList.add('is-visible'), i * 70)
+  })
+}
 </script>
 
 <style>
 .loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  font-family: var(--font-mono);
-  color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; font-family: var(--font-mono); color: var(--muted);
 }
 .header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 24px 0 20px;
-  border-bottom: 2px solid var(--border);
-  margin-bottom: 32px;
-  flex-wrap: wrap;
-  gap: 16px;
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 24px 0 20px; border-bottom: 2px solid var(--border);
+  margin-bottom: 32px; flex-wrap: wrap; gap: 16px;
 }
 .header-brand {
-  font-family: var(--font-display);
-  font-size: 18px;
-  font-style: italic;
-  color: var(--muted);
+  font-family: var(--font-display); font-size: 18px;
+  font-style: italic; color: var(--muted);
 }
 .main-grid {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  gap: 32px;
-  margin-bottom: 48px;
-  align-items: start;
+  display: grid; grid-template-columns: 1fr 280px;
+  gap: 32px; margin-bottom: 48px; align-items: start;
 }
 @media (max-width: 860px) { .main-grid { grid-template-columns: 1fr; } }
 .placeholder-slot {
-  border: 2px dashed var(--border);
-  padding: 32px 24px;
-  text-align: center;
-  margin-bottom: 48px;
+  border: 2px dashed var(--border); padding: 32px 24px;
+  text-align: center; margin-bottom: 48px;
 }
-.placeholder-slot h2 { margin-bottom: 8px; font-family: var(--font-display); font-weight: 700; font-size: 28px; }
+.placeholder-slot h2 { margin-bottom: 8px; }
 .placeholder-slot p { font-size: 12px; color: var(--muted); margin: 0 auto; }
+
+/* 全屏遮罩 */
+.ranking-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  z-index: 900; opacity: 0; pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.ranking-overlay.is-on { opacity: 1; pointer-events: auto; }
+
+/* 入场动画 */
+.anim-entry {
+  opacity: 0; transform: translateY(14px);
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+.anim-entry.is-visible { opacity: 1; transform: translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ranking-overlay { transition-duration: 0.01ms !important; }
+  .anim-entry { opacity: 1; transform: none; transition: none; }
+}
 </style>

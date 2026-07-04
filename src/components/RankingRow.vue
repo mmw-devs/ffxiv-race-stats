@@ -103,4 +103,12 @@ const rankStyle = computed(() => {
   .crt-row { grid-template-columns: 24px 1fr 44px; gap: 4px; }
   .crt-comp, .crt-phase, .crt-hp { display: none; }
 }
+
+.crt-row:last-child { border-bottom: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .crt-row { transition: none; }
+  .crt-row:hover { transform: none; }
+  .crt-job:hover { transform: none; }
+}
 </style>

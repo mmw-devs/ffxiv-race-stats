@@ -1,6 +1,6 @@
 <template>
   <section class="news-section">
-    <h2>速报时间线</h2>
+    <h2 class="anim-entry">速报时间线</h2>
     <TransitionGroup name="news">
       <div v-for="n in news" :key="n.id" class="ticker-item">
         <span class="ticker-time">{{ n.time }}</span>

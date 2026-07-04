@@ -59,4 +59,7 @@ const { elapsed } = useTimer(props.startTime)
 }
 @keyframes led-blink { 50% { opacity: 0.15; } }
 @media (max-width: 680px) { .status-bar { font-size: 10px; } }
+@media (prefers-reduced-motion: reduce) {
+  .live-indicator::before { animation: none; }
+}
 </style>

@@ -1,15 +1,15 @@
 <template>
   <section class="hero">
     <div class="hero-body">
-      <h1>{{ meta.eventName }}<span v-if="meta.status === 'live'" class="live-pulse">LIVE</span></h1>
+      <h1 class="anim-entry">{{ meta.eventName }}<span v-if="meta.status === 'live'" class="live-pulse">LIVE</span></h1>
       <div class="hero-row">
-        <NoticeCard :notices="notices" />
-        <div class="hero-actions">
+        <NoticeCard :notices="notices" class="anim-entry" />
+        <div class="hero-actions anim-entry">
           <a href="#register" class="btn btn-accent">立即报名</a>
         </div>
       </div>
     </div>
-    <BroadcastModule :broadcasters="broadcasters" />
+    <BroadcastModule :broadcasters="broadcasters" class="anim-entry" />
   </section>
 </template>
 
@@ -90,4 +90,9 @@ defineProps({ meta: Object, notices: Array, broadcasters: Array })
 }
 .btn:hover { background: var(--bg); color: var(--fg); }
 .btn-accent { background: var(--accent); border-color: var(--accent); }
+.btn--ghost { background: transparent; color: var(--fg); }
+.btn--ghost:hover { background: var(--fg); color: var(--bg); }
+@media (prefers-reduced-motion: reduce) {
+  .live-pulse::before { animation: none; }
+}
 </style>
