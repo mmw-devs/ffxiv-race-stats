@@ -82,21 +82,12 @@ onMounted(async () => {
   }
 })
 
-// 入场序列：70ms 间隔逐个显示 anim-entry 元素
+// 入场序列：用 animation-delay 错开各模块的入场动画
 function startEntrySequence() {
-  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const entries = document.querySelectorAll('.anim-entry')
-  if (prefersReduced || entries.length === 0) {
-    entries.forEach(el => el.classList.add('is-visible'))
-    return
-  }
   entries.forEach((el, i) => {
-    setTimeout(() => el.classList.add('is-visible'), i * 70)
+    el.style.animationDelay = (i * 70) + 'ms'
   })
-  // 安全回退：最多 3 秒后强制全部显示
-  setTimeout(() => {
-    entries.forEach(el => el.classList.add('is-visible'))
-  }, 3000)
 }
 </script>
 
@@ -133,14 +124,16 @@ function startEntrySequence() {
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
 }
 
-/* 入场动画 */
+/* 入场动画 — 使用 animation（一次性播放 + forwards 保持终态），避免 transition 被 Vue patch 重新触发 */
 .anim-entry {
-  opacity: 0; transform: translateY(14px);
-  transition: opacity 0.45s ease, transform 0.45s ease;
+  animation: entry-in 0.45s ease both;
 }
-.anim-entry.is-visible { opacity: 1; transform: translateY(0); }
+@keyframes entry-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .anim-entry { opacity: 1; transform: none; transition: none; }
+  .anim-entry { animation: none; }
 }
 </style>
