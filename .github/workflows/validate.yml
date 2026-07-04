@@ -29,13 +29,13 @@ jobs:
         run: |
           echo "::group::dev 分支 data.json 触碰检查"
           git fetch origin "${{ github.base_ref }}"
-          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -q '^data\.json$'; then
-            echo "::error::feature/* / fix/* PR 不得修改 data.json"
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -q '^public/data\.json$'; then
+            echo "::error::feature/* / fix/* PR 不得修改 public/data.json"
             echo "::error::数据值变更请走 content/* 分支（由运营 Agent 执行）"
             echo "::error::如需新增字段/修改结构，请修改 schema/ 和 constants.js"
             exit 1
           fi
-          echo "检查通过：data.json 未被修改"
+          echo "检查通过：public/data.json 未被修改"
           echo "::endgroup::"
 
       - name: Check file scope (content/* PR only)
@@ -44,13 +44,13 @@ jobs:
           echo "::group::content/* 分支文件范围检查"
           git fetch origin "${{ github.base_ref }}"
           CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
-          EXTRA=$(echo "$CHANGED" | grep -Ev '^data\.json$' || true)
+          EXTRA=$(echo "$CHANGED" | grep -Ev '^public/data\.json$' || true)
           if [ -n "$EXTRA" ]; then
-            echo "::error::content/* PR 只能包含 data.json 变更，发现额外文件："
+            echo "::error::content/* PR 只能包含 public/data.json 变更，发现额外文件："
             echo "$EXTRA" | while read f; do
               echo "::error::  - $f"
             done
             exit 1
           fi
-          echo "文件范围检查通过：仅 data.json"
+          echo "文件范围检查通过：仅 public/data.json"
           echo "::endgroup::"

@@ -23,3 +23,5 @@ error.log
 # PI Agent — 本地凭证（飞书 App Secret 等），不提交
 # 仅忽略敏感配置；其余 .pi/ 内容（SYSTEM.md/extensions/prompts/rules/skills）为团队共享配置，仍纳入版本控制
 .pi/settings.json
+dist/
+.astro/

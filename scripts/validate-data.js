@@ -48,7 +48,7 @@ function ok(msg) {
 
 console.log(`${BOLD}── 1. 加载 data.json ──${RESET}`);
 
-const dataPath = path.resolve(__dirname, "..", "data.json");
+const dataPath = path.resolve(__dirname, "..", "public", "data.json");
 
 let RACE_DATA;
 try {

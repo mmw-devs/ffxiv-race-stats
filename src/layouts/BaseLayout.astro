@@ -1,0 +1,72 @@
+---
+// BaseLayout.astro — 全局布局，承载 OKLCH token 系统和外部脚本
+---
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FFXIV 高难首杀竞速 — [当届赛事名称]</title>
+  <style is:inline>
+    /* ---- RESET & BASE ---- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html {
+      font-size: 16px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    body { max-width: 1280px; margin: 0 auto; padding: 0 24px 80px; min-height: 100vh; }
+
+    /* ---- TYPOGRAPHY ---- */
+    h1, h2, h3 { font-family: var(--font-display); font-weight: 700; }
+    h1 { font-size: clamp(48px, 6vw, 96px); line-height: 1.05; letter-spacing: -0.025em; }
+    h2 { font-size: 28px; line-height: 1.15; letter-spacing: -0.015em; }
+    h3 { font-size: 20px; line-height: 1.2; }
+    p  { max-width: 65ch; }
+    a  { color: var(--fg); text-underline-offset: 4px; }
+    a:hover { color: var(--accent); }
+
+    /* ---- REDUCED MOTION ---- */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* ---- TOKEN SYSTEM ---- */
+    /* ===========================================================
+       TOKEN SYSTEM — 换 6~10 个变量即可切换整站主题风格
+       =========================================================== */
+    :root {
+      --bg:      oklch(98% 0.004 90);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(15% 0.02 100);
+      --muted:   oklch(42% 0.02 100);
+      --border:  oklch(15% 0.02 100);
+      --accent:  oklch(58% 0.17 50);
+
+      --crt-bg:    oklch(18% 0.016 148);
+      --crt-fg:    oklch(80% 0.06 148);
+      --crt-glow:  oklch(74% 0.10 145);
+      --crt-muted: oklch(50% 0.03 148);
+      --crt-border:oklch(28% 0.015 148);
+
+      --live:   oklch(58% 0.20 28);
+      --warn:   oklch(65% 0.18 80);
+      --success:oklch(58% 0.16 155);
+
+      --font-display: 'Times New Roman', 'Iowan Old Style', Georgia, serif;
+      --font-body:    ui-monospace, 'IBM Plex Mono', 'JetBrains Mono', Menlo, monospace;
+      --font-mono:    'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    }
+  </style>
+</head>
+<body>
+  <slot />
+</body>
+</html>
