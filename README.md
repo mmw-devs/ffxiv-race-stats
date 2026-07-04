@@ -51,7 +51,6 @@ public/
 | 文档 | 内容 |
 |------|------|
 | [运营系统设计](docs/operations-system-design.md) | 双轨分支模型、权限体系、Agent 能力设计、CI 与质量保障 |
-| [重构参考](docs/index-legacy.html) | 原版 index.html（832 行），样式/动效逐项比对用 |
 
 ## 部署
 
