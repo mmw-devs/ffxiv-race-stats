@@ -3,13 +3,13 @@
 # pre-commit — 提交前自动备份受保护的本地文件
 #
 # 受保护文件（仅存在于本地，不提交到远程）：
-#   CLAUDE.md
+#   AGENTS.md（已纳入版本控制，git 自身保护）
 #
 # 备份位置：.git/safe/ （Git clean 无法触及）
 # ============================================================
 
 SAFE_DIR=".git/safe"
-PROTECTED="CLAUDE.md"
+PROTECTED=""
 
 mkdir -p "$SAFE_DIR"
 

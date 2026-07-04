@@ -6,7 +6,7 @@
 # ============================================================
 
 SAFE_DIR=".git/safe"
-PROTECTED="CLAUDE.md"
+PROTECTED=""
 
 for f in $PROTECTED; do
   if [ ! -f "$f" ] && [ -f "$SAFE_DIR/$f" ]; then

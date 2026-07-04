@@ -10,7 +10,7 @@ description: >
 ## 前置条件
 
 在开发模式（/dev）下，此 Skill 不可用。如触发时处于开发模式，回复：
-"当前开发模式（/dev），无法操作 data.js。请 /ops 返回运营模式后操作。"
+"当前开发模式（/dev），无法操作 data.json。请 /ops 返回运营模式后操作。"
 
 ## 输入
 
@@ -23,7 +23,7 @@ description: >
 
 ### Step 1: 读取当前广播列表
 
-从 `data.js` 获取 `broadcasters[]` 当前内容。
+从 `data.json` 获取 `broadcasters[]` 当前内容。
 
 ### Step 2: 确认操作
 

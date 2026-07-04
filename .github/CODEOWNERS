@@ -1,4 +1,4 @@
 # 推荐审批人（非强制，Branch Protection 已关闭 CODEOWNERS review）
 *    @weunimix
 
-# data.js → content PR 由 race-ops-bot GitHub App 创建 + CI 校验通过后自动合并
+# data.json → content PR 由 race-ops-bot GitHub App 创建 + CI 校验通过后自动合并

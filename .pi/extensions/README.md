@@ -16,6 +16,6 @@ Agent 约束通过多层机制实现，Prompt 层为第一道防线，平台层�
 
 | | 运营（默认） | 开发（/dev） |
 |---|---|---|
-| 允许 | 仅 `data.js` | 除 `data.js` 外 |
+| 允许 | 仅 `data.json` | 除 `data.json` 外 |
 | 分支 | `content/*` | `feature/*`、`fix/*` |
 | 凭证 | PEM | gh CLI |

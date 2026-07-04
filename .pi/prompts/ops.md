@@ -10,7 +10,7 @@ Agent 必须始终明确处于 dev 或 ops 其中一种模式，不可模糊。
 
 ## 硬约束
 
-- **允许修改：仅 `data.js`**
+- **允许修改：仅 `data.json`**
 - 分支格式：`content/<操作>-<目标>`
 - Git 操作：通过 `race-ops-bot` GitHub App
 - PR 提交必须走 `content-pr` Skill

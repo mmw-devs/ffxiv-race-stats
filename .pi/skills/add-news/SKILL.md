@@ -10,7 +10,7 @@ description: >
 ## 前置条件
 
 在开发模式（/dev）下，此 Skill 不可用。如触发时处于开发模式，回复：
-"当前开发模式（/dev），无法操作 data.js。请 /ops 返回运营模式后操作。"
+"当前开发模式（/dev），无法操作 data.json。请 /ops 返回运营模式后操作。"
 
 ## 输入
 
@@ -40,7 +40,7 @@ description: >
 
 ### Step 3: 修改
 
-在 `data.js` 的 `news[]` 数组头部插入新条目。
+在 `data.json` 的 `news[]` 数组头部插入新条目。
 - `id`：基于已有最大 id + 1（如现有 `n1`~`n5`，新 id 为 `n6`）
 - `time`：当前时间，格式 `YYYY-MM-DD HH:mm`
 

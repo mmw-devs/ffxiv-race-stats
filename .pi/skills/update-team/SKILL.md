@@ -10,7 +10,7 @@ description: >
 ## 前置条件
 
 在开发模式（/dev）下，此 Skill 不可用。如触发时处于开发模式，回复：
-"当前开发模式（/dev），无法操作 data.js。请 /ops 返回运营模式后操作。"
+"当前开发模式（/dev），无法操作 data.json。请 /ops 返回运营模式后操作。"
 
 ## 输入
 
@@ -23,7 +23,7 @@ description: >
 
 ### Step 1: 读取当前状态
 
-读取 `data.js` → 定位目标队伍 → 返回当前 phase / bossHP / isLive
+读取 `data.json` → 定位目标队伍 → 返回当前 phase / bossHP / isLive
 
 ### Step 2: 确认意图
 
@@ -42,7 +42,7 @@ description: >
 
 ### Step 4: 修改
 
-直接编辑 `data.js` 中该队伍的对应字段。
+直接编辑 `data.json` 中该队伍的对应字段。
 
 ### Step 5: 提交
 

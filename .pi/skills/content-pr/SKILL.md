@@ -1,7 +1,7 @@
 ---
 name: content-pr
 description: >
-  通用 content PR 提交流程。当其他运营 Skill 修改 data.js 后，调用此 Skill 完成分支创建、推送、PR 创建和合并。
+  通用 content PR 提交流程。当其他运营 Skill 修改 data.json 后，调用此 Skill 完成分支创建、推送、PR 创建和合并。
   触发词：提交 PR、合并、merge。
 ---
 
@@ -9,14 +9,14 @@ description: >
 
 ## 概述
 
-此 Skill 是所有运营侧 data.js 变更的统一提交通道。三个业务 Skill（update-team、add-news、add-broadcaster）修改 data.js 后，统一通过此 Skill 完成 GitHub 操作。
+此 Skill 是所有运营侧 data.json 变更的统一提交通道。三个业务 Skill（update-team、add-news、add-broadcaster）修改 data.json 后，统一通过此 Skill 完成 GitHub 操作。
 
 ## 工作流
 
 ### 1. 创建 PR
 
 1. 确认分支名：`content/<操作>-<目标>`，后缀 ≤ 20 ASCII 字符
-2. 获取 App token，创建 content 分支，修改 data.js，commit
+2. 获取 App token，创建 content 分支，修改 data.json，commit
 3. Push 到 GitHub，`gh pr create --base main`（以 `race-ops-bot[bot]` 身份）
 
 ### 2. ⚠️ 汇报并硬停止（必须执行，不可跳过）
@@ -50,7 +50,7 @@ loop:
         汇报: "✅ 已合并，生产站更新中: https://ffxiv-race-stats.pages.dev"
         break                                        # 结束
     else:
-        读 CI 错误日志 → 诊断 → 修复 data.js → push  # PR 自动更新
+        读 CI 错误日志 → 诊断 → 修复 data.json → push  # PR 自动更新
         汇报: "修复内容 + 预览链接 + 等待回复'合并'"
         硬停止，等待用户再次回复"合并"后 continue
 ```
