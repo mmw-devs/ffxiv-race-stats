@@ -68,5 +68,15 @@
 </head>
 <body>
   <slot />
+  <script>
+    // inspect 模式 — localhost:4321 专属，?inspect 或 localStorage 任一命中即注入
+    // 生产环境端口为 80/443，条件自然失效，无需分支判断
+    // 开关: /inspect-on.html 和 /inspect-off.html 设置/清除 localStorage
+    if (location.port === '4321' && (location.search.includes('inspect') || localStorage.getItem('pi_inspect') === '1')) {
+      const s = document.createElement('script');
+      s.src = '/scripts/inspect.js';
+      document.body.appendChild(s);
+    }
+  </script>
 </body>
 </html>

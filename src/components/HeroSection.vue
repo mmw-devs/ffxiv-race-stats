@@ -2,11 +2,11 @@
   <section class="hero">
     <div class="hero-body">
       <h1 class="anim-entry">{{ meta.eventName }}<span v-if="meta.status === 'live'" class="live-pulse">LIVE</span></h1>
-      <div class="hero-row">
-        <NoticeCard :notices="notices" class="anim-entry" />
-        <div class="hero-actions anim-entry">
-          <a href="#register" class="btn btn-accent">立即报名</a>
-        </div>
+      <div class="hero-row anim-entry">
+        <NoticeCard :notices="notices" />
+      </div>
+      <div class="hero-actions anim-entry">
+        <a href="#register" class="btn btn-accent">立即报名</a>
       </div>
     </div>
     <BroadcastModule :broadcasters="broadcasters" class="anim-entry" />
@@ -28,9 +28,17 @@ defineProps({ meta: Object, notices: Array, broadcasters: Array })
   margin-bottom: 40px;
   flex-wrap: wrap;
 }
-.hero-body { flex: 1 1 520px; min-width: 0; }
+.hero-body {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 8px 16px;
+  flex: 1 1 520px;
+  min-width: 0;
+}
 .hero h1 {
-  margin-bottom: 12px;
+  grid-column: 1 / -1;
+  margin-bottom: 4px;
   font-family: var(--font-display);
   font-weight: 700;
   font-size: clamp(48px, 6vw, 96px);
@@ -38,14 +46,12 @@ defineProps({ meta: Object, notices: Array, broadcasters: Array })
   letter-spacing: -0.025em;
 }
 .hero-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  margin-top: 8px;
+  grid-column: 1;
   max-width: 72ch;
 }
 .hero-actions {
-  flex-shrink: 0;
+  grid-column: 2;
+  grid-row: 2;
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
