@@ -4,13 +4,12 @@ Final Fantasy XIV 世界首杀竞速排行聚合平台。追踪高难副本的�
 
 ## 本地预览
 
-无构建步骤，无外部依赖。直接打开 HTML 文件或起一个静态服务器：
-
 ```bash
-python -m http.server 8000
+npm install        # 仅首次
+npm run dev        # Astro 开发服务器 + HMR
 ```
 
-访问 `http://localhost:8000`。
+访问 `http://localhost:4321`。
 
 ## 架构
 
@@ -26,18 +25,42 @@ python -m http.server 8000
 | | 开发轨 | 运营轨 |
 |---|--------|--------|
 | **分支前缀** | `feature/*`、`fix/*` | `content/*` |
-| **变更对象** | `constants.js`、`schema/`、HTML / CSS / JS / CI | `data.js` 数据值 |
+| **变更对象** | `src/`、`schema/`、`constants.js`、CI | `public/data.json` 数据值 |
 | **操作者** | 开发者 | Agent（代表运营人员） |
 | **质量把关** | Code Review | 预览确认 |
 | **频率** | 低（周级别） | 高（每天多次） |
-| **文件保护** | CI 硬阻断 `feature/*` 修改 `data.js` | CI 硬阻断 `content/*` 修改其他文件 |
+| **文件保护** | CI 硬阻断 `feature/*` 修改 `public/data.json` | CI 硬阻断 `content/*` 修改其他文件 |
+
+## 技术栈
+
+Astro 7 + Vue 3，组件化架构（13 个 SFC，scoped CSS 样式隔离）。OKLCH token 系统定义在 `BaseLayout.astro` 中。
+
+```
+src/
+├── pages/index.astro         # 入口
+├── layouts/BaseLayout.astro  # 全局布局 + tokens
+├── App.vue                   # 根组件（数据加载 + 分发）
+├── components/               # 13 个 Vue 组件
+├── composables/              # useTimer / useExpand
+public/
+└── data.json                 # 运营数据（纯 JSON）
+```
 
 ## 设计文档
 
 | 文档 | 内容 |
 |------|------|
 | [运营系统设计](docs/operations-system-design.md) | 双轨分支模型、权限体系、Agent 能力设计、CI 与质量保障 |
+| [重构参考](docs/index-legacy.html) | 原版 index.html（832 行），样式/动效逐项比对用 |
 
 ## 部署
 
-Cloudflare Pages 连接 GitHub 仓库。push 到 `main` → 自动部署生产。push 到任意分支 → 自动生成预览链接。无需构建命令，仓库根目录作为静态站点直接部署。
+Cloudflare Pages 连接 GitHub 仓库。需配置：
+
+| 配置项 | 值 |
+|------|------|
+| Framework preset | **Astro** |
+| Build command | `npm run build` |
+| Output directory | `dist` |
+
+push 到 `main` → 自动部署。push 到任意分支 → 自动生成预览链接。
