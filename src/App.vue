@@ -27,7 +27,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, provide } from 'vue'
+import { ref, computed, onMounted, provide, nextTick } from 'vue'
 import StatusBar from './components/StatusBar.vue'
 import HeroSection from './components/HeroSection.vue'
 import RankingTable from './components/RankingTable.vue'
@@ -76,7 +76,8 @@ onMounted(async () => {
     console.error('数据加载失败:', e)
   } finally {
     loading.value = false
-    // 数据加载完成后启动入场序列
+    // 等待 Vue 渲染 DOM 后再启动入场序列
+    await nextTick()
     startEntrySequence()
   }
 })
