@@ -19,7 +19,8 @@ export default function (pi: any) {
 
     const root = process.cwd();
     const script = join(root, ".pi", "scripts", "lark-bot.ts");
-    const tsxBin = join(root, ".pi", "npm", "node_modules", ".bin", "tsx");
+    const nodeBin = process.execPath;
+    const tsxEntry = join(root, ".pi", "npm", "node_modules", "tsx", "dist", "cli.mjs");
 
     if (!existsSync(script)) {
       console.error("[lark-bot ext] 脚本不存在:", script);
@@ -28,7 +29,7 @@ export default function (pi: any) {
 
     console.error("[lark-bot ext] 启动飞书 Bot ...");
 
-    botProc = spawn(tsxBin, [script], {
+    botProc = spawn(nodeBin, [tsxEntry, script], {
       cwd: root,
       stdio: "ignore",
       env: { ...process.env },
