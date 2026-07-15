@@ -24,6 +24,7 @@ const CLI = join(PROJECT_DIR, ".pi/npm/node_modules/@larksuite/cli/bin/lark-cli"
 const PID_FILE = join(tmpdir(), "lark-bot.pid");
 const LOG_FILE = join(tmpdir(), "lark-bot.log");
 const PI_BIN = process.env.PI_BIN || "pi";
+const IS_WIN = process.platform === "win32";
 
 const BOT_OPEN_ID = process.env.LARK_BOT_OPEN_ID || "ou_f284b18bf12c193bf5a942a273c5cbf0";
 const BOT_NAME = process.env.LARK_BOT_NAME || "FFXIV 竞速";
@@ -215,6 +216,13 @@ function startPi(sessionKey: string): void {
   pi.proc = spawn(PI_BIN, ["--mode", "rpc", "--session-dir", sessionDir, "--name", `bot-${sessionKey.slice(-12)}`], {
     cwd: PROJECT_DIR, stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, LARK_BOT_RUNTIME: "1" },
+    shell: IS_WIN,
+  });
+
+  pi.proc.on("error", (err) => {
+    log(`[pi:${sessionKey.slice(-12)}] spawn 失败: ${err.message}`);
+    pi.ready = false;
+    sessions.delete(sessionKey);
   });
 
   let buf = "";
