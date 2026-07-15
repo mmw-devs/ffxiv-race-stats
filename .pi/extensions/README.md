@@ -19,3 +19,9 @@ Agent 约束通过多层机制实现，Prompt 层为第一道防线，平台层�
 | 允许 | 仅 `data.json` | 除 `data.json` 外 |
 | 分支 | `content/*` | `feature/*`、`fix/*` |
 | 凭证 | PEM | gh CLI |
+
+## 扩展列表
+
+| 文件 | 职责 |
+|------|------|
+| `lark-bot/` | 飞书 Bot 生命周期 — 随 agent 启动自动运行，退出时自动清理 |
