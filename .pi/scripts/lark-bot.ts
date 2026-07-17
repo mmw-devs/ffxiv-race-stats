@@ -45,6 +45,36 @@ function log(msg: string) {
   try { appendFileSync(LOG_FILE, line + "\n"); } catch {}
 }
 
+// ═══════════════ 进程存活检测 ═══════════════
+/** Windows: tasklist /FO CSV /NH → 解析第二列 PID；非 Windows: process.kill(pid, 0) */
+function isAlive(pid: number): boolean {
+  if (IS_WIN) {
+    try {
+      const out = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, {
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 3000,
+        encoding: "utf-8",
+      });
+      for (const line of out.trim().split("\n")) {
+        // CSV 格式: "进程名","PID","会话名","会话#","内存使用"
+        const cols = line.match(/"([^"]*)"/g);
+        if (cols && cols.length >= 2 && cols[1].replace(/"/g, "") === String(pid)) {
+          return true;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ═══════════════ 表情 ═══════════════
 const EMOJI_READ = "WAVE";
 const EMOJI_THINKING = "THINKING";
@@ -400,9 +430,7 @@ function main(): void {
   log(`看门狗监控 PID=[${monitoredPids.join(", ")}]`);
   const watchdog = setInterval(() => {
     for (const pid of monitoredPids) {
-      try {
-        process.kill(pid, 0);
-      } catch {
+      if (!isAlive(pid)) {
         log(`进程 ${pid} 已退出，lark-bot 自动终止`);
         clearInterval(watchdog);
         cleanup();
