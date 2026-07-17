@@ -413,6 +413,7 @@ function main(): void {
 
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
+  process.on("exit", () => { try { unlinkSync(PID_FILE); } catch {} });
 }
 
 function cleanup(): void {
