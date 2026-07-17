@@ -38,7 +38,10 @@ export default function (pi: any) {
     botProc = spawn(nodeBin, [tsxEntry, script], {
       cwd: root,
       stdio: "ignore",
-      env: { ...process.env },
+      env: {
+        ...process.env,
+        LARK_PARENT_PID: String(process.pid),
+      },
       detached: !IS_WIN,
       windowsHide: IS_WIN,
     });
@@ -50,10 +53,9 @@ export default function (pi: any) {
   });
 
   pi.on("session_shutdown", async (event: any) => {
-    if (event.reason !== "quit") return;
     if (!botProc) return;
 
-    console.error("[lark-bot ext] 停止飞书 Bot ...");
+    console.error(`[lark-bot ext] 停止飞书 Bot (reason=${event.reason}) ...`);
     botProc.kill("SIGTERM");
     botProc = null;
   });

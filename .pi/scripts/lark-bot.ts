@@ -382,6 +382,21 @@ function main(): void {
   log("════════ lark-bot 启动 ════════");
   startAllPi();
   startLarkEvents();
+
+  // ═══════════════ PPID 看门狗 ═══════════════
+  // 父进程（PI Agent）异常终止时自动清理，避免孤儿进程
+  // 通过 LARK_PARENT_PID 显式指定监控目标，避免 process.ppid 指向中间层（如 tsx loader）
+  const MONITOR_PID = Number(process.env.LARK_PARENT_PID || process.ppid);
+  const watchdog = setInterval(() => {
+    try {
+      process.kill(MONITOR_PID, 0);  // signal 0：仅检测进程存在性
+    } catch {
+      log(`父进程 ${MONITOR_PID} 已退出，lark-bot 自动终止`);
+      clearInterval(watchdog);
+      cleanup();
+    }
+  }, 5000);
+
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
 }
