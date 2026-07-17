@@ -15,6 +15,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const root = join(__dirname, "..", "..", ".."); // extensions/lark-bot → 项目根
 
+const IS_WIN = process.platform === "win32";
 let botProc: ChildProcess | null = null;
 
 export default function (pi: any) {
@@ -38,7 +39,8 @@ export default function (pi: any) {
       cwd: root,
       stdio: "ignore",
       env: { ...process.env },
-      detached: true,
+      detached: !IS_WIN,
+      windowsHide: IS_WIN,
     });
 
     botProc.on("exit", (code) => {
