@@ -353,46 +353,6 @@ function startLarkEvents(): ChildProcess {
   return child;
 }
 
-// ═══════════════ 父进程解析 ═══════════════
-
-/**
- * 获取指定进程的父进程 PID（跨平台）
- * Windows 通过 wmic 查询，Unix 通过 /proc/<pid>/stat
- */
-function getParentPid(pid: number): number | null {
-  try {
-    if (IS_WIN) {
-      const out = execSync(`wmic process where (processid=${pid}) get parentprocessid`, {
-        timeout: 3000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"]
-      });
-      const match = out.match(/\d+/);
-      return match ? parseInt(match[0]) : null;
-    } else {
-      const stat = readFileSync(`/proc/${pid}/stat`, "utf-8");
-      return parseInt(stat.split(" ")[3]); // PPID 是第 4 个字段
-    }
-  } catch {
-    return null;
-  }
-}
-
-/**
- * 解析应监控的父进程 PID
- * 优先级：LARK_PARENT_PID 环境变量 > 祖进程（跳过 tsx/cmd 中间层） > 直接父进程
- */
-function resolveMonitoredPid(): number {
-  // 1. 显式指定（最高优先级）
-  if (process.env.LARK_PARENT_PID) {
-    const pid = Number(process.env.LARK_PARENT_PID);
-    if (!isNaN(pid) && pid > 0) return pid;
-  }
-  // 2. 未显式指定时，尝试跳过中间层（tsx loader / cmd.exe）
-  const grandParent = getParentPid(process.ppid);
-  if (grandParent && grandParent > 1) return grandParent;
-  // 3. 最终回退到直接父进程
-  return process.ppid;
-}
-
 // ═══════════════ 主入口 ═══════════════
 
 function startAllPi(): void {
@@ -423,17 +383,31 @@ function main(): void {
   startAllPi();
   startLarkEvents();
 
-  // ═══════════════ PPID 看门狗 ═══════════════
-  // 父进程（PI Agent）异常终止时自动清理，避免孤儿进程
-  const MONITOR_PID = resolveMonitoredPid();
-  log(`看门狗监控 PID=${MONITOR_PID}（直接 ppid=${process.ppid}）`);
+  // ═══════════════ 双 PID 看门狗 ═══════════════
+  // 监控 DIRECT_PARENT（tsx CLI）和 AGENT_PID（PI Agent），任一退出即清理
+  // 设计说明：依赖 OS PID 生命周期，未引入 PID identity 校验。
+  //          PID reuse 在 5s 间隔 + 现代 OS 分配策略下概率极低。
+  const DIRECT_PARENT = process.ppid;
+  const AGENT_PID = process.env.LARK_PARENT_PID
+    ? Number(process.env.LARK_PARENT_PID)
+    : null;
+
+  const monitoredPids: number[] = [DIRECT_PARENT];
+  if (AGENT_PID && AGENT_PID > 0 && AGENT_PID !== DIRECT_PARENT) {
+    monitoredPids.push(AGENT_PID);
+  }
+
+  log(`看门狗监控 PID=[${monitoredPids.join(", ")}]`);
   const watchdog = setInterval(() => {
-    try {
-      process.kill(MONITOR_PID, 0);  // signal 0：仅检测进程存在性
-    } catch {
-      log(`父进程 ${MONITOR_PID} 已退出，lark-bot 自动终止`);
-      clearInterval(watchdog);
-      cleanup();
+    for (const pid of monitoredPids) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        log(`进程 ${pid} 已退出，lark-bot 自动终止`);
+        clearInterval(watchdog);
+        cleanup();
+        return;
+      }
     }
   }, 5000);
 
