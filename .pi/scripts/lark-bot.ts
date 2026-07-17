@@ -353,6 +353,46 @@ function startLarkEvents(): ChildProcess {
   return child;
 }
 
+// ═══════════════ 父进程解析 ═══════════════
+
+/**
+ * 获取指定进程的父进程 PID（跨平台）
+ * Windows 通过 wmic 查询，Unix 通过 /proc/<pid>/stat
+ */
+function getParentPid(pid: number): number | null {
+  try {
+    if (IS_WIN) {
+      const out = execSync(`wmic process where (processid=${pid}) get parentprocessid`, {
+        timeout: 3000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"]
+      });
+      const match = out.match(/\d+/);
+      return match ? parseInt(match[0]) : null;
+    } else {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf-8");
+      return parseInt(stat.split(" ")[3]); // PPID 是第 4 个字段
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 解析应监控的父进程 PID
+ * 优先级：LARK_PARENT_PID 环境变量 > 祖进程（跳过 tsx/cmd 中间层） > 直接父进程
+ */
+function resolveMonitoredPid(): number {
+  // 1. 显式指定（最高优先级）
+  if (process.env.LARK_PARENT_PID) {
+    const pid = Number(process.env.LARK_PARENT_PID);
+    if (!isNaN(pid) && pid > 0) return pid;
+  }
+  // 2. 未显式指定时，尝试跳过中间层（tsx loader / cmd.exe）
+  const grandParent = getParentPid(process.ppid);
+  if (grandParent && grandParent > 1) return grandParent;
+  // 3. 最终回退到直接父进程
+  return process.ppid;
+}
+
 // ═══════════════ 主入口 ═══════════════
 
 function startAllPi(): void {
@@ -385,8 +425,8 @@ function main(): void {
 
   // ═══════════════ PPID 看门狗 ═══════════════
   // 父进程（PI Agent）异常终止时自动清理，避免孤儿进程
-  // 通过 LARK_PARENT_PID 显式指定监控目标，避免 process.ppid 指向中间层（如 tsx loader）
-  const MONITOR_PID = Number(process.env.LARK_PARENT_PID || process.ppid);
+  const MONITOR_PID = resolveMonitoredPid();
+  log(`看门狗监控 PID=${MONITOR_PID}（直接 ppid=${process.ppid}）`);
   const watchdog = setInterval(() => {
     try {
       process.kill(MONITOR_PID, 0);  // signal 0：仅检测进程存在性
