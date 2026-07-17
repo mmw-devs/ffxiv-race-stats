@@ -37,7 +37,7 @@ export default function (pi: any) {
 
     botProc = spawn(nodeBin, [tsxEntry, script], {
       cwd: root,
-      stdio: "ignore",
+      stdio: ["pipe", "ignore", "ignore"],  // stdin pipe: shutdown IPC
       env: {
         ...process.env,
         LARK_PARENT_PID: String(process.pid),
@@ -56,7 +56,13 @@ export default function (pi: any) {
     if (!botProc) return;
 
     console.error(`[lark-bot ext] 停止飞书 Bot (reason=${event.reason}) ...`);
-    botProc.kill("SIGTERM");
+
+    // 优先通过 stdin 发送 shutdown 指令，让 lark-bot 自行 cleanup()
+    // 回退：stdin write 失败（进程已死）→ 硬杀
+    const shutdownCmd = '{"type":"shutdown"}\n';
+    const written = botProc.stdin.write(shutdownCmd);
+    if (!written) botProc.kill("SIGTERM");
+
     botProc = null;
   });
 }

@@ -414,6 +414,16 @@ function main(): void {
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
   process.on("exit", () => { try { unlinkSync(PID_FILE); } catch {} });
+
+  // ═══════════════ IPC shutdown ═══════════════
+  // extension 通过 stdin pipe 发送 {"type":"shutdown"}，触发优雅退出
+  // 解决 Windows 下 subprocess.kill("SIGTERM") = TerminateProcess（硬杀）
+  // 导致 cleanup() 和 process.on("exit") 都不执行、PID_FILE 残留的问题
+  process.stdin.on("data", (d: Buffer) => {
+    try {
+      if (JSON.parse(d.toString("utf-8")).type === "shutdown") cleanup();
+    } catch {}
+  });
 }
 
 function cleanup(): void {
