@@ -26,13 +26,31 @@ description: >
 2. 通过 pi RPC 协议发送 prompt
 3. 提取 agent 回复 → 发回飞书
 
-## 命令
+## 启动方式
+
+**默认关闭，不会随 pi agent 自动启动。** 避免多个开发者的 agent 争抢同一个飞书 Bot。
+
+### 手动启动（开发/临时使用）
 
 ```bash
-# 启动
 tsx .pi/scripts/lark-bot.ts &
+```
 
-# 停止
+### 随 pi 自动启动（生产环境）
+
+在 `.pi/settings.json` 中设置：
+
+```json
+{
+  "larkBot": {
+    "autoStart": true
+  }
+}
+```
+
+### 停止
+
+```bash
 kill $(cat /tmp/lark-bot.pid)
 ```
 

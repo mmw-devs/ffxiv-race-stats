@@ -1,12 +1,12 @@
 /**
- * lark-bot extension — 随 pi agent 生命周期自动启停 lark-bot
+ * lark-bot extension — 按需启停 lark-bot
  *
- * session_start(reason="startup") → spawn lark-bot 子进程
- * session_shutdown(reason="quit")  → kill lark-bot 子进程
+ * 默认不自动启动。需在 settings.json 中设置 larkBot.autoStart = true 才会随 pi 启动。
+ * 也可手动启动：tsx .pi/scripts/lark-bot.ts &
  */
 
 import { spawn, ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,6 +23,24 @@ export default function (pi: any) {
     if (event.reason !== "startup") return;
     if (botProc) return;
     if (process.env.LARK_BOT_RUNTIME === "1") return; // 防递归
+
+    // 检查 autoStart 开关。仅当本地 settings.json 中明确设置下才会为 true:
+    //   { "larkBot": { "autoStart": true } }
+    // 以下情况一律视为 false:
+    //   - settings.json 不存在（.gitignore，开发者默认无此文件）
+    //   - 无 larkBot key
+    //   - autoStart 缺失 / false / 非布尔值
+    let autoStart = false;
+    try {
+      const settings = JSON.parse(readFileSync(join(root, ".pi", "settings.json"), "utf-8"));
+      autoStart = settings?.larkBot?.autoStart === true;
+    } catch {}
+
+    if (!autoStart) {
+      console.error("[lark-bot ext] autoStart=false，跳过自动启动。");
+      console.error("[lark-bot ext] 手动启动: tsx .pi/scripts/lark-bot.ts &");
+      return;
+    }
 
     const script = join(root, ".pi", "scripts", "lark-bot.ts");
     const nodeBin = process.execPath;
