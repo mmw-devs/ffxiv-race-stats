@@ -50,6 +50,11 @@ export default function (pi: any) {
       console.error(`[lark-bot ext] Bot 进程退出 (code=${code})`);
       botProc = null;
     });
+
+    botProc.on("error", (err) => {
+      console.error(`[lark-bot ext] 启动失败: ${err.message}`);
+      botProc = null;
+    });
   });
 
   pi.on("session_shutdown", async (event: any) => {
@@ -57,11 +62,10 @@ export default function (pi: any) {
 
     console.error(`[lark-bot ext] 停止飞书 Bot (reason=${event.reason}) ...`);
 
-    // 优先通过 stdin 发送 shutdown 指令，让 lark-bot 自行 cleanup()
-    // 回退：stdin write 失败（进程已死）→ 硬杀
-    const shutdownCmd = '{"type":"shutdown"}\n';
-    const written = botProc.stdin.write(shutdownCmd);
-    if (!written) botProc.kill("SIGTERM");
+    // 通过 stdin 发送 shutdown 指令，让 lark-bot 自行 cleanup()
+    // error 监听防止 bot 已退出时 EPIPE 打穿 PI Agent
+    botProc.stdin.once("error", () => {});
+    botProc.stdin.write('{"type":"shutdown"}\n');
 
     botProc = null;
   });
