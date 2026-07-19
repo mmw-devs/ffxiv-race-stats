@@ -7,7 +7,13 @@
 
 import { spawn, ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// 基于扩展文件自身位置推导项目根目录（不依赖 process.cwd()）
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const root = join(__dirname, "..", "..", ".."); // extensions/lark-bot → 项目根
 
 let botProc: ChildProcess | null = null;
 
@@ -17,7 +23,6 @@ export default function (pi: any) {
     if (botProc) return;
     if (process.env.LARK_BOT_RUNTIME === "1") return; // 防递归
 
-    const root = process.cwd();
     const script = join(root, ".pi", "scripts", "lark-bot.ts");
     const nodeBin = process.execPath;
     const tsxEntry = join(root, ".pi", "npm", "node_modules", "tsx", "dist", "cli.mjs");
