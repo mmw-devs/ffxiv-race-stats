@@ -405,8 +405,15 @@ function startAllPi(): void {
 }
 
 function main(): void {
+  // 启动期 PID 校验：使用 isAlive() 确保 Windows 下也能准确检测
   if (existsSync(PID_FILE)) {
-    try { process.kill(parseInt(readFileSync(PID_FILE, "utf-8").trim()), 0); log("已在运行"); process.exit(0); } catch {}
+    try {
+      const oldPid = Number(readFileSync(PID_FILE, "utf-8").trim());
+      if (oldPid > 0 && isAlive(oldPid)) {
+        log(`已在运行 pid=${oldPid}`);
+        process.exit(0);
+      }
+    } catch {}
   }
   writeFileSync(PID_FILE, String(process.pid));
   log("════════ lark-bot 启动 ════════");
