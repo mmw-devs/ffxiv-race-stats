@@ -32,7 +32,7 @@ const PURPOSE = process.argv[2] || "developer JIT test in /dev";
 
 function exec(args: string[]): { stdout: string; status: number; stderr: string } {
   const result = spawnSync("gh", args, {
-    stdio: ["inherit", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     encoding: "utf-8",
   });
   return {
@@ -67,7 +67,7 @@ async function main() {
     `/repos/${REPO}/actions/workflows/race-ops-jit-pem.yml/dispatches`,
     "-f", `ref=${REF}`,
     "-f", `inputs[purpose]=${PURPOSE}`,
-  ], { stdio: ["inherit", "pipe", "pipe"], encoding: "utf-8" });
+  ], { stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" });
 
   if (trigger.status !== 0) {
     console.error("❌ 触发失败:", (trigger.stderr || "").toString());
@@ -158,7 +158,7 @@ async function main() {
     "api", "/rate_limit",
     "-H", `Authorization: Bearer ${token}`,
     "-q", ".resources.core.remaining",
-  ], { stdio: ["inherit", "pipe", "pipe"], encoding: "utf-8" });
+  ], { stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" });
   const remaining = verify.stdout.toString().trim();
 
   // 7. 写 env 文件
