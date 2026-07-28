@@ -94,10 +94,12 @@ jobs:
           echo "✓ Token 身份验证:"
           gh auth status 2>&1 | head -5
           echo ""
-          echo "✓ App 信息:"
-          APP_NAME=$(gh api /app -q '.name')
-          APP_ID=$(gh api /app -q '.id')
-          echo "  Name: ${APP_NAME} (id: ${APP_ID})"
+          # /app 需要 App JWT (PEM), 不能用 installation token 调.
+          # 改用 installation-level 端点验证 (rate limit API)
+          echo "✓ 安装 token 资源信息:"
+          RATE_LIMIT=$(gh api /rate_limit -q '.resources.core.remaining')
+          echo "  API 剩余配额: ${RATE_LIMIT}"
+          echo "  ✓ Token 有效"
 
       # ── 4. 交付 token 给开发者 ──────────────────────────────
       - name: Deliver token to requester
