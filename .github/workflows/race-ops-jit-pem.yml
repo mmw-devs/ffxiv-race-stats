@@ -160,8 +160,11 @@ jobs:
 
       # ── 4. 创建审计 issue（用 race-ops-auditor）───────────────
       - name: Create audit issue
-        if: ${{ secrets.AUDIT_BOT_TOKEN != '' }}
+        # 注意: GitHub Actions 不允许在 if 条件里直接引用 secrets
+        # 改用 env 变量间接判断
+        if: ${{ env.AUDIT_BOT_TOKEN != '' }}
         env:
+          AUDIT_BOT_TOKEN: ${{ secrets.AUDIT_BOT_TOKEN }}
           GH_TOKEN: ${{ secrets.AUDIT_BOT_TOKEN }}
           KEY_ID: ${{ steps.create-key.outputs.key_id }}
         run: |
@@ -226,8 +229,9 @@ jobs:
 
       # ── 7. 更新审计 issue（追加"已吊销"评论）──────────────────
       - name: Update audit issue
-        if: ${{ steps.create-key.outputs.key_id != '' && secrets.AUDIT_BOT_TOKEN != '' }}
+        if: ${{ env.AUDIT_BOT_TOKEN != '' && env.KEY_ID != '' }}
         env:
+          AUDIT_BOT_TOKEN: ${{ secrets.AUDIT_BOT_TOKEN }}
           GH_TOKEN: ${{ secrets.AUDIT_BOT_TOKEN }}
           KEY_ID: ${{ steps.create-key.outputs.key_id }}
         run: |
