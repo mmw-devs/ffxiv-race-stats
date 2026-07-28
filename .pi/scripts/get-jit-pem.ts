@@ -125,7 +125,7 @@ async function main() {
     "--repo", REPO,
     "--name", ARTIFACT_NAME,
     "--dir", DOWNLOAD_DIR,
-  ], { stdio: ["inherit", "pipe", "pipe"], encoding: "utf-8" });
+  ], { stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" });
 
   if (dl.status !== 0) {
     console.error("❌ artifact 下载失败:", dl.stderr);
