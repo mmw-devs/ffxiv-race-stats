@@ -29,7 +29,7 @@ Agent 必须始终明确处于 dev 或 ops 其中一种模式，不可模糊。�
         输出 ""
         输出 "请选择 PEM 处理方式:"
         输出 "  [P] 输入 PEM 路径（本地长期保存到 settings.json）"
-        输出 "  [J] 申请 JIT 临时 PEM（30 分钟，GitHub 自动吊销）"
+        输出 "  [J] 申请 JIT 临时 PEM（10 分钟，GitHub 自动吊销）"
         输出 "  [N] 无需 PEM，继续本地 dev 模式"
         输出 ""
 

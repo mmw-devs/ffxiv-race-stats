@@ -34,11 +34,11 @@ const MAX_WAIT_SECONDS = 120;
 const POLL_INTERVAL_SECONDS = 2;
 
 // ── 参数解析 ──────────────────────────────────────────────────────
-const DURATION = process.argv[2] || "30";
+const DURATION = process.argv[2] || "10";
 const PURPOSE = process.argv[3] || "developer JIT test in /dev";
 
 // 校验 duration
-const VALID_DURATIONS = ["5", "15", "30"];
+const VALID_DURATIONS = ["5", "10", "15", "30"];
 if (!VALID_DURATIONS.includes(DURATION)) {
   console.error(`❌ 无效的 duration: ${DURATION}`);
   console.error(`   有效值: ${VALID_DURATIONS.join(", ")}`);

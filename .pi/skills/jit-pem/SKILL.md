@@ -1,9 +1,9 @@
 ---
 name: jit-pem
 description: >
-  JIT PEM 申请流程。开发者本地无 PEM 时，可申请 30 分钟临时 PEM 用于功能测试。
+  JIT PEM 申请流程。开发者本地无 PEM 时，可申请 10 分钟临时 PEM 用于功能测试。
   GitHub 端在到期后自动吊销，本地文件即使保留也无法铸造有效 token。
-  触发词：JIT、临时 PEM、申请私钥、jit-pem、申请 30 分钟。
+  触发词：JIT、临时 PEM、申请私钥、jit-pem、申请 10 分钟。
 ---
 
 # jit-pem
@@ -13,7 +13,7 @@ description: >
 为开发者提供**自助申请** GitHub App 私钥的 JIT（Just-In-Time）通道。设计目标：
 
 - **自助**：开发者无需联系 Owner，触发 workflow 即可
-- **有时限**：30 分钟后 GitHub 端自动吊销对应 Key ID
+- **有时限**：10 分钟后 GitHub 端自动吊销对应 Key ID
 - **可审计**：每次申请产生 GitHub Issue 记录（含 IP、用途、Run ID）
 - **隔离**：本地 PEM 路径**不写入** `.pi/settings.json`，JIT 凭证不持久化
 
@@ -22,7 +22,7 @@ description: >
 | 场景 | 触发方式 |
 |---|---|
 | `/dev` 入口检测到本地无 PEM + 用户选 J | 自动调用 `get-jit-pem.ts` |
-| 开发者主动申请 | `tsx .pi/scripts/get-jit-pem.ts 30 "purpose"` |
+| 开发者主动申请 | `tsx .pi/scripts/get-jit-pem.ts 10 "purpose"` |
 | CI 临时需要测试凭证 | 触发 workflow `race-ops-jit-pem.yml` |
 
 ## 架构概览
@@ -46,9 +46,9 @@ description: >
     │ 写入 /tmp/jit-xxx.pem        │                              │
     │ 设置 $PEM_PATH               │                              │
     │                              │ sleep 1800                   │
-    │ 干活 (30 min 内)             │ ...                          │
+    │ 干活 (10 min 内)             │ ...                          │
     │                              │                              │
-    │ 30 分钟后                    │ DELETE /app/private_keys/... │
+    │ 10 分钟后                    │ DELETE /app/private_keys/... │
     │ token 失效                   ├─────────────────────────────→│
     │                              │                              │
     ▼                              ▼                              ▼
@@ -65,8 +65,8 @@ description: >
 **方式 B — 手动触发**
 
 ```bash
-# 标准 30 分钟
-tsx .pi/scripts/get-jit-pem.ts 30 "测试 PI Agent content-pr Skill"
+# 标准 10 分钟
+tsx .pi/scripts/get-jit-pem.ts 10 "测试 PI Agent content-pr Skill"
 
 # 快速验证 5 分钟
 tsx .pi/scripts/get-jit-pem.ts 5 "快速 PEM 签名测试"
@@ -75,7 +75,7 @@ tsx .pi/scripts/get-jit-pem.ts 5 "快速 PEM 签名测试"
 tsx .pi/scripts/get-jit-pem.ts 15 "中间长度任务"
 ```
 
-可选 duration: `5` / `15` / `30`（分钟）
+可选 duration: `5` / `10` / `15` / `30`（分钟）
 
 ### Step 2: 脚本行为
 
@@ -107,7 +107,7 @@ gh pr create --base main --head content/test-xxx --title "test"
 
 ### Step 4: 清理
 
-JIT PEM 会在 30 分钟后**自动**吊销（无需用户操作）。本地清理：
+JIT PEM 会在 10 分钟后**自动**吊销（无需用户操作）。本地清理：
 
 ```bash
 # 手动清理（可选）
@@ -132,8 +132,8 @@ unset PEM_PATH JIT_KEY_ID JIT_RUN_ID
 
 | 攻击场景 | 损害 | 缓解 |
 |---|---|---|
-| 开发者把 PEM 发给外部人 | 30 分钟内可推 content/* | 时限 + 限定 scope（仅 ffxiv-race-stats） |
-| Actions 日志泄漏 PEM | log 公开 | 30 分钟 TTL + workflow read 权限控制 |
+| 开发者把 PEM 发给外部人 | 10 分钟内可推 content/* | 时限 + 限定 scope（仅 ffxiv-race-stats） |
+| Actions 日志泄漏 PEM | log 公开 | 10 分钟 TTL + workflow read 权限控制 |
 | 同一开发者疯狂申请 | DoS / key 耗尽 | `concurrency` 阻塞并发 + 25 key 全局上限 |
 | Workflow 被中断未吊销 | key 永久存活 | 待 P1: 兜底 workflow 每小时扫描 30min+ 未吊销的 key |
 
@@ -185,10 +185,10 @@ gh issue list --repo mmw-devs/ffxiv-race-stats --label jit-audit --search "autho
 
 实施后应验证：
 
-- [ ] `/dev` 入口选 [J]，30 分钟内能用 `get-app-token.sh` 铸造 token
-- [ ] 30 分钟后用同一 PEM 铸造 token → 失败
+- [ ] `/dev` 入口选 [J]，10 分钟内能用 `get-app-token.sh` 铸造 token
+- [ ] 10 分钟后用同一 PEM 铸造 token → 失败
 - [ ] 审计 issue 被 race-ops-auditor 创建
-- [ ] 30 分钟后审计 issue 收到 "已自动吊销" 评论
+- [ ] 10 分钟后审计 issue 收到 "已自动吊销" 评论
 - [ ] 同成员并发申请被 `concurrency` 阻塞
 - [ ] App 已有 25 keys 时申请 → 报错
 - [ ] 非 write 权限成员触发 → 失败

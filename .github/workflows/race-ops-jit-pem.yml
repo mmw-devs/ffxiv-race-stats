@@ -1,7 +1,7 @@
 name: "race-ops: JIT PEM Issuance"
 
 # ────────────────────────────────────────────────────────────────
-# 用途: 为开发者签发 30 分钟的 GitHub App 私钥（JIT）用于功能测试
+# 用途: 为开发者签发 10 分钟的 GitHub App 私钥（JIT）用于功能测试
 # 触发: workflow_dispatch（开发者通过 gh CLI 触发）
 # 鉴权: 触发者需有 repo write 权限（Maintain / Admin）
 # 安全:
@@ -17,9 +17,10 @@ on:
         description: 'JIT 有效期（分钟）'
         type: choice
         required: true
-        default: '30'
+        default: '10'
         options:
           - '5'
+          - '10'
           - '15'
           - '30'
       purpose:
