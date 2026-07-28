@@ -29,7 +29,7 @@ Agent 必须始终明确处于 dev 或 ops 其中一种模式，不可模糊。�
         输出 ""
         输出 "请选择 PEM 处理方式:"
         输出 "  [P] 输入 PEM 路径（本地长期保存到 settings.json）"
-        输出 "  [J] 申请 JIT 临时 PEM（10 分钟，GitHub 自动吊销）"
+        输出 "  [J] 申请 JIT Installation Token（1 小时，GitHub 原生 TTL）"
         输出 "  [N] 无需 PEM，继续本地 dev 模式"
         输出 ""
 
@@ -46,19 +46,28 @@ Agent 必须始终明确处于 dev 或 ops 其中一种模式，不可模糊。�
                 保存路径 = 空
 
         若 输入 == "J":
-            输出 "🔑 启动 JIT PEM 流程 ..."
+            输出 "🔑 启动 JIT Installation Token 流程 ..."
             输出 "   调用 .pi/scripts/get-jit-pem.ts"
-            DURATION = 30
-            执行 tsx .pi/scripts/get-jit-pem.ts $DURATION "developer /dev session"
+            输出 "   ⚠️ 注意: GitHub API 限制 TTL = 1 小时（原计划 10 分钟不可行）"
+            执行 tsx .pi/scripts/get-jit-pem.ts "developer /dev session"
             若 退出码 == 0:
                 若 test -f /tmp/race-ops-jit-env.sh:
                     source /tmp/race-ops-jit-env.sh
-                    保存路径 = $PEM_PATH
                     输出 ""
-                    输出 "✓ JIT PEM 已就绪，路径：$PEM_PATH"
-                    输出 "   Key ID:  $JIT_KEY_ID"
-                    输出 "   到期:    $PEM_EXPIRES_AT"
-                    输出 "   ⚠️ $DURATION 分钟后 GitHub 端自动吊销"
+                    输出 "✓ JIT Token 已就绪"
+                    输出 "   GH_TOKEN: ${RACE_OPS_GH_TOKEN:0:20}..."
+                    输出 "   到期:     $JIT_EXPIRES_AT"
+                    输出 "   Run ID:   $JIT_RUN_ID"
+                    输出 ""
+                    输出 "   开发者现在可用此 token:"
+                    输出 "     export GH_TOKEN=..."
+                    输出 "     gh pr list   # 以 race-ops-bot 身份"
+                    输出 "     gh pr create --base main --head content/xxx ..."
+                    输出 ""
+                    输出 "   ⚠️ GitHub 原生 1 小时 TTL，无法提前撤销"
+                    输出 "   测试完请 unset GH_TOKEN"
+                    输出 ""
+                    输出 "   保存路径: 空 (JIT 凭证不持久化)"
                 否则:
                     输出 "❌ JIT 流程完成但 env 文件未生成"
                     保存路径 = 空
