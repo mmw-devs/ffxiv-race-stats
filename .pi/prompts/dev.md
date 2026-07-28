@@ -26,16 +26,47 @@ Agent 必须始终明确处于 dev 或 ops 其中一种模式，不可模糊。�
         若 保存路径 非空 且 test -f 保存路径 失败:
             输出 "settings.json 中保存的 PEM 路径无效。"
 
-        输入 = 询问用户("请提供 PEM 私钥文件路径，无 PEM 请输入「无」：")
+        输出 ""
+        输出 "请选择 PEM 处理方式:"
+        输出 "  [P] 输入 PEM 路径（本地长期保存到 settings.json）"
+        输出 "  [J] 申请 JIT 临时 PEM（30 分钟，GitHub 自动吊销）"
+        输出 "  [N] 无需 PEM，继续本地 dev 模式"
+        输出 ""
 
-        若 输入 == "无":
-            保存路径 = 空
-        否则若 test -f 输入 成功:
-            保存路径 = 输入
-            写入 settings.json { pemPath: 输入 }
-            （注意：settings.json 已在 .gitignore 中，不会提交到仓库）
-        否则:
-            输出 "文件不存在，判定为本地环境。"
+        输入 = 询问用户("选择 [P/J/N]：").toUpperCase().trim()
+
+        若 输入 == "P":
+            新路径 = 询问用户("请输入 PEM 文件绝对路径：")
+            若 test -f 新路径 成功:
+                保存路径 = 新路径
+                写入 settings.json { pemPath: 新路径 }
+                （注意：settings.json 已在 .gitignore 中，不会提交到仓库）
+            否则:
+                输出 "文件不存在，判定为本地环境。"
+                保存路径 = 空
+
+        若 输入 == "J":
+            输出 "🔑 启动 JIT PEM 流程 ..."
+            输出 "   调用 .pi/scripts/get-jit-pem.ts"
+            DURATION = 30
+            执行 tsx .pi/scripts/get-jit-pem.ts $DURATION "developer /dev session"
+            若 退出码 == 0:
+                若 test -f /tmp/race-ops-jit-env.sh:
+                    source /tmp/race-ops-jit-env.sh
+                    保存路径 = $PEM_PATH
+                    输出 ""
+                    输出 "✓ JIT PEM 已就绪，路径：$PEM_PATH"
+                    输出 "   Key ID:  $JIT_KEY_ID"
+                    输出 "   到期:    $PEM_EXPIRES_AT"
+                    输出 "   ⚠️ $DURATION 分钟后 GitHub 端自动吊销"
+                否则:
+                    输出 "❌ JIT 流程完成但 env 文件未生成"
+                    保存路径 = 空
+            否则:
+                输出 "❌ JIT 申请失败，回退到无 PEM 模式"
+                保存路径 = 空
+
+        若 输入 == "N":
             保存路径 = 空
 
     是否为生产环境 = (保存路径 非空)

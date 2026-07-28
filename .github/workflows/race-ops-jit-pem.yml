@@ -1,0 +1,253 @@
+name: "race-ops: JIT PEM Issuance"
+
+# ────────────────────────────────────────────────────────────────
+# 用途: 为开发者签发 30 分钟的 GitHub App 私钥（JIT）用于功能测试
+# 触发: workflow_dispatch（开发者通过 gh CLI 触发）
+# 鉴权: 触发者需有 repo write 权限（Maintain / Admin）
+# 安全:
+#   - 生产 PEM 始终在 Org Secret 中，workflow 临时使用后丢弃
+#   - JIT key 在 duration 到期后由本 workflow 自动 DELETE
+#   - 全程审计（GitHub Issue 由 race-ops-auditor 账号创建）
+# ────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: 'JIT 有效期（分钟）'
+        type: choice
+        required: true
+        default: '30'
+        options:
+          - '5'
+          - '15'
+          - '30'
+      purpose:
+        description: '用途说明（必填，写入审计日志）'
+        type: string
+        required: true
+
+# 防止同一成员并发申请多个 JIT key
+concurrency:
+  group: jit-pem-${{ github.actor }}
+  cancel-in-progress: false
+
+# 默认 token 仅读，App 权限由后续 JWT 单独铸造
+permissions:
+  contents: read
+
+jobs:
+  issue-and-cleanup:
+    runs-on: ubuntu-latest
+    # 必须大于最大 duration + buffer
+    # 当前最大 30 min + 5 min buffer = 35 min，留余量
+    timeout-minutes: 60
+
+    steps:
+      # ── 1. 用生产 PEM 签 App JWT ────────────────────────────
+      - name: Generate App JWT
+        id: jwt
+        run: |
+          set -euo pipefail
+          NOW=$(date +%s)
+          IAT=$((NOW - 60))
+          EXP=$((IAT + 540))
+          HEADER='{"alg":"RS256","typ":"JWT"}'
+          PAYLOAD="{\"iat\":$IAT,\"exp\":$EXP,\"iss\":\"${{ secrets.RACE_OPS_APP_ID }}\"}"
+
+          HEADER_B64=$(printf '%s' "$HEADER" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+          PAYLOAD_B64=$(printf '%s' "$PAYLOAD" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+          SIGN_INPUT="${HEADER_B64}.${PAYLOAD_B64}"
+          SIGNATURE=$(printf '%s' "$SIGN_INPUT" | openssl dgst -sha256 -sign <(printf '%s' "${{ secrets.RACE_OPS_PEM }}") | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+
+          echo "jwt=${SIGN_INPUT}.${SIGNATURE}" >> "$GITHUB_OUTPUT"
+
+      # ── 2. 检查 keys 数量 + 创建新 key ────────────────────────
+      - name: Create new App private key
+        id: create-key
+        env:
+          JWT: ${{ steps.jwt.outputs.jwt }}
+        run: |
+          set -euo pipefail
+
+          # 列出当前 key 数量（GitHub App 最多 25 个）
+          LIST=$(curl -sS \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/app/private_keys")
+
+          COUNT=$(echo "$LIST" | jq -r '.data // [] | length')
+          echo "当前 App key 数量: ${COUNT}/25"
+
+          if [ "$COUNT" -ge 25 ]; then
+            echo "::error::已到达 25 个私钥上限，请 Owner 先清理旧 key"
+            exit 1
+          fi
+
+          # 创建新 key
+          RESPONSE=$(curl -sS -X POST \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/app/private_keys")
+
+          KEY_ID=$(echo "$RESPONSE" | jq -r '.key_id // empty')
+          PEM=$(echo "$RESPONSE" | jq -r '.pem // empty')
+
+          if [ -z "$KEY_ID" ] || [ -z "$PEM" ]; then
+            echo "::error::创建私钥失败"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+
+          echo "✓ 新 key 已创建"
+          echo "  Key ID: ${KEY_ID}"
+          echo "key_id=${KEY_ID}" >> "$GITHUB_OUTPUT"
+
+          # PEM 转 base64（便于多行安全输出到日志）
+          PEM_BASE64=$(printf '%s' "$PEM" | base64 -w0)
+          echo "pem_base64=${PEM_BASE64}" >> "$GITHUB_OUTPUT"
+
+      # ── 3. 立即交付给开发者（关键步骤）────────────────────────
+      - name: Deliver PEM to requester
+        env:
+          PEM_B64: ${{ steps.create-key.outputs.pem_base64 }}
+          KEY_ID: ${{ steps.create-key.outputs.key_id }}
+        run: |
+          set -euo pipefail
+          # Mask PEM 防止意外日志泄漏
+          echo "::add-mask::${PEM_B64}"
+
+          DURATION="${{ inputs.duration_minutes }}"
+          EXPIRES_AT=$(date -u -d "+${DURATION} minutes" +%Y-%m-%dT%H:%M:%SZ)
+
+          cat <<EOF
+          ╔═══════════════════════════════════════════════════════════╗
+          ║   🔑 JIT PEM 已签发（${DURATION} 分钟有效）                      ║
+          ╠═══════════════════════════════════════════════════════════╣
+          ║                                                           ║
+          ║   持有者:        ${{ github.actor }}                            ║
+          ║   Key ID:        ${KEY_ID}     ║
+          ║   有效期:        ${DURATION} 分钟                              ║
+          ║   自动吊销时间:  ${EXPIRES_AT}  ║
+          ║   Run ID:        ${{ github.run_id }}                           ║
+          ║   用途:          ${{ inputs.purpose }}                          ║
+          ║                                                           ║
+          ╠═══════════════════════════════════════════════════════════╣
+          ║   PEM (base64 编码，单行安全):                                ║
+          ║                                                           ║
+          ║   ${PEM_B64}   ║
+          ║                                                           ║
+          ╠═══════════════════════════════════════════════════════════╣
+          ║   使用方式:                                                 ║
+          ║                                                           ║
+          ║   # 1. 解码并保存                                           ║
+          ║   echo '<上方 base64>' | base64 -d > /tmp/jit.pem          ║
+          ║   chmod 600 /tmp/jit.pem                                  ║
+          ║                                                           ║
+          ║   # 2. 设置环境变量                                         ║
+          ║   export PEM_PATH=/tmp/jit.pem                            ║
+          ║                                                           ║
+          ║   # 3. 测试铸造 installation token                         ║
+          ║   APP_ID=\${{ secrets.RACE_OPS_APP_ID }}                          ║
+          ║   bash .pi/scripts/get-app-token.sh                       ║
+          ║                                                           ║
+          ║   # 4. 用完清理                                             ║
+          ║   unset PEM_PATH && shred -u /tmp/jit.pem                 ║
+          ║                                                           ║
+          ╚═══════════════════════════════════════════════════════════╝
+          EOF
+
+      # ── 4. 创建审计 issue（用 race-ops-auditor）───────────────
+      - name: Create audit issue
+        if: ${{ secrets.AUDIT_BOT_TOKEN != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.AUDIT_BOT_TOKEN }}
+          KEY_ID: ${{ steps.create-key.outputs.key_id }}
+        run: |
+          set -euo pipefail
+          DURATION="${{ inputs.duration_minutes }}"
+          EXPIRES_AT=$(date -u -d "+${DURATION} minutes" +%Y-%m-%dT%H:%M:%SZ)
+          TRIGGER_IP=$(curl -sS https://api.ipify.org || echo "unknown")
+          NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          KEY_ID_SHORT="${KEY_ID:0:8}"
+
+          # 用 printf + 转义构造 body（避免 heredoc + YAML 冲突）
+          BODY=$(printf '## JIT PEM 签发审计\n\n| 字段 | 值 |\n|------|-----|\n| 申请时间 | `%s` |\n| 持有者 | `%s` |\n| Key ID | `%s` |\n| 有效期 | %s 分钟 |\n| 自动吊销时间 | `%s` |\n| 用途 | %s |\n| Run ID | `%s` |\n| 触发 IP | `%s` |\n| 状态 | 🟢 活跃 |\n\n---\n*本 issue 由 race-ops-auditor 自动创建，用于 JIT PEM 全程审计。*' \
+            "$NOW_ISO" \
+            "${{ github.actor }}" \
+            "$KEY_ID" \
+            "$DURATION" \
+            "$EXPIRES_AT" \
+            "${{ inputs.purpose }}" \
+            "${{ github.run_id }}" \
+            "$TRIGGER_IP")
+
+          ISSUE_URL=$(gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "🔑 [JIT] PEM issued to ${{ github.actor }} (${KEY_ID_SHORT})" \
+            --label "jit-audit,race-ops" \
+            --body "$BODY")
+
+          echo "✓ 审计 issue 已创建: ${ISSUE_URL}"
+          echo "issue_url=${ISSUE_URL}" >> "$GITHUB_OUTPUT"
+
+      # ── 5. 等待到时间（核心 JIT 机制）────────────────────────
+      - name: Wait for JIT expiry
+        env:
+          KEY_ID: ${{ steps.create-key.outputs.key_id }}
+        run: |
+          DURATION="${{ inputs.duration_minutes }}"
+          SECONDS=$((DURATION * 60))
+          echo "⏳ 等待 ${DURATION} 分钟（${SECONDS} 秒）后自动吊销 key ${KEY_ID}..."
+          sleep "$SECONDS"
+          echo "✓ 等待结束，开始吊销"
+
+      # ── 6. 主动吊销（双保险）─────────────────────────────────
+      - name: Revoke JIT PEM
+        env:
+          JWT: ${{ steps.jwt.outputs.jwt }}
+          KEY_ID: ${{ steps.create-key.outputs.key_id }}
+        run: |
+          set -euo pipefail
+          echo "🗑️  吊销 JIT PEM (Key ID: ${KEY_ID})"
+
+          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/app/private_keys/${KEY_ID}")
+
+          if [ "$STATUS" = "204" ]; then
+            echo "✓ 吊销成功（HTTP 204）"
+          else
+            echo "::error::吊销失败 HTTP ${STATUS}"
+            exit 1
+          fi
+
+      # ── 7. 更新审计 issue（追加"已吊销"评论）──────────────────
+      - name: Update audit issue
+        if: ${{ steps.create-key.outputs.key_id != '' && secrets.AUDIT_BOT_TOKEN != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.AUDIT_BOT_TOKEN }}
+          KEY_ID: ${{ steps.create-key.outputs.key_id }}
+        run: |
+          set -euo pipefail
+          # 查找之前创建的 issue（通过 label + title 匹配）
+          KEY_ID_SHORT="${KEY_ID:0:8}"
+          ISSUE_NUM=$(gh issue list \
+            --repo "${{ github.repository }}" \
+            --label "jit-audit" \
+            --state all \
+            --search "PEM issued to ${{ github.actor }} (${KEY_ID_SHORT}) in:title" \
+            --json number -q '.[0].number // empty')
+
+          if [ -n "$ISSUE_NUM" ]; then
+            NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            COMMENT_BODY=$(printf '🗑️ **JIT PEM 已自动吊销** — `%s`\n\n- Key ID: `%s`\n- 吊销方式: workflow 自动 DELETE\n- 状态: 🔴 已失效\n\n即便本地仍保留 PEM 文件，已无法铸造有效 token。' \
+              "$NOW_ISO" "$KEY_ID")
+            gh issue comment "$ISSUE_NUM" \
+              --repo "${{ github.repository }}" \
+              --body "$COMMENT_BODY"
+            echo "✓ 审计 issue #${ISSUE_NUM} 已更新"
+          else
+            echo "⚠ 未找到对应的审计 issue（已删除或 label 变更）"
+          fi
