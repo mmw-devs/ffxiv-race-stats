@@ -108,10 +108,11 @@ jobs:
           EXPIRES_AT: ${{ steps.mint.outputs.expires_at }}
         run: |
           set -euo pipefail
+
           # mask 防止意外日志泄漏
           echo "::add-mask::${TOKEN}"
 
-          # 计算剩余有效时间（GitHub 强制 1 小时）
+          # 计算到期时间 (本地时区)
           EXPIRES_LOCAL=$(date -d "${EXPIRES_AT}" +%Y-%m-%dT%H:%M:%S%z 2>/dev/null || echo "${EXPIRES_AT}")
 
           cat <<EOF
@@ -123,31 +124,43 @@ jobs:
           ║   Token 类型:    ghs_ (GitHub App installation)   ║
           ║   有效期:        1 小时（GitHub API 强制上限）      ║
           ║   到期时间:      ${EXPIRES_AT}   ║
+          ║   本地时间:      ${EXPIRES_LOCAL}  ║
           ║   Run ID:        ${{ github.run_id }}                      ║
           ║   用途:          ${{ inputs.purpose }}                     ║
           ║                                                    ║
-          ║   注意:                                            ║
-          ║   - 这是 installation token，不是 PEM               ║
-          ║   - 原生 1 小时 TTL, GitHub API 不支持更短          ║
-          ║   - 测试完请 unset GH_TOKEN                         ║
-          ║                                                    ║
-          ╠════════════════════════════════════════════════════╣
-          ║   使用方式:                                         ║
-          ║                                                    ║
-          ║   export GH_TOKEN=${TOKEN}     ║
-          ║                                                    ║
-          ║   # 测试                                               ║
-          ║   gh auth status                                   ║
-          ║   gh pr list                                       ║
-          ║                                                    ║
-          ║   # 模拟 ops 推 content/*                            ║
-          ║   gh pr create --base main --head content/xxx ...  ║
-          ║                                                    ║
-          ║   # 清理                                              ║
-          ║   unset GH_TOKEN                                   ║
+          ║   ⚠️ token 不会在日志中明文出现                      ║
+          ║   下载 artifact: jit-token                          ║
+          ║   文件: jit-token.txt                                ║
           ║                                                    ║
           ╚════════════════════════════════════════════════════╝
           EOF
+
+          # 将 token 写入 artifact (供开发者下载, GitHub 不 mask artifact)
+          mkdir -p /tmp/jit-artifact
+          cat > /tmp/jit-artifact/jit-token.txt <<INNER
+          # race-ops JIT Installation Token
+          # Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # Expires:   ${EXPIRES_AT}
+          # Requester: ${{ github.actor }}
+          # Purpose:   ${{ inputs.purpose }}
+          # Run ID:    ${{ github.run_id }}
+
+          GH_TOKEN=${TOKEN}
+          RACE_OPS_GH_TOKEN=${TOKEN}
+          JIT_EXPIRES_AT=${EXPIRES_AT}
+          JIT_RUN_ID=${{ github.run_id }}
+          INNER
+          chmod 600 /tmp/jit-artifact/jit-token.txt
+
+          echo "✓ Token 已写入 artifact"
+
+      - name: Upload token artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jit-token
+          path: /tmp/jit-artifact/jit-token.txt
+          retention-days: 7
+          if-no-files-found: error
 
       # ── 5. 写审计 issue（race-ops-auditor）────────────────
       - name: Create audit issue
