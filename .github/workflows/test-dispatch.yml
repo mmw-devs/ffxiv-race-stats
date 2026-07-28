@@ -1,0 +1,14 @@
+name: test-dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: 'test'
+        type: string
+        default: '5'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo
+        run: echo "Hello from dispatch"
