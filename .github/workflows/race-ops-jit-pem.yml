@@ -92,10 +92,12 @@ jobs:
           GH_TOKEN: ${{ steps.mint.outputs.token }}
         run: |
           echo "✓ Token 身份验证:"
-          gh auth status 2>&1 | head -10
+          gh auth status 2>&1 | head -5
           echo ""
           echo "✓ App 信息:"
-          gh api /app 2>&1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'  Name: {d[\"name\"]} (id: {d[\"id\"]})')"
+          APP_NAME=$(gh api /app -q '.name')
+          APP_ID=$(gh api /app -q '.id')
+          echo "  Name: ${APP_NAME} (id: ${APP_ID})"
 
       # ── 4. 交付 token 给开发者 ──────────────────────────────
       - name: Deliver token to requester
