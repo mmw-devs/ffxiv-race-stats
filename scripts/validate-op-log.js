@@ -109,7 +109,7 @@ for (const commit of commits) {
     continue;
   }
 
-  // 权限校验：身份未解析时无论风险等级都硬阻断；其余操作沿用 PR #73 的风险分级
+  // 权限校验：身份未解析时无论风险等级都硬阻断；高风险操作权限不足时硬阻断，中低风险 warn
   const permResult = validateOperatorPermission(log);
   const isUnknownOperator = !log.operator || log.operator === "unknown";
   if (!permResult.valid) {
