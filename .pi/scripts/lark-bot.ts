@@ -12,6 +12,7 @@
  */
 
 import { spawn, spawnSync, ChildProcess, execSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -30,6 +31,40 @@ const IS_WIN = process.platform === "win32";
 
 const BOT_OPEN_ID = process.env.LARK_BOT_OPEN_ID || "ou_f284b18bf12c193bf5a942a273c5cbf0";
 const BOT_NAME = process.env.LARK_BOT_NAME || "FFXIV 竞速";
+
+// lark-bot 与 CI 共用同一份运营者注册表，避免权限名单出现两份来源。
+const require = createRequire(import.meta.url);
+const opLogSchema = require(join(PROJECT_DIR, "scripts", "op-log-schema.js")) as {
+  isOperatorAllowed: (operator: string) => boolean;
+  getOperatorName: (operator: string) => string | null;
+};
+
+interface IdentityConfig {
+  provider: "feishu-contact";
+  canonicalClaim: "user_id";
+}
+
+function loadIdentityConfig(): IdentityConfig {
+  const fallback: IdentityConfig = {
+    provider: "feishu-contact",
+    canonicalClaim: "user_id",
+  };
+  try {
+    const settings = JSON.parse(readFileSync(join(PROJECT_DIR, ".pi/settings.json"), "utf-8"));
+    const identity = settings?.larkBot?.identity;
+    if (identity?.provider === "feishu-contact" && identity?.canonicalClaim === "user_id") {
+      return {
+        provider: identity.provider,
+        canonicalClaim: identity.canonicalClaim,
+      };
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const IDENTITY_CONFIG = loadIdentityConfig();
 
 // ═══════════════ 代理 ═══════════════
 if (!process.env.HTTP_PROXY) {
@@ -153,6 +188,89 @@ function stripMention(content: string): string {
   return cleaned || content.trim();
 }
 
+// ═══════════════ 运营者身份解析 ═══════════════
+
+interface OperatorContext {
+  operator: string;
+  claim: IdentityConfig["canonicalClaim"];
+  name: string | null;
+}
+
+interface CachedOperatorContext {
+  context: OperatorContext | null;
+  expiresAt: number;
+}
+
+const operatorCache = new Map<string, CachedOperatorContext>();
+const OPERATOR_CACHE_TTL_MS = 60 * 60 * 1000;
+const OPERATOR_FAILURE_CACHE_TTL_MS = 30 * 1000;
+
+/**
+ * 使用完整 Feishu open_id 查询 user_id，并检查其是否已登记为运营者。
+ * 解析失败、权限失败或未登记均返回 null，由入口 fail-closed。
+ */
+function resolveOperator(openId: string): OperatorContext | null {
+  const now = Date.now();
+  const cached = operatorCache.get(openId);
+  if (cached && cached.expiresAt > now) return cached.context;
+
+  let context: OperatorContext | null = null;
+
+  if (typeof openId !== "string" || !openId.startsWith("ou_")) {
+    operatorCache.set(openId, { context: null, expiresAt: now + OPERATOR_FAILURE_CACHE_TTL_MS });
+    return null;
+  }
+
+  try {
+    const result = spawnSync(CLI, [
+      "contact", "+get-user", "--as", "bot",
+      "--user-id", openId,
+      "--user-id-type", "open_id",
+      "--format", "json",
+    ], {
+      timeout: 8000,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(`lark-cli exit=${result.status}`);
+
+    const payload = JSON.parse(result.stdout);
+    if (payload.ok !== true) {
+      throw new Error(payload.error?.message || "通讯录查询失败");
+    }
+
+    const operator = payload.data?.user?.[IDENTITY_CONFIG.canonicalClaim];
+    if (typeof operator !== "string" || !operator.trim()) {
+      throw new Error("响应中缺少 user_id");
+    }
+
+    const normalizedOperator = operator.trim();
+    if (!opLogSchema.isOperatorAllowed(normalizedOperator)) {
+      log(`[身份] user_id=${normalizedOperator} 未在运营者注册表中登记`);
+    } else {
+      context = {
+        operator: normalizedOperator,
+        claim: IDENTITY_CONFIG.canonicalClaim,
+        name: opLogSchema.getOperatorName(normalizedOperator),
+      };
+    }
+  } catch (error: any) {
+    log(`[身份] user_id 解析失败: ${error.message?.slice(0, 120) || "未知错误"}`);
+  }
+
+  operatorCache.set(openId, {
+    context,
+    expiresAt: now + (context ? OPERATOR_CACHE_TTL_MS : OPERATOR_FAILURE_CACHE_TTL_MS),
+  });
+  return context;
+}
+
+function isBotSender(senderId: string): boolean {
+  return senderId === BOT_OPEN_ID || senderId.startsWith("cli_");
+}
+
 // ═══════════════ 话题活跃 ═══════════════
 const activeThreads = new Map<string, number>();
 const THREAD_TTL_MS = 30 * 60 * 1000;
@@ -212,6 +330,7 @@ function sessionKey(event: LarkEvent): string {
 function shouldHandle(event: LarkEvent): boolean {
   if (event.type !== "im.message.receive_v1") return false;
   if (event.message_type !== "text") return false;
+  if (isBotSender(event.sender_id)) return false;
   if (event.chat_type === "p2p") return true;
   const tid = threadKey(event);
   if (tid) {
@@ -222,10 +341,10 @@ function shouldHandle(event: LarkEvent): boolean {
   return false;
 }
 
-function formatPrompt(event: LarkEvent): string {
-  const sender = event.sender_id.slice(-8);
+function formatPrompt(event: LarkEvent, context: OperatorContext): string {
   const chatType = event.chat_type === "p2p" ? "私聊" : "群聊";
-  return `[${chatType} | 用户 ${sender}]\n${stripMention(event.content)}`;
+  const displayName = context.name ? ` | name=${context.name}` : "";
+  return `[${chatType} | operator=${context.operator} | claim=${context.claim}${displayName}]\n${stripMention(event.content)}`;
 }
 
 // ═══════════════ 多 pi RPC 管理 ═══════════════
@@ -347,6 +466,13 @@ function handleLarkEvent(event: LarkEvent): void {
   if (!pi?.ready) { sendReply(event.message_id, "Bot 启动中，请稍后再试..."); return; }
 
   const tid = threadKey(event);
+  const operatorContext = resolveOperator(event.sender_id);
+  if (!operatorContext) {
+    log(`⛔ [${key.slice(-12)}] 无法验证运营身份，拒绝处理消息`);
+    sendReply(event.message_id, "无法验证运营身份，操作已拒绝。请联系管理员登记飞书 user_id。", !!tid);
+    return;
+  }
+
   if (tid) { activateThread(tid); }
 
   log(`📩 [${key.slice(-12)}] ${event.content.slice(0, 40)}`);
@@ -359,7 +485,11 @@ function handleLarkEvent(event: LarkEvent): void {
   const think = addReaction(event.message_id, EMOJI_THINKING);
   pi.pending.set(promptId, { msgId: event.message_id, reactionId: think, replyInThread: !!tid });
 
-  pi.proc.stdin?.write(JSON.stringify({ type: "prompt", id: promptId, message: formatPrompt(event) }) + "\n");
+  pi.proc.stdin?.write(JSON.stringify({
+    type: "prompt",
+    id: promptId,
+    message: formatPrompt(event, operatorContext),
+  }) + "\n");
 }
 
 // ═══════════════ lark-cli 事件流 ═══════════════

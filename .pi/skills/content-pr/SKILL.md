@@ -23,7 +23,7 @@ description: >
 
      ````json
      {
-       "operator": "<操作人标识>",
+       "operator": "<lark-bot 提供的飞书 user_id>",
        "timestamp": "<ISO 8601 UTC>",
        "action": "<updateTeam|addNews|addBroadcaster|...>",
        "target": "<目标ID>",
@@ -34,7 +34,10 @@ description: >
      ````
      ```
    - 日志块使用 4 反引号包围（```` ``` ````），`json` 语言标记
-   - `operator` 使用当前操作人的标识（飞书账号或用户名）
+   - `operator` 必须原样使用 lark-bot 注入上下文中的 `operator=<user_id>`，不得由 Agent 推理生成
+   - 禁止使用展示名、昵称、sender_id 后缀、GitHub 用户名或 `race-ops-bot` 作为 `operator`
+   - lark-bot 未提供 operator context 或值为 `unknown` 时，不得创建 commit 或 PR
+   - 注册表中的 `name` 仅用于展示，不能写入 OP_LOG；OP_LOG 保持原有五个核心字段
    - `timestamp` 使用 ISO 8601 UTC 格式
    - `changes` 数组每项包含 `field`（点分隔路径）、`from`（旧值）、`to`（新值）
    - 如果一次 commit 修改多个字段，在 `changes` 数组中列出所有变更

@@ -17,6 +17,7 @@ const {
   parseLogFromMessage,
   validateLogStructure,
   validateOperatorPermission,
+  getOperatorName,
 } = require("./op-log-schema");
 
 // ══════════════════════════════════════════════════════════════
@@ -108,22 +109,28 @@ for (const commit of commits) {
     continue;
   }
 
-  // 权限校验：高风险操作（删除/改元信息）权限不足时硬阻断，中低风险 warn
+  // 权限校验：身份未解析时无论风险等级都硬阻断；其余操作沿用 PR #73 的风险分级
   const permResult = validateOperatorPermission(log);
+  const isUnknownOperator = !log.operator || log.operator === "unknown";
   if (!permResult.valid) {
     const levelLabel = { high: "高风险", medium: "中风险", low: "低风险" }[permResult.riskLevel];
+    const shouldBlock = isUnknownOperator || permResult.riskLevel === "high";
     for (const err of permResult.errors) {
-      if (permResult.riskLevel === "high") {
+      if (shouldBlock) {
         fail(`commit ${commit.hash.slice(0, 7)} 权限(${levelLabel}): ${err}`);
       } else {
         warn(`commit ${commit.hash.slice(0, 7)} 权限(${levelLabel}): ${err}`);
       }
     }
-    // 高风险操作不继续记录日志（无法进入一致性比对）
-    if (permResult.riskLevel === "high") continue;
+    // 高风险或身份未解析的操作不继续记录日志（无法进入一致性比对）
+    if (shouldBlock) continue;
   }
 
-  ok(`  operator: ${log.operator}, action: ${log.action}, target: ${log.target}, changes: ${log.changes.length} 项`);
+  const operatorName = getOperatorName(log.operator);
+  const operatorLabel = operatorName
+    ? `${log.operator} (${operatorName})`
+    : `${log.operator} (未登记)`;
+  ok(`  operator: ${operatorLabel}, action: ${log.action}, target: ${log.target}, changes: ${log.changes.length} 项`);
   allLogs.push({ commitHash: commit.hash.slice(0, 7), log });
 }
 
