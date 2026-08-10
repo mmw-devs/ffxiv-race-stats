@@ -1,0 +1,96 @@
+name: build-dist-push
+
+# ────────────────────────────────────────────────────────────────
+# 用途: dev main 推送后，构建 src/ → dist/，推送到 ops 仓库
+# 触发:
+#   - push 到 main（自动）
+#   - workflow_dispatch（手动测试 / 重新同步）
+# 凭证:
+#   - OPS_PUSH_TOKEN：GitHub PAT 或 GitHub App token
+#     权限要求：仅对 mmw-devs/ffxiv-race-ops 有 contents:write
+#     配置位置：dev 仓库 Settings → Secrets and variables → Actions
+# 安全:
+#   - token 仅用于向 ops 仓库推送 dist/，不接触 data.json
+#   - 不在 dev 侧执行任何 ops 业务逻辑
+# 并发:
+#   - 同组任务串行（避免并发推送冲突）
+# ────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-dist-push
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build dist
+        run: npm run build
+
+      - name: 推送 dist/ 到 ops 仓库
+        env:
+          OPS_PUSH_TOKEN: ${{ secrets.OPS_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # 校验 token 存在
+          if [ -z "$OPS_PUSH_TOKEN" ]; then
+            echo "::error::未配置 OPS_PUSH_TOKEN Secret，无法推送到 ops 仓库"
+            echo "::error::请在 dev 仓库 Settings → Secrets and variables → Actions 中配置"
+            echo "::error::token 需对 mmw-devs/ffxiv-race-ops 有 contents:write 权限"
+            exit 1
+          fi
+
+          # 校验当前仓库（防止误装到 ops 仓库后误推）
+          if [ "$GITHUB_REPOSITORY" != "mmw-devs/ffxiv-race-stats" ]; then
+            echo "::error::本 workflow 只能在 dev 仓库（mmw-devs/ffxiv-race-stats）运行"
+            echo "::error::当前仓库: $GITHUB_REPOSITORY"
+            exit 1
+          fi
+
+          OPS_REPO="mmw-devs/ffxiv-race-ops"
+
+          # 克隆 ops 仓库
+          git clone "https://x-access-token:${OPS_PUSH_TOKEN}@github.com/${OPS_REPO}.git" ops-repo
+          cd ops-repo
+          git config user.name "ffxiv-race-dev-ci"
+          git config user.email "ffxiv-race-dev-ci@users.noreply.github.com"
+
+          # 确保 dist/ 目录存在
+          mkdir -p dist
+
+          # 用 dev 的 dist/ 覆盖 ops 的 dist/
+          find dist -mindepth 1 -delete
+          cp -r ../dist/. dist/
+
+          # 仅在有变更时提交
+          git add dist/
+          if git diff --cached --quiet; then
+            echo "dist/ 内容无变化，跳过提交"
+            exit 0
+          fi
+
+          SHORT_SHA="${GITHUB_SHA::7}"
+          git commit -m "chore: 同步 dev 构建产物 (${SHORT_SHA})"
+          git push origin main
+          echo "✓ dist/ 已推送到 ${OPS_REPO} main"
