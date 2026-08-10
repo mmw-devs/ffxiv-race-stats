@@ -84,7 +84,8 @@ jobs:
           cp -r ../dist/. dist/
 
           # 仅在有变更时提交
-          git add dist/
+          # 用 -f 因为 ops 仓库的 .gitignore 里有 dist/（Phase 2 会移除此规则）
+          git add -f dist/
           if git diff --cached --quiet; then
             echo "dist/ 内容无变化，跳过提交"
             exit 0
