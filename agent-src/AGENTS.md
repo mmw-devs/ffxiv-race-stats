@@ -85,6 +85,7 @@ CF publish dist/ 到 CDN
 1. 使用 `lark-cli docs +create --title "文档标题"` 创建飞书文档
 2. 使用 `lark-cli docs +update --doc <doc-id> --command append --content @file.md --doc-format markdown` 写入内容
 3. 仅在本地需要临时文件时，才写入 `docs/` 目录（如用于 lark-cli 读取）
+4. 创建的飞书文档需要向所有人开放编辑权限
 
 > 飞书文档 URL 格式：`https://mmw-ffxiv.feishu.cn/docx/<document_id>`
 
