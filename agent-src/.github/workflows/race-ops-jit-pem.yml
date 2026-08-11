@@ -1,0 +1,147 @@
+name: "race-ops: JIT Installation Token"
+
+# ────────────────────────────────────────────────────────────────
+# 用途: 为开发者签发 1 小时有效的 installation token 用于功能测试
+# 触发: workflow_dispatch（开发者通过 gh CLI 触发）
+# 鉴权: 触发者需有 repo write 权限（Maintain / Admin）
+# 安全:
+#   - 生产 PEM 始终在 Org Secret 中，workflow 临时使用后丢弃
+#   - Installation token 由 GitHub API 铸造，原生 1 小时 TTL
+#   - 审计 issue 由开发者本地创建（使用其个人 gh auth）
+#
+# GitHub API 限制:
+#   - POST /app/private_keys 返回 404 (不支持程序化创建新 PEM key)
+#   - installation token expires_at 参数被忽略 (强制 1 小时)
+# ────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      purpose:
+        description: '用途说明（必填，将写入审计 issue）'
+        type: string
+        required: true
+
+# 防止同一成员并发申请
+concurrency:
+  group: jit-pem-${{ github.actor }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  issue-token:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # ── 1. 用生产 PEM 铸 App JWT ────────────────────────────
+      - name: Generate App JWT
+        id: jwt
+        run: |
+          set -euo pipefail
+          NOW=$(date +%s)
+          IAT=$((NOW - 60))
+          EXP=$((IAT + 540))
+          HEADER='{"alg":"RS256","typ":"JWT"}'
+          PAYLOAD="{\"iat\":$IAT,\"exp\":$EXP,\"iss\":\"${{ secrets.RACE_OPS_APP_ID }}\"}"
+
+          HEADER_B64=$(printf '%s' "$HEADER" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+          PAYLOAD_B64=$(printf '%s' "$PAYLOAD" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+          SIGN_INPUT="${HEADER_B64}.${PAYLOAD_B64}"
+          SIGNATURE=$(printf '%s' "$SIGN_INPUT" | openssl dgst -sha256 -sign <(printf '%s' "${{ secrets.RACE_OPS_PEM }}") | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+
+          echo "jwt=${SIGN_INPUT}.${SIGNATURE}" >> "$GITHUB_OUTPUT"
+          echo "✓ JWT 已生成"
+
+      # ── 2. 铸造 installation token ─────────────────────────
+      - name: Mint installation token
+        id: mint
+        env:
+          JWT: ${{ steps.jwt.outputs.jwt }}
+        run: |
+          set -euo pipefail
+          INSTALLATION_ID="${{ secrets.RACE_OPS_INSTALLATION_ID }}"
+
+          RESPONSE=$(curl -sS -X POST \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens")
+
+          TOKEN=$(echo "$RESPONSE" | jq -r '.token // empty')
+          EXPIRES_AT=$(echo "$RESPONSE" | jq -r '.expires_at // empty')
+
+          if [ -z "$TOKEN" ]; then
+            echo "::error::铸造 installation token 失败"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+
+          echo "✓ Token 已铸造"
+          echo "  到期: ${EXPIRES_AT}"
+          echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
+          echo "expires_at=${EXPIRES_AT}" >> "$GITHUB_OUTPUT"
+
+      # ── 3. 验证 token 身份 ──────────────────────────────────
+      - name: Verify token identity
+        env:
+          GH_TOKEN: ${{ steps.mint.outputs.token }}
+        run: |
+          gh auth status 2>&1 | head -3
+          RATE_LIMIT=$(gh api /rate_limit -q '.resources.core.remaining')
+          echo "  API 剩余配额: ${RATE_LIMIT} (token 有效)"
+
+      # ── 4. 交付 token + 元信息（供审计 issue 使用）──────────
+      - name: Upload token artifact
+        env:
+          TOKEN: ${{ steps.mint.outputs.token }}
+          EXPIRES_AT: ${{ steps.mint.outputs.expires_at }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::${TOKEN}"
+
+          mkdir -p /tmp/jit-artifact
+          cat > /tmp/jit-artifact/jit-token.txt <<INNER
+          # race-ops JIT Installation Token
+          # Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # Expires:   ${EXPIRES_AT}
+          # Requester: ${{ github.actor }}
+          # Purpose:   ${{ inputs.purpose }}
+          # Run ID:    ${{ github.run_id }}
+
+          GH_TOKEN=${TOKEN}
+          RACE_OPS_GH_TOKEN=${TOKEN}
+          JIT_EXPIRES_AT=${EXPIRES_AT}
+          JIT_RUN_ID=${{ github.run_id }}
+          JIT_PURPOSE=${{ inputs.purpose }}
+          INNER
+          chmod 600 /tmp/jit-artifact/jit-token.txt
+          echo "✓ Token 已写入 artifact: jit-token"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jit-token
+          path: /tmp/jit-artifact/jit-token.txt
+          retention-days: 7
+          if-no-files-found: error
+
+      # ── 5. 输出提示 ──────────────────────────────────────────
+      - name: Print delivery info
+        run: |
+          cat <<EOF
+          ╔════════════════════════════════════════════════════╗
+          ║   🚀 race-ops Installation Token 已签发              ║
+          ╠════════════════════════════════════════════════════╣
+          ║                                                    ║
+          ║   持有者:        ${{ github.actor }}                       ║
+          ║   有效期:        1 小时（GitHub API 强制上限）      ║
+          ║   到期时间:      ${{ steps.mint.outputs.expires_at }}      ║
+          ║   Run ID:        ${{ github.run_id }}                      ║
+          ║   用途:          ${{ inputs.purpose }}                     ║
+          ║                                                    ║
+          ║   ⚠️ token 不会在日志中明文出现                      ║
+          ║   请用 .pi/scripts/get-jit-pem.ts 下载并创建审计     ║
+          ║                                                    ║
+          ╚════════════════════════════════════════════════════╝
+          EOF

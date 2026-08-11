@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "player.schema.json",
+  "title": "Player",
+  "description": "队伍中的单个玩家",
+  "type": "object",
+  "required": ["job", "role", "stream", "streaming"],
+  "properties": {
+    "job":       { "type": "string" },
+    "role":      { "type": "string", "enum": ["tank", "healer", "dps"] },
+    "stream":    { "type": "string" },
+    "streaming": { "type": "boolean" },
+    "isLive":    { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

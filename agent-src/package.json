@@ -1,0 +1,13 @@
+{
+  "name": "ffxiv-race-ops",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FFXIV 高难首杀竞速 — 运营仓库（数据 + 运营 agent + 工作流 + 部署）",
+  "scripts": {
+    "validate": "node scripts/validate-data.js",
+    "validate-op-log": "node scripts/validate-op-log.js"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0"
+  }
+}
