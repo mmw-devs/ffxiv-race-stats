@@ -1,0 +1,11 @@
+{
+  "name": "pi-extensions",
+  "private": true,
+  "dependencies": {
+    "@larksuite/cli": "^1.0.69",
+    "pi-feishu": "^1.1.5",
+    "pi-intercom": "^0.6.0",
+    "pi-subagents": "^0.32.0",
+    "pi-web-access": "^0.13.0"
+  }
+}
