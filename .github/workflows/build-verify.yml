@@ -1,0 +1,37 @@
+name: build-verify
+
+# ────────────────────────────────────────────────────────────────
+# 用途: dev PR 触发，验证 src/ 与构建配置可成功编译
+# 触发:
+#   - pull_request（opened, synchronize, reopened）
+#   - workflow_dispatch（手动重新验证）
+# 验证:
+#   - npm ci 依赖安装
+#   - npm run build Astro 构建（确保 src/ 改动可产出 dist/）
+# 这是 dev 仓库 branch protection 的唯一必需状态检查
+# ────────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
