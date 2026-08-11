@@ -1,0 +1,121 @@
+name: sync-data-to-dev
+
+# ────────────────────────────────────────────────────────────────
+# 用途: ops 仓库 public/data.json 变更后，自动同步到 dev 仓库
+# 触发:
+#   - push 到 main（仅当 public/data.json 变更）
+#   - workflow_dispatch（手动重新同步）
+# 凭证:
+#   - DEV_PUSH_TOKEN：GitHub PAT 或 GitHub App token
+#     权限要求：对 mmw-devs/ffxiv-race-stats 有 contents:write + pull-requests:write
+#     配置位置：ops 仓库 Settings → Secrets and variables → Actions
+# 同步策略:
+#   - 克隆 dev 仓库
+#   - 创建 ops-sync/data-<timestamp> 分支
+#   - 复制 ops public/data.json 到 dev agent-src/public/data.json
+#   - push 分支并用 gh CLI 开 PR
+#   - dev 仓库 build-verify.yml 对 ops-sync/* 分支豁免 data.json 检查
+# ────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'public/data.json'
+  workflow_dispatch:
+
+concurrency:
+  group: sync-data-to-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync data.json to dev repo
+        env:
+          DEV_PUSH_TOKEN: ${{ secrets.DEV_PUSH_TOKEN }}
+          OPS_SHORT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # 校验 token
+          if [ -z "$DEV_PUSH_TOKEN" ]; then
+            echo "::error::未配置 DEV_PUSH_TOKEN Secret"
+            echo "::error::请在 ops 仓库 Settings → Secrets and variables → Actions 中配置"
+            echo "::error::token 需对 mmw-devs/ffxiv-race-stats 有 contents:write + pull-requests:write"
+            exit 1
+          fi
+
+          # 校验当前仓库
+          if [ "$GITHUB_REPOSITORY" != "mmw-devs/ffxiv-race-ops" ]; then
+            echo "::error::本 workflow 只能在 ops 仓库运行"
+            echo "::error::当前仓库: $GITHUB_REPOSITORY"
+            exit 1
+          fi
+
+          DEV_REPO="mmw-devs/ffxiv-race-stats"
+
+          # 克隆 dev 仓库
+          git clone "https://x-access-token:${DEV_PUSH_TOKEN}@github.com/${DEV_REPO}.git" dev-repo
+          cd dev-repo
+          git config user.name "ffxiv-race-ops-ci"
+          git config user.email "ffxiv-race-ops-ci@users.noreply.github.com"
+
+          # 先与 dev main 同步（处理 dev 上可能存在的并发 commit）
+          git fetch origin main
+          git checkout -b ops-sync/data origin/main
+
+          # 复制 ops 的 data.json 到 dev
+          mkdir -p agent-src/public
+          cp ../public/data.json agent-src/public/data.json
+
+          # 检查是否有变更
+          if git diff --quiet; then
+            echo "data.json 与 dev 一致，无需同步"
+            exit 0
+          fi
+
+          # 提交
+          SHORT_SHA="${OPS_SHORT_SHA::7}"
+          git add agent-src/public/data.json
+          git commit -m "chore(dev): sync data.json from ops (${SHORT_SHA})"
+
+          # push 分支
+          git push origin ops-sync/data
+
+          # 用 gh CLI 开 PR（使用 DEV_PUSH_TOKEN）
+          GH_TOKEN="$DEV_PUSH_TOKEN" gh pr create \
+            --repo "$DEV_REPO" \
+            --base main \
+            --head ops-sync/data \
+            --title "chore(dev): sync data.json from ops (${SHORT_SHA})" \
+            --body "## 自动同步
+
+本 PR 由 ops 仓库 CI 自动生成，用于同步 \`public/data.json\` 到 dev 仓库的 \`agent-src/public/data.json\`。
+
+## 触发
+
+ops 仓库 main 分支 push 事件，\`public/data.json\` 路径变更。
+
+## 来源
+
+- ops 仓库：\`mmw-devs/ffxiv-race-ops\`
+- ops commit SHA：\`${OPS_SHORT_SHA}\`
+- 短 SHA：\`${SHORT_SHA}\`
+
+## 验证
+
+合并后 dev \`agent-src/public/data.json\` 与 ops \`public/data.json\` 内容一致。
+
+CI 已豁免此分支的 data.json 修改检查（branch 前缀 \`ops-sync/\`）。"
+
+          echo "✓ data.json 已同步到 dev 仓库 PR"

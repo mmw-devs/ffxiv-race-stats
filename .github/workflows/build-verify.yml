@@ -36,14 +36,20 @@ jobs:
         run: npm ci
 
       - name: Block data.json modifications
+        if: "!startsWith(github.head_ref, 'ops-sync/')"
         run: |
           if git diff --name-only origin/main...HEAD | grep -qE '^agent-src/public/data\.json$'; then
             echo "::error::不允许修改 agent-src/public/data.json"
             echo "::error::data.json 由 ops 仓库 Agent 直接管理"
             echo "::error::如需更新数据，请到 ops 仓库（mmw-devs/ffxiv-race-ops）发起 content/* PR"
+            echo "::error::或 ops-sync/* 自动同步分支会被豁免（由 ops 仓库 CI 触发）"
             exit 1
           fi
           echo "✓ data.json 未被修改"
+
+      - name: Skip data.json check (ops-sync branch)
+        if: startsWith(github.head_ref, 'ops-sync/')
+        run: echo "✓ ops-sync/* 分支自动同步，跳过 data.json 检查"
 
       - name: Build
         run: npm run build
