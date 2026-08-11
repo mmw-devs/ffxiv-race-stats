@@ -1,6 +1,8 @@
-# FFXIV 高难首杀竞速网站
+# mmw 攻略组智能体（dev 仓库）
 
-Final Fantasy XIV 世界首杀竞速排行聚合平台。追踪高难副本的首杀争夺战，提供队伍进度、选手直播、赛事速报一站式浏览。
+**mmw 攻略组通用智能体**的开发仓库（`mmw-devs/ffxiv-race-stats`）。承担大量重 CI/CD，开发者在此维护 Agent 的运营侧定义（subagent、skill、prompt、actions 配置）。
+
+当前承载的具体应用：**FFXIV 高难首杀竞速网站** —— 世界首杀竞速排行聚合平台，追踪高难副本的首杀争夺战，提供队伍进度、选手直播、赛事速报一站式浏览。
 
 ## 项目仓库
 
@@ -108,14 +110,6 @@ Cloudflare Pages 自动部署
 Cloudflare Pages 监听 **ops 仓库** main 分支 → 自动构建（`npm run build` + `cp public/data.json dist/data.json`）→ CDN。
 
 dev 仓库的 `build-dist.yml` 把 dist/ 推送到 ops 仓库后，ops 仓库重新部署。
-
-## 开发者文档
-
-| 文档 | 内容 |
-|---|---|
-| [开发者上手](docs/dev-onboarding-guide.md) | dev 仓库工作流程、PR 提交规范 |
-
-ops 仓库的运营系统设计、CI 配置、Agent 工具等文档见 [`mmw-devs/ffxiv-race-ops`](https://github.com/mmw-devs/ffxiv-race-ops)。
 
 ## 相关链接
 
