@@ -25,6 +25,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -32,6 +34,16 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Block data.json modifications
+        run: |
+          if git diff --name-only origin/main...HEAD | grep -qE '^agent-src/public/data\.json$'; then
+            echo "::error::不允许修改 agent-src/public/data.json"
+            echo "::error::data.json 由 ops 仓库 Agent 直接管理"
+            echo "::error::如需更新数据，请到 ops 仓库（mmw-devs/ffxiv-race-ops）发起 content/* PR"
+            exit 1
+          fi
+          echo "✓ data.json 未被修改"
 
       - name: Build
         run: npm run build
