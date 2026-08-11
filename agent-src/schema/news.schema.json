@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "news.schema.json",
+  "title": "NewsItem",
+  "description": "单条赛事速报",
+  "type": "object",
+  "required": ["id", "time", "text", "urgent"],
+  "properties": {
+    "id":     { "type": "string" },
+    "time":   { "type": "string", "description": "格式 HH:MM:SS" },
+    "text":   { "type": "string" },
+    "urgent": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

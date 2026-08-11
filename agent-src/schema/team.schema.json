@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "team.schema.json",
+  "title": "Team",
+  "description": "一支竞速队伍及其玩家",
+  "type": "object",
+  "required": ["id", "rank", "bossHP", "phase", "region", "players", "isLive"],
+  "properties": {
+    "id":     { "type": "string" },
+    "name":   { "type": "string" },
+    "rank":   { "type": "integer", "minimum": 1 },
+    "bossHP": { "type": "number", "minimum": 0, "maximum": 100 },
+    "phase":  { "type": "string", "description": "必须在 PHASE_ORDER 白名单内（值域校验由 validate-data.js 交叉校验）" },
+    "region": {
+      "type": "string",
+      "enum": ["JP", "NA", "EU", "OC", "CN", "KR"]
+    },
+    "isLive": { "type": "boolean" },
+    "players": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": { "$ref": "player.schema.json" }
+    }
+  },
+  "additionalProperties": true
+}

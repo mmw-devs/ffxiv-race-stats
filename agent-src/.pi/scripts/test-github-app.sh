@@ -86,12 +86,12 @@ echo -e "  Bot: ${GREEN}$BOT_NAME${NC}"
 # 验证仓库访问权限
 REPO_INFO=$(curl -s -H "Authorization: Bearer $TOKEN" \
     -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/repos/mmw-devs/ffxiv-race-stats")
+    "https://api.github.com/repos/mmw-devs/ffxiv-race-ops")
 
 REPO_FULL=$(echo "$REPO_INFO" | python3 -c "import sys,json; print(json.load(sys.stdin).get('full_name','ACCESS DENIED'))" 2>/dev/null)
 
 if [ "$REPO_FULL" = "ACCESS DENIED" ]; then
-    echo -e "${RED}  失败: 无法访问仓库 mmw-devs/ffxiv-race-stats${NC}"
+    echo -e "${RED}  失败: 无法访问仓库 mmw-devs/ffxiv-race-ops${NC}"
     echo "  请确认 App 已安装到该仓库:"
     echo "  https://github.com/organizations/mmw-devs/settings/installations/$INSTALLATION_ID"
     exit 1
@@ -107,7 +107,7 @@ export GITHUB_TOKEN="$TOKEN"
 
 # 测试一次 fetch（验证读写权限）
 TEST_BRANCH="content/test-app-auth"
-REPO_URL="https://x-access-token:${TOKEN}@github.com/mmw-devs/ffxiv-race-stats.git"
+REPO_URL="https://x-access-token:${TOKEN}@github.com/mmw-devs/ffxiv-race-ops.git"
 
 # 检查是否有未提交的更改
 if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -145,7 +145,7 @@ git push "$REPO_URL" "$TEST_BRANCH" 2>&1
 # 创建测试 PR
 echo "  创建测试 PR..."
 gh pr create \
-    --repo mmw-devs/ffxiv-race-stats \
+    --repo mmw-devs/ffxiv-race-ops \
     --base main \
     --head "$TEST_BRANCH" \
     --title "test: GitHub App 鉴权验证" \

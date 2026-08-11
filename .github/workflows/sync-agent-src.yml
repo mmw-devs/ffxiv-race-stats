@@ -1,28 +1,37 @@
-name: build-dist-push
+name: sync-agent-src
 
 # ────────────────────────────────────────────────────────────────
-# 用途: dev main 推送后，构建 src/ → dist/，推送到 ops 仓库
+# 用途: 把 dev 仓库 agent-src/ 内容同步到 ops 仓库
 # 触发:
-#   - push 到 main（自动）
-#   - workflow_dispatch（手动测试 / 重新同步）
+#   - push 到 main（仅当 agent-src/** 变更）
+#   - workflow_dispatch（手动重新同步）
 # 凭证:
 #   - OPS_PUSH_TOKEN：GitHub PAT 或 GitHub App token
 #     权限要求：仅对 mmw-devs/ffxiv-race-ops 有 contents:write
-#     配置位置：dev 仓库 Settings → Secrets and variables → Actions
-# 安全:
-#   - token 仅用于向 ops 仓库推送 dist/，不接触 data.json
-#   - 不在 dev 侧执行任何 ops 业务逻辑
+#     与 build-dist.yml 复用同一个 Secret
+# 同步策略:
+#   - rsync --delete + 多个 --exclude
+#   - 排除 .git/（agent-src 嵌入的 git 元数据）
+#   - 排除 dist/（由 build-dist.yml 独立管理）
+#   - 排除 public/data.json（由 ops agent 直接管理）
+#   - 排除 *:Zone.Identifier（WSL 元数据）
+#   - 排除 node_modules（依赖不入仓）
+# 冲突处理:
+#   - 先 git pull --rebase 同步 ops 仓库自己的 commit
+#   - rebase 冲突时失败退出（不强制覆盖）
 # 并发:
-#   - 同组任务串行（避免并发推送冲突）
+#   - 与 build-dist.yml 串行（同一 group: sync-ops）
+#   - 避免同时向 ops main 推送造成 race condition
 # ────────────────────────────────────────────────────────────────
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'agent-src/**'
   workflow_dispatch:
 
 concurrency:
-  # 与 sync-agent-src.yml 共享同一 group，串行推送 ops 仓库 main
   group: sync-ops
   cancel-in-progress: false
 
@@ -30,7 +39,7 @@ permissions:
   contents: read
 
 jobs:
-  build-and-push:
+  sync:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -38,17 +47,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build dist
-        run: npm run build
-
-      - name: 推送 dist/ 到 ops 仓库
+      - name: Sync agent-src to ops repo
         env:
           OPS_PUSH_TOKEN: ${{ secrets.OPS_PUSH_TOKEN }}
         run: |
@@ -77,22 +76,32 @@ jobs:
           git config user.name "ffxiv-race-dev-ci"
           git config user.email "ffxiv-race-dev-ci@users.noreply.github.com"
 
-          # 确保 dist/ 目录存在
-          mkdir -p dist
+          # 先 rebase 处理 ops 仓库自己的 commit（agent 自动 merge 等）
+          if ! git pull --rebase origin main; then
+            echo "::error::rebase 失败，ops 仓库可能有冲突，需要人工处理"
+            exit 1
+          fi
 
-          # 用 dev 的 dist/ 覆盖 ops 的 dist/
-          find dist -mindepth 1 -delete
-          cp -r ../dist/. dist/
+          # 同步 agent-src 到 ops 工作区
+          rsync -a --delete \
+            --exclude='.git' \
+            --exclude='.git/**' \
+            --exclude='dist' \
+            --exclude='dist/**' \
+            --exclude='public/data.json' \
+            --exclude='*:Zone.Identifier' \
+            --exclude='node_modules' \
+            --exclude='node_modules/**' \
+            ../agent-src/ ./
 
           # 仅在有变更时提交
-          # 用 -f 因为 ops 仓库的 .gitignore 里有 dist/（Phase 2 会移除此规则）
-          git add -f dist/
+          git add -A
           if git diff --cached --quiet; then
-            echo "dist/ 内容无变化，跳过提交"
+            echo "ops 仓库内容无变化，跳过提交"
             exit 0
           fi
 
           SHORT_SHA="${GITHUB_SHA::7}"
-          git commit -m "chore: 同步 dev 构建产物 (${SHORT_SHA})"
+          git commit -m "chore(ops): sync from dev (${SHORT_SHA})"
           git push origin main
-          echo "✓ dist/ 已推送到 ${OPS_REPO} main"
+          echo "✓ agent-src 已同步到 ${OPS_REPO} main"

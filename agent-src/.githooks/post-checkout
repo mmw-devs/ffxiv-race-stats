@@ -1,0 +1,18 @@
+#!/bin/sh
+# ============================================================
+# post-checkout — 分支切换后检测受保护文件是否存在
+#
+# 若文件被 git clean / rm 等操作误删，自动从 .git/safe/ 恢复。
+# ============================================================
+
+SAFE_DIR=".git/safe"
+PROTECTED=""
+
+for f in $PROTECTED; do
+  if [ ! -f "$f" ] && [ -f "$SAFE_DIR/$f" ]; then
+    cp "$SAFE_DIR/$f" "$f"
+    echo ""
+    echo "  ⚠  [githook] $f 已被恢复（原文件丢失，从本地备份还原）"
+    echo ""
+  fi
+done

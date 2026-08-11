@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "root.schema.json",
+  "title": "RACE_DATA",
+  "description": "FFXIV 竞速排名数据顶层结构",
+  "type": "object",
+  "required": ["meta", "teams", "news", "broadcasters", "notices", "sponsors"],
+  "properties": {
+    "meta":          { "$ref": "meta.schema.json" },
+    "teams": {
+      "type": "array",
+      "items": { "$ref": "team.schema.json" }
+    },
+    "news": {
+      "type": "array",
+      "items": { "$ref": "news.schema.json" }
+    },
+    "broadcasters": {
+      "type": "array",
+      "items": { "$ref": "broadcaster.schema.json" }
+    },
+    "notices": {
+      "type": "array"
+    },
+    "sponsors": {
+      "type": "array"
+    }
+  }
+}
