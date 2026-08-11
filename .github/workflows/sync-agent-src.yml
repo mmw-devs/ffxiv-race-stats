@@ -6,9 +6,14 @@ name: sync-agent-src
 #   - push 到 main（仅当 agent-src/** 变更）
 #   - workflow_dispatch（手动重新同步）
 # 凭证:
-#   - OPS_PUSH_TOKEN：GitHub PAT 或 GitHub App token
-#     权限要求：仅对 mmw-devs/ffxiv-race-ops 有 contents:write
-#     与 build-dist.yml 复用同一个 Secret
+#   - 使用 agent-src-sync GitHub App（专属同步 App）
+#     权限：contents:write + workflows:write
+#     App ID: 4561953
+#     Installation ID: 153002155（mmw-devs/ffxiv-race-ops）
+#   - Secrets:
+#     - AGENT_SRC_SYNC_APP_ID
+#     - AGENT_SRC_SYNC_INSTALLATION_ID
+#     - AGENT_SRC_SYNC_APP_PEM
 # 同步策略:
 #   - rsync --delete + 多个 --exclude
 #   - 排除 .git/（agent-src 嵌入的 git 元数据）
@@ -53,40 +58,69 @@ jobs:
 
       - name: Sync agent-src to ops repo
         env:
-          OPS_PUSH_TOKEN: ${{ secrets.OPS_PUSH_TOKEN }}
+          AGENT_SRC_SYNC_APP_ID: ${{ secrets.AGENT_SRC_SYNC_APP_ID }}
+          AGENT_SRC_SYNC_INSTALLATION_ID: ${{ secrets.AGENT_SRC_SYNC_INSTALLATION_ID }}
+          AGENT_SRC_SYNC_APP_PEM: ${{ secrets.AGENT_SRC_SYNC_APP_PEM }}
         run: |
           set -euo pipefail
 
-          # 校验 token 存在
-          if [ -z "$OPS_PUSH_TOKEN" ]; then
-            echo "::error::未配置 OPS_PUSH_TOKEN Secret，无法推送到 ops 仓库"
-            echo "::error::请在 dev 仓库 Settings → Secrets and variables → Actions 中配置"
-            echo "::error::token 需对 mmw-devs/ffxiv-race-ops 有 contents:write 权限"
+          # 校验凭证
+          if [ -z "$AGENT_SRC_SYNC_APP_ID" ] || [ -z "$AGENT_SRC_SYNC_INSTALLATION_ID" ] || [ -z "$AGENT_SRC_SYNC_APP_PEM" ]; then
+            echo "::error::未配置 agent-src-sync App 凭证"
+            echo "::error::请配置 AGENT_SRC_SYNC_APP_ID, AGENT_SRC_SYNC_INSTALLATION_ID, AGENT_SRC_SYNC_APP_PEM"
             exit 1
           fi
 
-          # 校验当前仓库（防止误装到 ops 仓库后误推）
+          # 校验当前仓库
           if [ "$GITHUB_REPOSITORY" != "mmw-devs/ffxiv-race-stats" ]; then
-            echo "::error::本 workflow 只能在 dev 仓库（mmw-devs/ffxiv-race-stats）运行"
+            echo "::error::本 workflow 只能在 dev 仓库运行"
             echo "::error::当前仓库: $GITHUB_REPOSITORY"
             exit 1
           fi
 
           OPS_REPO="mmw-devs/ffxiv-race-ops"
 
-          # 克隆 ops 仓库
-          git clone "https://x-access-token:${OPS_PUSH_TOKEN}@github.com/${OPS_REPO}.git" ops-repo
-          cd ops-repo
-          git config user.name "ffxiv-race-dev-ci"
-          git config user.email "ffxiv-race-dev-ci@users.noreply.github.com"
+          # ── 1. 用 PEM 铸 App JWT ─────────────────────────────
+          NOW=$(date +%s)
+          IAT=$((NOW - 60))
+          EXP=$((IAT + 540))
+          HEADER='{"alg":"RS256","typ":"JWT"}'
+          PAYLOAD="{\"iat\":${IAT},\"exp\":${EXP},\"iss\":\"${AGENT_SRC_SYNC_APP_ID}\"}"
 
-          # 先 rebase 处理 ops 仓库自己的 commit（agent 自动 merge 等）
+          HEADER_B64=$(printf '%s' "$HEADER" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+          PAYLOAD_B64=$(printf '%s' "$PAYLOAD" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+          SIGN_INPUT="${HEADER_B64}.${PAYLOAD_B64}"
+          SIGNATURE=$(printf '%s' "$SIGN_INPUT" | openssl dgst -sha256 -sign <(printf '%s' "$AGENT_SRC_SYNC_APP_PEM") | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+          JWT="${SIGN_INPUT}.${SIGNATURE}"
+          echo "✓ JWT 已生成"
+
+          # ── 2. 铸造 Installation Token ─────────────────────
+          RESPONSE=$(curl -sS -X POST \
+            -H "Authorization: Bearer ${JWT}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/app/installations/${AGENT_SRC_SYNC_INSTALLATION_ID}/access_tokens")
+
+          TOKEN=$(echo "$RESPONSE" | jq -r '.token // empty')
+          if [ -z "$TOKEN" ]; then
+            echo "::error::铸造 installation token 失败"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+          echo "✓ Installation token 已铸造"
+
+          # ── 3. 克隆 ops 仓库 ───────────────────────────────
+          git clone "https://x-access-token:${TOKEN}@github.com/${OPS_REPO}.git" ops-repo
+          cd ops-repo
+          git config user.name "agent-src-sync[bot]"
+          git config user.email "agent-src-sync[bot]@users.noreply.github.com"
+
+          # ── 4. rebase 处理 ops 仓库自己的 commit ──────────
           if ! git pull --rebase origin main; then
             echo "::error::rebase 失败，ops 仓库可能有冲突，需要人工处理"
             exit 1
           fi
 
-          # 同步 agent-src 到 ops 工作区
+          # ── 5. rsync agent-src 到 ops 工作区 ───────────────
           rsync -a --delete \
             --exclude='.git' \
             --exclude='.git/**' \
