@@ -47,6 +47,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Sync agent-src to ops repo
         env:
           OPS_PUSH_TOKEN: ${{ secrets.OPS_PUSH_TOKEN }}
