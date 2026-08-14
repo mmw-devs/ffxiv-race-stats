@@ -1,0 +1,55 @@
+name: build-verify
+
+# ────────────────────────────────────────────────────────────────
+# 用途: dev PR 触发，验证 src/ 与构建配置可成功编译
+# 触发:
+#   - pull_request（opened, synchronize, reopened）
+#   - workflow_dispatch（手动重新验证）
+# 验证:
+#   - npm ci 依赖安装
+#   - npm run build Astro 构建（确保 src/ 改动可产出 dist/）
+# 这是 dev 仓库 branch protection 的唯一必需状态检查
+# ────────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Block data.json modifications
+        if: "!startsWith(github.head_ref, 'ops-sync/')"
+        run: |
+          if git diff --name-only origin/main...HEAD | grep -qE '^agent-src/public/data\.json$'; then
+            echo "::error::不允许修改 agent-src/public/data.json"
+            echo "::error::data.json 由 ops 仓库 Agent 直接管理"
+            echo "::error::如需更新数据，请到 ops 仓库（mmw-devs/ffxiv-race-ops）发起 content/* PR"
+            echo "::error::或 ops-sync/* 自动同步分支会被豁免（由 ops 仓库 CI 触发）"
+            exit 1
+          fi
+          echo "✓ data.json 未被修改"
+
+      - name: Skip data.json check (ops-sync branch)
+        if: startsWith(github.head_ref, 'ops-sync/')
+        run: echo "✓ ops-sync/* 分支自动同步，跳过 data.json 检查"
+
+      - name: Build
+        run: npm run build
