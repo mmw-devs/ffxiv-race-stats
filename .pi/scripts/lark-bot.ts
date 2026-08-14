@@ -12,7 +12,7 @@
  */
 
 import { spawn, ChildProcess, execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, appendFileSync, statSync, readdirSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,16 @@ const PROJECT_DIR = join(__dirname, "..", "..");
 const CLI = join(PROJECT_DIR, ".pi/npm/node_modules/@larksuite/cli/bin/lark-cli");
 const PID_FILE = join(tmpdir(), "lark-bot.pid");
 const LOG_FILE = join(tmpdir(), "lark-bot.log");
+
+// ═══════════════ 日志轮转与会话保留 ═══════════════
+// 触发条件：单文件 > 50MB；保留最近 5 个备份；最多 300MB 总占用
+const LOG_MAX_BYTES = 50 * 1024 * 1024;
+const LOG_KEEP_BACKUPS = 5;
+
+// 触发条件：每个 chat 保留最近 5 个 session 文件；超过 30 天的也清掉；5 分钟内修改过的不删（保护活跃 session）
+const SESSION_MAX_AGE_DAYS = 30;
+const SESSION_KEEP_PER_CHAT = 5;
+const SESSION_ACTIVE_THRESHOLD_MS = 5 * 60 * 1000;
 const PI_BIN = process.env.PI_BIN || "pi";
 const IS_WIN = process.platform === "win32";
 
@@ -39,10 +49,41 @@ if (!process.env.HTTP_PROXY) {
 
 // ═══════════════ 日志 ═══════════════
 function log(msg: string) {
-  const ts = new Date().toISOString().slice(11, 19);
+  // 完整 ISO 8601（带日期）便于跨天、跨服务排查
+  const ts = new Date().toISOString();
   const line = `[${ts}] ${msg}`;
   console.log(line);
-  try { appendFileSync(LOG_FILE, line + "\n"); } catch {}
+  try {
+    rotateLogIfNeeded();
+    appendFileSync(LOG_FILE, line + "\n");
+  } catch {}
+}
+
+/**
+ * 日志轮转（size-based）：
+ *   写入前检查文件大小；超过 LOG_MAX_BYTES 时：
+ *     1. 删除最旧的备份（.K）
+ *     2. 整体后移：.N → .(N+1)
+ *     3. 当前文件 → .1
+ *     4. 下一次 appendFileSync 自动创建新 .log
+ *   保证总占用 ≤ (LOG_KEEP_BACKUPS + 1) × LOG_MAX_BYTES
+ */
+function rotateLogIfNeeded(): void {
+  try {
+    if (!existsSync(LOG_FILE)) return;
+    const stats = statSync(LOG_FILE);
+    if (stats.size < LOG_MAX_BYTES) return;
+    // 删除最旧的备份
+    try { unlinkSync(`${LOG_FILE}.${LOG_KEEP_BACKUPS}`); } catch {}
+    // 备份整体后移
+    for (let i = LOG_KEEP_BACKUPS - 1; i >= 1; i--) {
+      const src = `${LOG_FILE}.${i}`;
+      const dst = `${LOG_FILE}.${i + 1}`;
+      try { if (existsSync(src)) renameSync(src, dst); } catch {}
+    }
+    // 当前文件 → .1
+    try { renameSync(LOG_FILE, `${LOG_FILE}.1`); } catch {}
+  } catch {}
 }
 
 // ═══════════════ 进程存活检测 ═══════════════
@@ -403,6 +444,53 @@ function startAllPi(): void {
     log(`获取群聊列表失败: ${e.message?.slice(0, 80)}`);
   }
 }
+
+/**
+ * Session 文件过期清理（每日一次 + 启动 1 分钟后首次）：
+ *   - 每个 chat 保留最近 SESSION_KEEP_PER_CHAT 个文件
+ *   - 超过 SESSION_MAX_AGE_DAYS 的文件也清掉（即便是 top-N 内）
+ *   - SESSION_ACTIVE_THRESHOLD_MS 内修改的文件不删（pi agent 可能正在写）
+ */
+function cleanupOldSessions(): void {
+  const sessionRoot = join(PROJECT_DIR, ".pi", "sessions");
+  const now = Date.now();
+  const maxAgeMs = SESSION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+  let removed = 0;
+  try {
+    const chatDirs = readdirSync(sessionRoot);
+    for (const chatDir of chatDirs) {
+      const dirPath = join(sessionRoot, chatDir);
+      let st;
+      try { st = statSync(dirPath); } catch { continue; }
+      if (!st.isDirectory()) continue;
+      const entries = readdirSync(dirPath)
+        .filter(f => f.endsWith(".jsonl"))
+        .map(f => {
+          const p = join(dirPath, f);
+          let mt = 0;
+          try { mt = statSync(p).mtimeMs; } catch {}
+          return { name: f, path: p, mtime: mt };
+        })
+        .sort((a, b) => b.mtime - a.mtime);
+      for (let i = 0; i < entries.length; i++) {
+        const e = entries[i];
+        const isBeyondKeep = i >= SESSION_KEEP_PER_CHAT;
+        const isTooOld = (now - e.mtime) > maxAgeMs;
+        const isRecent = (now - e.mtime) < SESSION_ACTIVE_THRESHOLD_MS;
+        if ((isBeyondKeep || isTooOld) && !isRecent) {
+          try { unlinkSync(e.path); removed++; } catch {}
+        }
+      }
+    }
+  } catch {}
+  if (removed > 0) {
+    log(`🧹 [session cleanup] removed ${removed} old files (>${
+SESSION_MAX_AGE_DAYS}d or beyond top-${SESSION_KEEP_PER_CHAT})`);
+  }
+}
+// 启动 1 分钟后首次跑一次；之后每 24h 跑一次
+setTimeout(() => cleanupOldSessions(), 60 * 1000);
+setInterval(cleanupOldSessions, 24 * 60 * 60 * 1000);
 
 function main(): void {
   // 启动期 PID 校验：使用 isAlive() 确保 Windows 下也能准确检测
