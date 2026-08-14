@@ -662,6 +662,8 @@ async function completeActiveTask(pi: PiSession): Promise<void> {
     log(`📝 [${task.promptId}] 收到 agent 文本 msgId=${task.msgId.slice(-8)} source=${task.source} len=${text.length}`);
     // 发送飞书回复（sendReplyGetId 内置超时，结果不明确走 ERROR + 日志，不重发）
     const result = await sendReplyGetId(task.msgId, text, task.replyInThread);
+    // DIAG-RPLY: record reply routing for cross-session coupling debugging
+    log(`🔍 [DIAG-RPLY] task=${task.promptId} expected_chat_type=${task.chatId ? "group" : "p2p"} expected_chat_id=${task.chatId?.slice(-12) ?? "p2p"} msgId=${task.msgId.slice(-8)} replyId=${result.replyId?.slice(-8) ?? "null"} ok=${result.ok}`);
     if (result.ok && result.replyId) {
       log(`✅ [${task.promptId}] DONE msgId=${task.msgId.slice(-8)} source=${task.source} replyId=${result.replyId.slice(-8)} text.len=${text.length} content="${text.slice(0, 50)}"`);
       switchReaction(task, EMOJI_DONE);
@@ -688,10 +690,14 @@ async function completeActiveTask(pi: PiSession): Promise<void> {
  *   4. 分流：activeTask 空 → 立即 startTask；否则 → 表情 WAITING + push 等待队列
  */
 function handleLarkEvent(event: LarkEvent, source: "ws" | "poll"): void {
+  // DIAG-EVT: record inbound event routing context (chat_type/chat_id/msgId/sender_type/source)
+  log(`🔍 [DIAG-EVT] chat_type=${event.chat_type} chat_id=${event.chat_id?.slice(-12) ?? "null"} msgId=${event.message_id.slice(-8)} sender_type=${event.sender_type ?? "?"} source=${source} thread=${event.thread_id ? "y" : "n"}`);
   if (event.chat_id) knownChatIds.add(event.chat_id);
   if (!shouldHandle(event)) return;
 
   const key = sessionKey(event);
+  // DIAG-RT: record routing decision (sessionKey for this msgId)
+  log(`🔍 [DIAG-RT] sessionKey=${key} msgId=${event.message_id.slice(-8)}`);
   const pi = getPiSession(key);
   if (!pi?.ready) { sendReply(event.message_id, "Bot 启动中，请稍后再试..."); return; }
 
