@@ -325,6 +325,8 @@ async function handleReply(sessionKey: string, event: { data?: { text: string | 
 
   const replyText = text || "处理完成，但未生成文本回复。";
   const replyId = await sendReplyGetId(pending.msgId, replyText, pending.replyInThread);
+  // DIAG-RPLY: record reply routing
+  log(`🔍 [DIAG-RPLY] sessionKey=${sessionKey} msgId=${pending.msgId.slice(-8)} replyId=${replyId?.slice(-8) ?? "null"} ok=${!!replyId}`);
   if (replyId) { seedMessages.add(pending.msgId); seedMessages.add(replyId); }
   log(`📤 [${sessionKey.slice(-12)}] ${replyText.slice(0, 50)}`);
 }
@@ -332,10 +334,14 @@ async function handleReply(sessionKey: string, event: { data?: { text: string | 
 // ═══════════════ 飞书事件处理 ═══════════════
 
 function handleLarkEvent(event: LarkEvent): void {
+  // DIAG-EVT: record inbound event routing context
+  log(`🔍 [DIAG-EVT] chat_type=${event.chat_type} chat_id=${event.chat_id?.slice(-12) ?? "null"} msgId=${event.message_id.slice(-8)} sender_type=${event.sender_type ?? "?"} thread=${event.thread_id ? "y" : "n"}`);
   if (event.chat_id) knownChatIds.add(event.chat_id);
   if (!shouldHandle(event)) return;
 
   const key = sessionKey(event);
+  // DIAG-RT: record routing decision
+  log(`🔍 [DIAG-RT] sessionKey=${key} msgId=${event.message_id.slice(-8)}`);
   const pi = getPiSession(key);
   if (!pi?.ready) { sendReply(event.message_id, "Bot 启动中，请稍后再试..."); return; }
 
