@@ -12,7 +12,7 @@
  */
 
 import { spawn, ChildProcess, execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, appendFileSync, statSync, readdirSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,13 @@ const PROJECT_DIR = join(__dirname, "..", "..");
 const CLI = join(PROJECT_DIR, ".pi/npm/node_modules/@larksuite/cli/bin/lark-cli");
 const PID_FILE = join(tmpdir(), "lark-bot.pid");
 const LOG_FILE = join(tmpdir(), "lark-bot.log");
+
+// ═══════════════ 日志轮转与会话保留 ═══════════════
+const LOG_MAX_BYTES = 50 * 1024 * 1024;
+const LOG_KEEP_BACKUPS = 5;
+const SESSION_MAX_AGE_DAYS = 30;
+const SESSION_KEEP_PER_CHAT = 5;
+const SESSION_ACTIVE_THRESHOLD_MS = 5 * 60 * 1000;
 const PI_BIN = process.env.PI_BIN || "pi";
 const IS_WIN = process.platform === "win32";
 
@@ -43,7 +50,25 @@ function log(msg: string) {
   const ts = new Date().toISOString();
   const line = `[${ts}] ${msg}`;
   console.log(line);
-  try { appendFileSync(LOG_FILE, line + "\n"); } catch {}
+  try {
+    rotateLogIfNeeded();
+    appendFileSync(LOG_FILE, line + "\n");
+  } catch {}
+}
+
+function rotateLogIfNeeded(): void {
+  try {
+    if (!existsSync(LOG_FILE)) return;
+    const stats = statSync(LOG_FILE);
+    if (stats.size < LOG_MAX_BYTES) return;
+    try { unlinkSync(`${LOG_FILE}.${LOG_KEEP_BACKUPS}`); } catch {}
+    for (let i = LOG_KEEP_BACKUPS - 1; i >= 1; i--) {
+      const src = `${LOG_FILE}.${i}`;
+      const dst = `${LOG_FILE}.${i + 1}`;
+      try { if (existsSync(src)) renameSync(src, dst); } catch {}
+    }
+    try { renameSync(LOG_FILE, `${LOG_FILE}.1`); } catch {}
+  } catch {}
 }
 
 // ═══════════════ 进程存活检测 ═══════════════
@@ -764,6 +789,45 @@ function startLarkEvents(): ChildProcess {
 }
 
 // ═══════════════ 主入口 ═══════════════
+
+function cleanupOldSessions(): void {
+  const sessionRoot = join(PROJECT_DIR, ".pi", "sessions");
+  const now = Date.now();
+  const maxAgeMs = SESSION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+  let removed = 0;
+  try {
+    const chatDirs = readdirSync(sessionRoot);
+    for (const chatDir of chatDirs) {
+      const dirPath = join(sessionRoot, chatDir);
+      let st;
+      try { st = statSync(dirPath); } catch { continue; }
+      if (!st.isDirectory()) continue;
+      const entries = readdirSync(dirPath)
+        .filter(f => f.endsWith(".jsonl"))
+        .map(f => {
+          const p = join(dirPath, f);
+          let mt = 0;
+          try { mt = statSync(p).mtimeMs; } catch {}
+          return { name: f, path: p, mtime: mt };
+        })
+        .sort((a, b) => b.mtime - a.mtime);
+      for (let i = 0; i < entries.length; i++) {
+        const e = entries[i];
+        const isBeyondKeep = i >= SESSION_KEEP_PER_CHAT;
+        const isTooOld = (now - e.mtime) > maxAgeMs;
+        const isRecent = (now - e.mtime) < SESSION_ACTIVE_THRESHOLD_MS;
+        if ((isBeyondKeep || isTooOld) && !isRecent) {
+          try { unlinkSync(e.path); removed++; } catch {}
+        }
+      }
+    }
+  } catch {}
+  if (removed > 0) {
+    log(`🧹 [session cleanup] removed ${removed} old files (>${SESSION_MAX_AGE_DAYS}d or beyond top-${SESSION_KEEP_PER_CHAT})`);
+  }
+}
+setTimeout(() => cleanupOldSessions(), 60 * 1000);
+setInterval(cleanupOldSessions, 24 * 60 * 60 * 1000);
 
 function startAllPi(): void {
   // 私聊 session
