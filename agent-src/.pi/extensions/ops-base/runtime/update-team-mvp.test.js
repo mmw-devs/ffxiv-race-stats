@@ -59,6 +59,7 @@ test("正常 bossHP 修改生成计划和 candidate，绝不写 data.json", asyn
 
   const planned = await env.update.plan(env.trusted, { teamId: "t1", bossHP: 40 });
   assert.equal(planned.state.lifecycle.state, "AWAITING_CONFIRMATION");
+  assert.deepEqual(planned.state.operator.permissions.permissionSet, ["race.updateTeam"]);
   assert.deepEqual(planned.plan.plannedChanges, [{ path: "teams[id=t1].bossHP", from: 50, to: 40, source: "OPERATOR" }]);
   assert.equal(planned.plan.baselineResourceId, "res_baseline_snapshot_1");
   const baseline = await env.store.readBaseline(env.trusted.taskId);

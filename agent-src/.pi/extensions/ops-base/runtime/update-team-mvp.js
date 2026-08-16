@@ -127,6 +127,17 @@ class UpdateTeamMvp {
     for (const nextState of steps) {
       state = await this.taskStore.transitionState(state.taskId, state.documentRevision, nextState, (draft) => {
         assertTrustedTask(draft, trusted);
+        if (nextState === "AUTHORIZING") {
+          // MVP 静态 allowlist 也必须留下可审计的授权快照，不能只在进程内 Set 中判定。
+          draft.operator.permissions = {
+            status: "RESOLVED",
+            permissionSet: ["race.updateTeam"],
+            registryVersion: "OPS_BASE_ALLOWED_OPEN_IDS/v1",
+            registryHash: `sha256:${sha256([...this.allowedOperators].sort().join("\n"))}`,
+            resolvedAt: new Date().toISOString(),
+            expiresAt: null,
+          };
+        }
         return draft;
       });
     }
