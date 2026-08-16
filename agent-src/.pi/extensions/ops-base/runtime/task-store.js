@@ -253,6 +253,7 @@ class TaskStore {
       baseline: { filename: "baseline-data", resourceId: "res_baseline_snapshot", type: "TEMP_FILE", pointer: ["execution", "baselineResourceId"] },
       "validation-report": { filename: "validation-report-attempt", resourceId: "res_validation_report", type: "TEMP_FILE", pointer: ["validation", "reportResourceId"] },
       "change-record": { filename: "change-record-attempt", resourceId: "res_change_record", type: "CHANGE_RECORD", pointer: ["validation", "changeRecordResourceId"] },
+      candidate: { filename: "candidate-data", resourceId: "res_candidate_data", type: "TEMP_FILE", pointer: ["execution", "candidateResourceId"] },
     };
     const definition = definitions[kind];
     if (!definition) throw new TaskStoreInvariantError(`未知 artifact 类型：${kind}`);
@@ -295,6 +296,10 @@ class TaskStore {
       await this.writeState(next);
       return { state: clone(next), resource: clone(resource) };
     });
+  }
+
+  async saveCandidateData(taskId, expectedDocumentRevision, candidate) {
+    return this.saveJsonArtifact(taskId, expectedDocumentRevision, "candidate", candidate);
   }
 
   async recordIngress(taskId, expectedDocumentRevision, ingress) {
