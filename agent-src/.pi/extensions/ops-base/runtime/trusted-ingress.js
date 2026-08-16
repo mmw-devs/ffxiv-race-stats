@@ -9,13 +9,13 @@ async function loadTrustedIngress(taskStore, piSessionId) {
   if (!session || session.type !== "PI_SESSION" || session.locator?.piSessionId !== piSessionId) {
     return null;
   }
-  const current = await taskStore.readLatestIngress(state.taskId);
+  const current = await taskStore.readCurrentIngress(state.taskId);
   const ingress = current.ingress;
   // 再次校验 artifact 与 state 的不可伪造 envelope 绑定，拒绝让 prompt 覆盖身份或路由。
   if (ingress.taskId !== state.taskId
     || ingress.operator?.feishuOpenId !== state.operator?.feishuOpenId
     || ingress.route?.chatId !== state.routing?.chatId
-    || ingress.route?.messageId !== state.routing?.lastInboundMessageId) {
+    || ingress.route?.messageId !== state.routing?.currentTurnMessageId) {
     throw new Error("可信 ingress 与 task state 不匹配");
   }
   return {

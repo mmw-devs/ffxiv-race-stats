@@ -60,6 +60,18 @@ test("创建 task、保存 artifact 并以 CAS 更新 state", async (t) => {
   assert.equal(record.state.validation.changeRecordResourceId, "res_change_record_1");
 });
 
+test("生命周期转移必须命中确定性 guard", async (t) => {
+  const env = await fixture();
+  t.after(env.cleanup);
+  const created = await env.store.createTask();
+  await assert.rejects(
+    env.store.transitionState(created.taskId, created.documentRevision, "EXECUTING"),
+    /非法 lifecycle 转移：CREATED → EXECUTING/,
+  );
+  const authorizing = await env.store.transitionState(created.taskId, created.documentRevision, "AUTHORIZING");
+  assert.equal(authorizing.lifecycle.state, "AUTHORIZING");
+});
+
 test("并发创建只有一个 task 获得全局 mutation lock", async (t) => {
   const env = await fixture();
   t.after(env.cleanup);

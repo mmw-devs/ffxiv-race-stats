@@ -18,6 +18,7 @@ function normalizeRouting(event) {
     rootMessageId: event.rootMessageId || event.triggerMessageId,
     triggerMessageId: event.triggerMessageId,
     lastInboundMessageId: null,
+    currentTurnMessageId: null,
     piSessionResourceId: null,
   };
 }
@@ -82,7 +83,7 @@ class LarkTaskRouter {
         created.documentRevision,
         buildIngress(event, created, "TASK_CREATE"),
       );
-      return { kind: "created", state: recorded.state, deduplicated: recorded.deduplicated };
+      return { kind: "created", state: recorded.state, resource: recorded.resource, deduplicated: recorded.deduplicated };
     }
 
     const sameOperator = active.operator?.feishuOpenId === event.feishuOpenId;
@@ -92,7 +93,7 @@ class LarkTaskRouter {
         active.documentRevision,
         buildIngress(event, active, "TASK_FOLLOW_UP"),
       );
-      return { kind: "follow-up", state: recorded.state, deduplicated: recorded.deduplicated };
+      return { kind: "follow-up", state: recorded.state, resource: recorded.resource, deduplicated: recorded.deduplicated };
     }
 
     return {

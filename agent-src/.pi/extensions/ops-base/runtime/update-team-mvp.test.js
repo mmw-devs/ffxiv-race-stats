@@ -36,13 +36,14 @@ async function fixture() {
     rootMessageId: null,
     text: "更新 t1",
   });
+  await store.activateIngress(routed.state.taskId, "om_create");
   const trusted = { taskId: routed.state.taskId, feishuOpenId: "ou_owner", messageId: "om_create" };
   return {
     root,
     store,
     router,
     trusted,
-    update: new UpdateTeamMvp({ taskStore: store, workspaceRoot: workspace }),
+    update: new UpdateTeamMvp({ taskStore: store, workspaceRoot: workspace, allowedOperators: ["ou_owner"] }),
     async cleanup() { await fs.rm(root, { recursive: true, force: true }); },
   };
 }
@@ -58,7 +59,7 @@ test("正常 bossHP 修改生成计划和 candidate，绝不写 data.json", asyn
 
   const planned = await env.update.plan(env.trusted, { teamId: "t1", bossHP: 40 });
   assert.equal(planned.state.lifecycle.state, "AWAITING_CONFIRMATION");
-  assert.deepEqual(planned.plan.plannedChanges, [{ field: "teams[id=t1].bossHP", from: 50, to: 40 }]);
+  assert.deepEqual(planned.plan.plannedChanges, [{ path: "teams[id=t1].bossHP", from: 50, to: 40, source: "OPERATOR" }]);
   assert.equal(planned.plan.baselineResourceId, "res_baseline_snapshot_1");
   const baseline = await env.store.readBaseline(env.trusted.taskId);
   assert.equal(baseline.resource.locator.sourceSha256, planned.plan.baselineDataSha256);
@@ -94,6 +95,14 @@ test("baseline 变化会拒绝确认且保持 AWAITING_CONFIRMATION", async (t) 
   assert.equal(state.execution.candidateResourceId, undefined);
 });
 
+test("未列入 allowlist 的完整 openId 不得规划", async (t) => {
+  const env = await fixture();
+  t.after(env.cleanup);
+  env.update.allowedOperators.clear();
+  await expectCode(env.update.plan(env.trusted, { teamId: "t1", bossHP: 40 }), "AUTHORIZATION_DENIED");
+  assert.equal((await env.store.readTask(env.trusted.taskId)).lifecycle.state, "CREATED");
+});
+
 test("信息不足、队伍歧义和不存在均不会生成计划", async (t) => {
   const env = await fixture();
   t.after(env.cleanup);
@@ -125,6 +134,7 @@ test("非 owner 和旧 planHash 不能确认", async (t) => {
     chatId: "oc_update_team", chatType: "p2p", feishuOpenId: "ou_owner",
     triggerMessageId: "om_replan", threadId: null, rootMessageId: null, text: "改为 40",
   });
+  await env.store.activateIngress(followUp.state.taskId, "om_replan");
   const latestTrusted = { taskId: followUp.state.taskId, feishuOpenId: "ou_owner", messageId: "om_replan" };
   const second = await env.update.plan(latestTrusted, { teamId: "t1", bossHP: 40 });
   await expectCode(env.update.confirm(latestTrusted, {
@@ -140,6 +150,6 @@ test("phase 后退和未明确 isLive 的自动变更被拒绝/省略", async (t
   t.after(env.cleanup);
   await expectCode(env.update.plan(env.trusted, { teamId: "t1", phase: "P2" }), "PHASE_REGRESSION");
   const planned = await env.update.plan(env.trusted, { teamId: "t1", phase: "CLEAR", bossHP: 0 });
-  assert.deepEqual(planned.plan.requestedFields, ["phase", "bossHP"]);
-  assert.equal(planned.plan.plannedChanges.some((change) => change.field.endsWith(".isLive")), false);
+  assert.deepEqual(planned.plan.requestedFields.map((field) => field.path), ["teams[id=t1].phase", "teams[id=t1].bossHP"]);
+  assert.equal(planned.plan.plannedChanges.some((change) => change.path.endsWith(".isLive")), false);
 });

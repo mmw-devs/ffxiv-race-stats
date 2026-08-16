@@ -75,7 +75,9 @@ test("task 结束并释放 lock 后才允许创建新 task", async (t) => {
   const env = await fixture();
   t.after(env.cleanup);
   const first = await env.router.route(event());
-  await env.store.endTask(first.state.taskId, first.state.documentRevision, "CANCELLED");
+  const cancelling = await env.store.transitionState(first.state.taskId, first.state.documentRevision, "CANCELLING");
+  const cleaning = await env.store.transitionState(first.state.taskId, cancelling.documentRevision, "CLEANING");
+  await env.store.endTask(first.state.taskId, cleaning.documentRevision, "CANCELLED");
   const second = await env.router.route(event({ feishuOpenId: "ou_operatorb", triggerMessageId: "om_message_2" }));
 
   assert.equal(second.kind, "created");
@@ -100,6 +102,7 @@ test("仅在 new_session 成功后登记本 task 的 PI session，隔离上下�
     sessionKey: "p2p",
   });
   assert.notEqual(resource.locator.piSessionId, "pi-session-previous-task");
+  await env.store.activateIngress(first.state.taskId, "om_message_1");
 
   const trusted = await loadTrustedIngress(env.store, "pi-session-fresh-1");
   assert.deepEqual(trusted, {

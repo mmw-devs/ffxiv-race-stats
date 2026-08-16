@@ -19,6 +19,32 @@ const STATE_FILE = "state.json";
 const LOCK_DIRECTORY = "mutation.lock";
 const OWNER_FILE = "owner.json";
 
+// 生命周期只能沿显式边转移；所有 state 写入即使经通用 CAS 也不能跨越此守卫。
+const ALLOWED_TRANSITIONS = {
+  CREATED: new Set(["AUTHORIZING", "CANCELLING"]),
+  AUTHORIZING: new Set(["PREPARING", "CLEANING", "CANCELLING"]),
+  PREPARING: new Set(["IDENTIFYING", "CANCELLING"]),
+  IDENTIFYING: new Set(["AWAITING_INFORMATION", "PLANNING", "CLEANING", "CANCELLING"]),
+  AWAITING_INFORMATION: new Set(["IDENTIFYING", "CANCELLING"]),
+  PLANNING: new Set(["AWAITING_CONFIRMATION", "CANCELLING"]),
+  AWAITING_CONFIRMATION: new Set(["IDENTIFYING", "CONFIRMED", "CANCELLING"]),
+  CONFIRMED: new Set(["EXECUTING", "CANCELLING"]),
+  EXECUTING: new Set(["VALIDATING", "CANCELLING"]),
+  VALIDATING: new Set(["VALIDATED", "VALIDATION_FAILED", "CANCELLING"]),
+  VALIDATED: new Set(["SUBMITTING", "CANCELLING"]),
+  SUBMITTING: new Set(["PR_CREATED", "ERROR", "CANCELLING"]),
+  PR_CREATED: new Set(["AWAITING_MERGE", "CANCELLING"]),
+  AWAITING_MERGE: new Set(["MERGING", "VALIDATION_FAILED", "CANCELLING"]),
+  MERGING: new Set(["MERGED", "ERROR", "CANCELLING"]),
+  MERGED: new Set(["CLEANING"]),
+  VALIDATION_FAILED: new Set(["RESTORING"]),
+  CANCELLING: new Set(["MERGED", "RESTORING", "CLEANING", "ERROR"]),
+  RESTORING: new Set(["CLEANING", "ERROR"]),
+  CLEANING: new Set(["ENDED", "ERROR"]),
+  ERROR: new Set([]),
+  ENDED: new Set([]),
+};
+
 class TaskStoreError extends Error {}
 class CompareAndSwapError extends TaskStoreError {}
 class MutationLockBusyError extends TaskStoreError {}
@@ -190,7 +216,12 @@ class TaskStore {
       documentRevision: 1,
       createdAt: timestamp,
       updatedAt: timestamp,
-      lifecycle: { state: input.lifecycleState || "CREATED", stateVersion: 1 },
+      lifecycle: {
+        state: input.lifecycleState || "CREATED",
+        stateVersion: 1,
+        attempt: 1,
+        enteredAt: timestamp,
+      },
       routing: input.routing || null,
       operator: input.operator || null,
       operation: input.operation || null,
@@ -227,12 +258,25 @@ class TaskStore {
       if (!proposed.lifecycle || typeof proposed.lifecycle.state !== "string") {
         throw new TaskStoreInvariantError("state 缺少 lifecycle.state");
       }
+      if (proposed.lifecycle.state !== current.lifecycle.state
+        && !ALLOWED_TRANSITIONS[current.lifecycle.state]?.has(proposed.lifecycle.state)) {
+        throw new TaskStoreInvariantError(`非法 lifecycle 转移：${current.lifecycle.state} → ${proposed.lifecycle.state}`);
+      }
       proposed.lifecycle.stateVersion = proposed.lifecycle.state === current.lifecycle.state
         ? current.lifecycle.stateVersion
         : current.lifecycle.stateVersion + 1;
+      if (proposed.lifecycle.state !== current.lifecycle.state) proposed.lifecycle.enteredAt = proposed.updatedAt;
       this.assertState(proposed, taskId);
       await this.writeState(proposed);
       return clone(proposed);
+    });
+  }
+
+  async transitionState(taskId, expectedDocumentRevision, nextState, mutate = (state) => state) {
+    return this.updateState(taskId, expectedDocumentRevision, (state) => {
+      const next = mutate(state);
+      next.lifecycle.state = nextState;
+      return next;
     });
   }
 
@@ -369,12 +413,27 @@ class TaskStore {
     });
   }
 
-  async readLatestIngress(taskId) {
+  async activateIngress(taskId, messageId) {
+    if (typeof messageId !== "string" || !messageId) throw new TaskStoreInvariantError("待激活 ingress messageId 非法");
+    return this.withTaskLock(taskId, async () => {
+      const current = await this.readTask(taskId);
+      const resource = current.resources.items.find((item) => item.locator?.messageId === messageId);
+      if (!resource?.locator?.path) throw new TaskStoreInvariantError("待激活 ingress resource 缺失");
+      const next = clone(current);
+      next.routing.currentTurnMessageId = messageId;
+      next.documentRevision += 1;
+      next.updatedAt = this.now();
+      await this.writeState(next);
+      return { state: clone(next), resource: clone(resource) };
+    });
+  }
+
+  async readCurrentIngress(taskId) {
     const state = await this.readTask(taskId);
-    const messageId = state.routing?.lastInboundMessageId;
-    if (!messageId) throw new TaskStoreInvariantError("task 没有 current ingress");
+    const messageId = state.routing?.currentTurnMessageId;
+    if (!messageId) throw new TaskStoreInvariantError("task 没有已激活的 current turn ingress");
     const resource = state.resources.items.find((item) => item.locator?.messageId === messageId);
-    if (!resource?.locator?.path) throw new TaskStoreInvariantError("current ingress resource 缺失");
+    if (!resource?.locator?.path) throw new TaskStoreInvariantError("current turn ingress resource 缺失");
     const artifactPath = path.join(this.taskDirectory(taskId), ...resource.locator.path.split("/"));
     return { state, ingress: await readJson(artifactPath), resource: clone(resource) };
   }

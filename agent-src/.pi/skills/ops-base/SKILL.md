@@ -5,7 +5,7 @@ description: 运营任务统一入口。当前 MVP 仅用于在可信飞书 task
 
 # ops-base
 
-当前只支持 `updateTeam`，且只允许一个 team 的 `phase`、`bossHP`、`isLive`。
+当前只支持 `updateTeam`，且只允许一个 team 的 `phase`、`bossHP`、`isLive`。Runtime 仅授权 `OPS_BASE_ALLOWED_OPEN_IDS`（逗号分隔的完整飞书 open_id）中的 operator；未配置时失败关闭。
 
 ## 工作方式
 

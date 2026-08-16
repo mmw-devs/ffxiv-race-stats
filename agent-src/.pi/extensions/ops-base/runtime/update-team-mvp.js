@@ -9,6 +9,10 @@ const { PHASE_ORDER } = require("../../../../constants.js");
 
 const ALLOWED_FIELDS = new Set(["phase", "bossHP", "isLive"]);
 
+function configuredOperators() {
+  return new Set((process.env.OPS_BASE_ALLOWED_OPEN_IDS || "").split(",").map((value) => value.trim()).filter(Boolean));
+}
+
 class UpdateTeamMvpError extends Error {
   constructor(code, message, details = {}) {
     super(message);
@@ -39,8 +43,8 @@ function assertTrustedTask(state, trusted) {
   if (!trusted || trusted.taskId !== state.taskId || trusted.feishuOpenId !== state.operator?.feishuOpenId) {
     throw new UpdateTeamMvpError("UNTRUSTED_CONTEXT", "taskId 或 operator 不来自可信 task context");
   }
-  if (trusted.messageId !== state.routing?.lastInboundMessageId) {
-    throw new UpdateTeamMvpError("STALE_INGRESS", "当前消息不是 task-store 中的最新可信 ingress");
+  if (trusted.messageId !== state.routing?.currentTurnMessageId) {
+    throw new UpdateTeamMvpError("STALE_INGRESS", "当前消息不是 task-store 中已激活的可信 ingress");
   }
 }
 
@@ -96,14 +100,44 @@ function buildChanges(team, request, fields) {
 }
 
 class UpdateTeamMvp {
-  constructor({ taskStore, workspaceRoot }) {
+  constructor({ taskStore, workspaceRoot, allowedOperators = configuredOperators() }) {
     this.taskStore = taskStore;
     this.workspaceRoot = workspaceRoot;
+    this.allowedOperators = new Set(allowedOperators);
+  }
+
+  assertAuthorized(state) {
+    if (!this.allowedOperators.has(state.operator?.feishuOpenId)) {
+      throw new UpdateTeamMvpError("AUTHORIZATION_DENIED", "operator 不在 OPS_BASE_ALLOWED_OPEN_IDS 的 updateTeam 授权列表中");
+    }
+  }
+
+  async advanceToPlanning(state, trusted) {
+    const paths = {
+      CREATED: ["AUTHORIZING", "PREPARING", "IDENTIFYING", "PLANNING"],
+      AUTHORIZING: ["PREPARING", "IDENTIFYING", "PLANNING"],
+      PREPARING: ["IDENTIFYING", "PLANNING"],
+      IDENTIFYING: ["PLANNING"],
+      AWAITING_INFORMATION: ["IDENTIFYING", "PLANNING"],
+      AWAITING_CONFIRMATION: ["IDENTIFYING", "PLANNING"],
+      PLANNING: [],
+    };
+    const steps = paths[state.lifecycle.state];
+    if (!steps) throw new UpdateTeamMvpError("INVALID_LIFECYCLE", `当前状态 ${state.lifecycle.state} 不允许规划或重规划`);
+    for (const nextState of steps) {
+      state = await this.taskStore.transitionState(state.taskId, state.documentRevision, nextState, (draft) => {
+        assertTrustedTask(draft, trusted);
+        return draft;
+      });
+    }
+    return state;
   }
 
   async plan(trusted, request) {
     let state = await this.taskStore.readTask(trusted.taskId);
     assertTrustedTask(state, trusted);
+    this.assertAuthorized(state);
+    state = await this.advanceToPlanning(state, trusted);
 
     // 首次有效计划固化 snapshot；后续重计划永远从同一 baseline 推导，不能偷读已变化的 data.json。
     let baseline;
@@ -130,19 +164,30 @@ class UpdateTeamMvp {
     const plannedChanges = buildChanges(team, request, fields);
     if (plannedChanges.length === 0) throw new UpdateTeamMvpError("NO_EFFECT", "请求不会产生任何数据变化");
     const plan = {
-      operationId: "updateTeam",
-      target: { teamId: team.id },
-      requestedFields: fields,
-      plannedChanges,
+      business: "raceProgress",
+      action: "updateTeam",
+      target: { type: "team", id: team.id, displayName: team.name },
+      requestedFields: fields.map((field) => ({
+        path: `teams[id=${team.id}].${field}`,
+        value: request[field],
+        sourceMessageId: trusted.messageId,
+      })),
+      plannedChanges: plannedChanges.map((change) => ({
+        path: change.field,
+        from: change.from,
+        to: change.to,
+        source: "OPERATOR",
+      })),
+      missingInformation: [],
+      plannedAt: new Date().toISOString(),
       baselineDataSha256: baselineResource.locator.sourceSha256,
       baselineResourceId: baselineResource.resourceId,
     };
     plan.planHash = `sha256:${sha256(stableJson({ taskId: state.taskId, operator: state.operator.feishuOpenId, ...plan }))}`;
 
-    const next = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => {
+    const next = await this.taskStore.transitionState(state.taskId, state.documentRevision, "AWAITING_CONFIRMATION", (draft) => {
       assertTrustedTask(draft, trusted);
       draft.operation = { ...plan, planRevision: (draft.operation?.planRevision || 0) + 1, status: "AWAITING_CONFIRMATION" };
-      draft.lifecycle.state = "AWAITING_CONFIRMATION";
       return draft;
     });
     return { kind: "plan", state: next, plan: next.operation };
@@ -151,8 +196,9 @@ class UpdateTeamMvp {
   async confirm(trusted, confirmation) {
     const state = await this.taskStore.readTask(trusted.taskId);
     assertTrustedTask(state, trusted);
+    this.assertAuthorized(state);
     const plan = state.operation;
-    if (state.lifecycle.state !== "AWAITING_CONFIRMATION" || !plan || plan.operationId !== "updateTeam") {
+    if (state.lifecycle.state !== "AWAITING_CONFIRMATION" || !plan || plan.action !== "updateTeam") {
       throw new UpdateTeamMvpError("PLAN_NOT_AWAITING_CONFIRMATION", "当前 task 没有等待确认的 updateTeam 操作单");
     }
     if (confirmation?.feishuOpenId !== state.operator.feishuOpenId) {
@@ -176,7 +222,7 @@ class UpdateTeamMvp {
       throw new UpdateTeamMvpError("BASELINE_CHANGED", "data.json 已变化，旧 plan 不能产生 candidate");
     }
 
-    const confirmed = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => {
+    const confirmed = await this.taskStore.transitionState(state.taskId, state.documentRevision, "CONFIRMED", (draft) => {
       assertTrustedTask(draft, trusted);
       if (draft.lifecycle.state !== "AWAITING_CONFIRMATION" || draft.operation?.planHash !== confirmation.planHash) {
         throw new UpdateTeamMvpError("STALE_PLAN_CONFIRMATION", "确认期间计划已变化");
@@ -184,24 +230,25 @@ class UpdateTeamMvp {
       draft.confirmations = draft.confirmations || {};
       draft.confirmations.execution = {
         confirmedByFeishuOpenId: confirmation.feishuOpenId,
-        messageId: confirmation.messageId,
-        planHash: confirmation.planHash,
+        status: "CONFIRMED",
+        confirmationMessageId: confirmation.messageId,
         confirmedAt: new Date().toISOString(),
+        boundAttempt: draft.lifecycle.attempt,
+        boundBaselineResourceId: plan.baselineResourceId,
+        boundPlanHash: confirmation.planHash,
       };
-      draft.lifecycle.state = "CONFIRMED";
       return draft;
     });
 
     const candidate = structuredClone(savedBaseline.baseline);
-    const team = candidate.teams.find((item) => item.id === plan.target.teamId);
+    const team = candidate.teams.find((item) => item.id === plan.target.id);
     if (!team) throw new UpdateTeamMvpError("TEAM_NOT_FOUND", "candidate 中找不到目标 team");
     for (const change of plan.plannedChanges) {
-      const field = change.field.slice(change.field.lastIndexOf(".") + 1);
+      const field = change.path.slice(change.path.lastIndexOf(".") + 1);
       team[field] = change.to;
     }
     const saved = await this.taskStore.saveCandidateData(confirmed.taskId, confirmed.documentRevision, candidate);
-    const executing = await this.taskStore.updateState(saved.state.taskId, saved.state.documentRevision, (draft) => {
-      draft.lifecycle.state = "EXECUTING";
+    const executing = await this.taskStore.transitionState(saved.state.taskId, saved.state.documentRevision, "EXECUTING", (draft) => {
       draft.execution.candidateSha256 = `sha256:${sha256(JSON.stringify(candidate))}`;
       return draft;
     });

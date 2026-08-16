@@ -366,6 +366,7 @@ interface PendingTask {
   createTime: string | undefined; // 飞书原始时间
   attemptCount: number;      // prompt 投递尝试次数（success:false 时递增重试）
   taskId: string;            // ops-base 持久化任务 ID，绝不使用 promptId 代替
+  ingressMessageId: string;  // 本 turn 绑定的持久 ingress；投递前原子激活，绝不读取 latest ingress
   requiresNewSession: boolean; // 仅新建 task 在投递首条 prompt 前重置 PI session
   piSessionKey: string;       // 当前 RPC 进程键，仅用于登记真实 PI session 的宿主
 }
@@ -634,13 +635,20 @@ async function finishTaskSessionStart(pi: PiSession, task: PendingTask, data: an
 function startTask(pi: PiSession, task: PendingTask): void {
   pi.activeTask = task;
   switchReaction(task, EMOJI_THINKING);
-  if (task.requiresNewSession) {
-    pi.pendingSessionStart = task;
-    pi.proc.stdin?.write('{"type":"new_session"}\n');
-    log(`🆕 taskId=${task.taskId} 在首条 prompt 前请求 PI new_session`);
-    return;
-  }
-  sendPrompt(pi, task);
+  // 排队消息可能已被更新的 ingress 覆盖；每一 turn 投递前须显式激活其自身 envelope。
+  void taskStore.activateIngress(task.taskId, task.ingressMessageId).then(() => {
+    if (pi.activeTask?.promptId !== task.promptId) return;
+    if (task.requiresNewSession) {
+      pi.pendingSessionStart = task;
+      pi.proc.stdin?.write('{"type":"new_session"}\n');
+      log(`🆕 taskId=${task.taskId} ingress=${task.ingressMessageId.slice(-8)} 在首条 prompt 前请求 PI new_session`);
+      return;
+    }
+    sendPrompt(pi, task);
+  }).catch((error) => {
+    log(`💥 激活 task ingress 失败: ${error?.message?.slice(0, 200)}`);
+    finishTaskWithError(pi, task, "可信消息上下文激活失败");
+  });
 }
 
 /**
@@ -849,6 +857,7 @@ async function handleLarkEvent(event: LarkEvent, source: "ws" | "poll"): Promise
     createTime: event.create_time,
     attemptCount: 0,
     taskId: routed.state.taskId,
+    ingressMessageId: routed.resource.locator.messageId,
     requiresNewSession: routed.kind === "created",
     piSessionKey: key,
   };
