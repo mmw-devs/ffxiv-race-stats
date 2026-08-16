@@ -1,0 +1,427 @@
+"use strict";
+
+/**
+ * ops-base 第一阶段任务状态存储。
+ *
+ * state.json 是唯一当前状态源。所有 state 修改都经过 task 目录互斥锁、
+ * documentRevision CAS 和原子 replace；artifact 只保存大对象，引用登记在 state 中。
+ */
+
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const fsp = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+
+const TASK_ID_PATTERN = /^opst_[0-9A-HJKMNP-TV-Z]{26}$/;
+const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const STATE_FILE = "state.json";
+const LOCK_DIRECTORY = "mutation.lock";
+const OWNER_FILE = "owner.json";
+
+class TaskStoreError extends Error {}
+class CompareAndSwapError extends TaskStoreError {}
+class MutationLockBusyError extends TaskStoreError {}
+class RuntimeRootError extends TaskStoreError {}
+class TaskStoreInvariantError extends TaskStoreError {}
+
+function utcNow() {
+  return new Date().toISOString();
+}
+
+function isWithin(child, parent) {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== "..");
+}
+
+function encodeTime(timestamp) {
+  let value = BigInt(timestamp);
+  let result = "";
+  for (let index = 0; index < 10; index += 1) {
+    result = CROCKFORD[Number(value & 31n)] + result;
+    value >>= 5n;
+  }
+  return result;
+}
+
+function encodeRandom(bytes) {
+  // 80 bit random value -> 16 个 Crockford Base32 字符。
+  let value = BigInt(`0x${bytes.toString("hex")}`);
+  let result = "";
+  for (let index = 0; index < 16; index += 1) {
+    result = CROCKFORD[Number(value & 31n)] + result;
+    value >>= 5n;
+  }
+  return result;
+}
+
+function generateTaskId(now = Date.now()) {
+  return `opst_${encodeTime(now)}${encodeRandom(crypto.randomBytes(10))}`;
+}
+
+function assertTaskId(taskId) {
+  if (!TASK_ID_PATTERN.test(taskId)) {
+    throw new TaskStoreInvariantError(`非法 taskId：${taskId}`);
+  }
+}
+
+async function fsyncDirectory(directory) {
+  // Windows 不保证目录 fsync；无法打开时保留 rename 的原子性而不把平台差异伪装成成功。
+  try {
+    const handle = await fsp.open(directory, "r");
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (process.platform !== "win32") throw error;
+  }
+}
+
+async function writeJsonAtomically(file, value, options = {}) {
+  const directory = path.dirname(file);
+  const temporary = path.join(
+    directory,
+    `.${path.basename(file)}.${process.pid}.${crypto.randomUUID()}.tmp`,
+  );
+  const content = `${JSON.stringify(value, null, 2)}\n`;
+  let handle;
+  try {
+    handle = await fsp.open(temporary, "wx", 0o600);
+    await handle.writeFile(content, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    if (options.beforeRename) await options.beforeRename(temporary);
+    await fsp.rename(temporary, file);
+    await fsyncDirectory(directory);
+  } catch (error) {
+    if (handle) await handle.close().catch(() => {});
+    await fsp.unlink(temporary).catch(() => {});
+    throw error;
+  }
+}
+
+async function readJson(file) {
+  return JSON.parse(await fsp.readFile(file, "utf8"));
+}
+
+async function mkdirExclusive(directory) {
+  try {
+    await fsp.mkdir(directory, { mode: 0o700 });
+    return true;
+  } catch (error) {
+    if (error && error.code === "EEXIST") return false;
+    throw error;
+  }
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+class TaskStore {
+  constructor(options = {}) {
+    this.workspaceRoot = path.resolve(options.workspaceRoot || process.cwd());
+    this.runtimeRoot = path.resolve(
+      options.runtimeRoot || process.env.OPS_BASE_RUNTIME_ROOT || path.join(os.homedir(), ".pi", "ops-base-runtime"),
+    );
+    this.now = options.now || utcNow;
+    this.beforeStateRename = options.beforeStateRename;
+  }
+
+  async initialize() {
+    const workspace = await fsp.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
+    if (isWithin(this.runtimeRoot, workspace)) {
+      throw new RuntimeRootError(`OPS_BASE_RUNTIME_ROOT 必须位于 Git workspace 外：${this.runtimeRoot}`);
+    }
+    await fsp.mkdir(this.runtimeRoot, { recursive: true, mode: 0o700 });
+    await fsp.chmod(this.runtimeRoot, 0o700);
+    const resolvedRoot = await fsp.realpath(this.runtimeRoot);
+    if (isWithin(resolvedRoot, workspace)) {
+      throw new RuntimeRootError(`runtime-root 解析后位于 Git workspace 内：${resolvedRoot}`);
+    }
+    await fsp.mkdir(this.tasksRoot(), { recursive: true, mode: 0o700 });
+    return this;
+  }
+
+  tasksRoot() {
+    return path.join(this.runtimeRoot, "tasks");
+  }
+
+  taskDirectory(taskId) {
+    assertTaskId(taskId);
+    return path.join(this.tasksRoot(), taskId);
+  }
+
+  statePath(taskId) {
+    return path.join(this.taskDirectory(taskId), STATE_FILE);
+  }
+
+  globalLockDirectory() {
+    return path.join(this.runtimeRoot, LOCK_DIRECTORY);
+  }
+
+  async createTask(input = {}) {
+    const taskId = input.taskId || generateTaskId();
+    assertTaskId(taskId);
+    const acquiredAt = this.now();
+    await this.acquireMutationLock(taskId, acquiredAt);
+    const directory = this.taskDirectory(taskId);
+    try {
+      const made = await mkdirExclusive(directory);
+      if (!made) throw new TaskStoreInvariantError(`task 已存在：${taskId}`);
+      await fsp.mkdir(path.join(directory, "artifacts"), { mode: 0o700 });
+      const state = this.createInitialState(taskId, input, acquiredAt);
+      await this.writeState(state);
+      return clone(state);
+    } catch (error) {
+      await fsp.rm(directory, { recursive: true, force: true }).catch(() => {});
+      await this.releaseMutationLock(taskId).catch(() => {});
+      throw error;
+    }
+  }
+
+  createInitialState(taskId, input, timestamp) {
+    return {
+      schemaVersion: "1.0.0",
+      taskId,
+      documentRevision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      lifecycle: { state: input.lifecycleState || "CREATED", stateVersion: 1 },
+      routing: input.routing || null,
+      operator: input.operator || null,
+      operation: input.operation || null,
+      execution: { baselineResourceId: null },
+      validation: { reportResourceId: null, changeRecordResourceId: null },
+      resources: { items: [] },
+      control: { pendingEffect: null },
+    };
+  }
+
+  async readTask(taskId) {
+    const state = await readJson(this.statePath(taskId));
+    this.assertState(state, taskId);
+    return state;
+  }
+
+  async updateState(taskId, expectedDocumentRevision, mutate) {
+    return this.withTaskLock(taskId, async () => {
+      const current = await this.readTask(taskId);
+      if (current.documentRevision !== expectedDocumentRevision) {
+        throw new CompareAndSwapError(
+          `state revision 不匹配：期望 ${expectedDocumentRevision}，实际 ${current.documentRevision}`,
+        );
+      }
+      const proposed = await mutate(clone(current));
+      if (!proposed || typeof proposed !== "object") {
+        throw new TaskStoreInvariantError("state mutator 必须返回对象");
+      }
+      proposed.taskId = current.taskId;
+      proposed.schemaVersion = current.schemaVersion;
+      proposed.createdAt = current.createdAt;
+      proposed.documentRevision = current.documentRevision + 1;
+      proposed.updatedAt = this.now();
+      if (!proposed.lifecycle || typeof proposed.lifecycle.state !== "string") {
+        throw new TaskStoreInvariantError("state 缺少 lifecycle.state");
+      }
+      proposed.lifecycle.stateVersion = proposed.lifecycle.state === current.lifecycle.state
+        ? current.lifecycle.stateVersion
+        : current.lifecycle.stateVersion + 1;
+      this.assertState(proposed, taskId);
+      await this.writeState(proposed);
+      return clone(proposed);
+    });
+  }
+
+  async saveBaseline(taskId, expectedDocumentRevision, baseline) {
+    return this.saveJsonArtifact(taskId, expectedDocumentRevision, "baseline", baseline);
+  }
+
+  async saveValidationReport(taskId, expectedDocumentRevision, report) {
+    return this.saveJsonArtifact(taskId, expectedDocumentRevision, "validation-report", report);
+  }
+
+  async saveChangeRecord(taskId, expectedDocumentRevision, record) {
+    return this.saveJsonArtifact(taskId, expectedDocumentRevision, "change-record", record);
+  }
+
+  async saveJsonArtifact(taskId, expectedDocumentRevision, kind, payload) {
+    const definitions = {
+      baseline: { filename: "baseline-data", resourceId: "res_baseline_snapshot", type: "TEMP_FILE", pointer: ["execution", "baselineResourceId"] },
+      "validation-report": { filename: "validation-report-attempt", resourceId: "res_validation_report", type: "TEMP_FILE", pointer: ["validation", "reportResourceId"] },
+      "change-record": { filename: "change-record-attempt", resourceId: "res_change_record", type: "CHANGE_RECORD", pointer: ["validation", "changeRecordResourceId"] },
+    };
+    const definition = definitions[kind];
+    if (!definition) throw new TaskStoreInvariantError(`未知 artifact 类型：${kind}`);
+
+    return this.withTaskLock(taskId, async () => {
+      const current = await this.readTask(taskId);
+      if (current.documentRevision !== expectedDocumentRevision) {
+        throw new CompareAndSwapError(
+          `artifact revision 不匹配：期望 ${expectedDocumentRevision}，实际 ${current.documentRevision}`,
+        );
+      }
+      const suffix = kind === "baseline" ? "" : `-${current.lifecycle.attempt || 1}`;
+      const filename = `${definition.filename}${suffix}.json`;
+      const resourceId = `${definition.resourceId}_${current.lifecycle.attempt || 1}`;
+      if (current.resources.items.some((item) => item.resourceId === resourceId)) {
+        throw new TaskStoreInvariantError(`artifact 已登记：${resourceId}`);
+      }
+      const artifactPath = path.join(this.taskDirectory(taskId), "artifacts", filename);
+      await writeJsonAtomically(artifactPath, payload);
+      const bytes = await fsp.readFile(artifactPath);
+      const timestamp = this.now();
+      const next = clone(current);
+      const resource = {
+        resourceId,
+        type: definition.type,
+        createdByTask: true,
+        locator: {
+          path: path.posix.join("artifacts", filename),
+          sha256: `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`,
+        },
+        status: "ACTIVE",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        cleanup: { policy: "DELETE_AFTER_LOG_RETENTION", required: false, status: "PENDING", completedAt: null },
+      };
+      next.resources.items.push(resource);
+      next[definition.pointer[0]][definition.pointer[1]] = resourceId;
+      next.documentRevision += 1;
+      next.updatedAt = timestamp;
+      await this.writeState(next);
+      return { state: clone(next), resource: clone(resource) };
+    });
+  }
+
+  async scanNonEndedTasks() {
+    const entries = await fsp.readdir(this.tasksRoot(), { withFileTypes: true });
+    const states = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !TASK_ID_PATTERN.test(entry.name)) continue;
+      const state = await this.readTask(entry.name);
+      if (state.lifecycle.state !== "ENDED") states.push(state);
+    }
+    return states.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+
+  async recoverActiveTask() {
+    const active = await this.scanNonEndedTasks();
+    if (active.length > 1) {
+      throw new TaskStoreInvariantError("发现多个非 ENDED task，拒绝自动恢复");
+    }
+    const owner = await this.readMutationLockOwner();
+    if (active.length === 0) {
+      if (owner) throw new TaskStoreInvariantError(`没有 active task 但 mutation lock 仍属于 ${owner.taskId}`);
+      return null;
+    }
+    const task = active[0];
+    if (!owner) {
+      await this.acquireMutationLock(task.taskId, this.now(), true);
+    } else if (owner.taskId !== task.taskId) {
+      throw new TaskStoreInvariantError(`mutation lock 属于 ${owner.taskId}，active task 是 ${task.taskId}`);
+    }
+    return task;
+  }
+
+  async acquireMutationLock(taskId, acquiredAt = this.now(), recovered = false) {
+    assertTaskId(taskId);
+    const lockDirectory = this.globalLockDirectory();
+    const made = await mkdirExclusive(lockDirectory);
+    if (!made) {
+      // 另一个创建者可能刚 mkdir、尚未写完 owner.json；这一短窗口也必须视为 busy，
+      // 不能把内部不完整状态暴露为可让第二个 task 继续创建的错误。
+      let owner = null;
+      try {
+        owner = await this.readMutationLockOwner();
+      } catch (error) {
+        if (!(error instanceof TaskStoreInvariantError)) throw error;
+      }
+      throw new MutationLockBusyError(`全局 mutation lock 已被占用：${owner ? owner.taskId : "未知 owner"}`);
+    }
+    try {
+      await writeJsonAtomically(path.join(lockDirectory, OWNER_FILE), {
+        taskId,
+        acquiredAt,
+        recovered,
+      });
+    } catch (error) {
+      await fsp.rm(lockDirectory, { recursive: true, force: true }).catch(() => {});
+      throw error;
+    }
+  }
+
+  async readMutationLockOwner() {
+    try {
+      const owner = await readJson(path.join(this.globalLockDirectory(), OWNER_FILE));
+      assertTaskId(owner.taskId);
+      return owner;
+    } catch (error) {
+      if (error && error.code === "ENOENT") {
+        const exists = await fsp.stat(this.globalLockDirectory()).then(() => true).catch(() => false);
+        if (!exists) return null;
+        throw new TaskStoreInvariantError("mutation lock 缺少 owner.json");
+      }
+      if (error instanceof TaskStoreInvariantError) throw error;
+      throw new TaskStoreInvariantError("mutation lock owner.json 损坏");
+    }
+  }
+
+  async releaseMutationLock(taskId) {
+    const owner = await this.readMutationLockOwner();
+    if (!owner) return false;
+    if (owner.taskId !== taskId) {
+      throw new TaskStoreInvariantError(`拒绝释放其他 task 的 mutation lock：${owner.taskId}`);
+    }
+    await fsp.rm(this.globalLockDirectory(), { recursive: true, force: false });
+    await fsyncDirectory(this.runtimeRoot);
+    return true;
+  }
+
+  async withTaskLock(taskId, operation) {
+    const directory = this.taskDirectory(taskId);
+    const lockDirectory = path.join(directory, ".state.lock");
+    const deadline = Date.now() + 2000;
+    while (!(await mkdirExclusive(lockDirectory))) {
+      if (Date.now() >= deadline) throw new TaskStoreInvariantError(`task state lock 超时：${taskId}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    try {
+      return await operation();
+    } finally {
+      await fsp.rmdir(lockDirectory).catch(() => {});
+    }
+  }
+
+  async writeState(state) {
+    this.assertState(state, state.taskId);
+    await writeJsonAtomically(this.statePath(state.taskId), state, {
+      beforeRename: this.beforeStateRename,
+    });
+  }
+
+  assertState(state, taskId) {
+    if (!state || typeof state !== "object") throw new TaskStoreInvariantError("state 必须是对象");
+    if (state.taskId !== taskId) throw new TaskStoreInvariantError("state taskId 不匹配");
+    if (!Number.isInteger(state.documentRevision) || state.documentRevision < 1) {
+      throw new TaskStoreInvariantError("state documentRevision 非法");
+    }
+    if (!state.lifecycle || typeof state.lifecycle.state !== "string" || !Number.isInteger(state.lifecycle.stateVersion)) {
+      throw new TaskStoreInvariantError("state lifecycle 非法");
+    }
+  }
+}
+
+module.exports = {
+  CompareAndSwapError,
+  MutationLockBusyError,
+  RuntimeRootError,
+  TaskStore,
+  TaskStoreError,
+  TaskStoreInvariantError,
+  generateTaskId,
+  writeJsonAtomically,
+};
