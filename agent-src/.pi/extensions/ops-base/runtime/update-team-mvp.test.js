@@ -59,6 +59,10 @@ test("正常 bossHP 修改生成计划和 candidate，绝不写 data.json", asyn
   const planned = await env.update.plan(env.trusted, { teamId: "t1", bossHP: 40 });
   assert.equal(planned.state.lifecycle.state, "AWAITING_CONFIRMATION");
   assert.deepEqual(planned.plan.plannedChanges, [{ field: "teams[id=t1].bossHP", from: 50, to: 40 }]);
+  assert.equal(planned.plan.baselineResourceId, "res_baseline_snapshot_1");
+  const baseline = await env.store.readBaseline(env.trusted.taskId);
+  assert.equal(baseline.resource.locator.sourceSha256, planned.plan.baselineDataSha256);
+  assert.deepEqual(baseline.baseline, fixtureData, "首次计划必须固化原始 baseline snapshot");
 
   const candidate = await env.update.confirm(env.trusted, {
     feishuOpenId: "ou_owner",
@@ -72,6 +76,22 @@ test("正常 bossHP 修改生成计划和 candidate，绝不写 data.json", asyn
   const resource = candidate.state.resources.items.find((item) => item.resourceId === candidate.candidateResourceId);
   const artifact = JSON.parse(await fs.readFile(path.join(env.store.taskDirectory(env.trusted.taskId), ...resource.locator.path.split("/")), "utf8"));
   assert.equal(artifact.teams.find((team) => team.id === "t1").bossHP, 40);
+});
+
+test("baseline 变化会拒绝确认且保持 AWAITING_CONFIRMATION", async (t) => {
+  const env = await fixture();
+  t.after(env.cleanup);
+  const planned = await env.update.plan(env.trusted, { teamId: "t1", bossHP: 40 });
+  const changed = structuredClone(fixtureData);
+  changed.teams[0].bossHP = 49;
+  await fs.writeFile(path.join(env.root, "workspace", "public", "data.json"), JSON.stringify(changed));
+  await expectCode(env.update.confirm(env.trusted, {
+    feishuOpenId: "ou_owner", messageId: "om_create", planHash: planned.plan.planHash,
+  }), "BASELINE_CHANGED");
+  const state = await env.store.readTask(env.trusted.taskId);
+  assert.equal(state.lifecycle.state, "AWAITING_CONFIRMATION");
+  assert.equal(state.confirmations?.execution, undefined);
+  assert.equal(state.execution.candidateResourceId, undefined);
 });
 
 test("信息不足、队伍歧义和不存在均不会生成计划", async (t) => {

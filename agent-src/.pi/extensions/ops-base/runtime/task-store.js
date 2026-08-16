@@ -236,8 +236,22 @@ class TaskStore {
     });
   }
 
-  async saveBaseline(taskId, expectedDocumentRevision, baseline) {
-    return this.saveJsonArtifact(taskId, expectedDocumentRevision, "baseline", baseline);
+  async saveBaseline(taskId, expectedDocumentRevision, baseline, sourceSha256) {
+    if (typeof sourceSha256 !== "string" || !sourceSha256.startsWith("sha256:")) {
+      throw new TaskStoreInvariantError("baseline 必须携带来源 data.json 的 sha256");
+    }
+    return this.saveJsonArtifact(taskId, expectedDocumentRevision, "baseline", baseline, { sourceSha256 });
+  }
+
+  async readBaseline(taskId) {
+    const state = await this.readTask(taskId);
+    const resourceId = state.execution?.baselineResourceId;
+    const resource = state.resources.items.find((item) => item.resourceId === resourceId);
+    if (!resource?.locator?.path || typeof resource.locator.sourceSha256 !== "string") {
+      throw new TaskStoreInvariantError("baseline snapshot 或来源 sha256 缺失");
+    }
+    const artifactPath = path.join(this.taskDirectory(taskId), ...resource.locator.path.split("/"));
+    return { state, resource: clone(resource), baseline: await readJson(artifactPath) };
   }
 
   async saveValidationReport(taskId, expectedDocumentRevision, report) {
@@ -248,7 +262,7 @@ class TaskStore {
     return this.saveJsonArtifact(taskId, expectedDocumentRevision, "change-record", record);
   }
 
-  async saveJsonArtifact(taskId, expectedDocumentRevision, kind, payload) {
+  async saveJsonArtifact(taskId, expectedDocumentRevision, kind, payload, options = {}) {
     const definitions = {
       baseline: { filename: "baseline-data", resourceId: "res_baseline_snapshot", type: "TEMP_FILE", pointer: ["execution", "baselineResourceId"] },
       "validation-report": { filename: "validation-report-attempt", resourceId: "res_validation_report", type: "TEMP_FILE", pointer: ["validation", "reportResourceId"] },
@@ -283,6 +297,7 @@ class TaskStore {
         locator: {
           path: path.posix.join("artifacts", filename),
           sha256: `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`,
+          ...(options.sourceSha256 ? { sourceSha256: options.sourceSha256 } : {}),
         },
         status: "ACTIVE",
         createdAt: timestamp,

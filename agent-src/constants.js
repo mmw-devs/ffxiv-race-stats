@@ -12,3 +12,16 @@ const VALID_STATUSES = ["upcoming", "live", "ended"];
 const REQUIRED_TOP_KEYS = ["meta", "teams", "news", "broadcasters", "notices", "sponsors"];
 const TEAM_PLAYER_COUNT = 8;
 const SCHEMA_VERSION = 1;
+
+// 供 Runtime 复用同一份值域定义；validate-data.js 的 VM 加载环境没有 module，故须兼容。
+if (typeof module !== "undefined") {
+  module.exports = {
+    PHASE_ORDER,
+    VALID_REGIONS,
+    VALID_ROLES,
+    VALID_STATUSES,
+    REQUIRED_TOP_KEYS,
+    TEAM_PLAYER_COUNT,
+    SCHEMA_VERSION,
+  };
+}

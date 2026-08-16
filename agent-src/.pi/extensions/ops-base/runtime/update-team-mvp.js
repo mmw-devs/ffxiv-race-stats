@@ -5,9 +5,8 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { TaskStoreInvariantError } = require("./task-store.js");
+const { PHASE_ORDER } = require("../../../../constants.js");
 
-const PHASE_ORDER = ["P1", "P2", "P3", "P4", "CLEAR"];
 const ALLOWED_FIELDS = new Set(["phase", "bossHP", "isLive"]);
 
 class UpdateTeamMvpError extends Error {
@@ -103,21 +102,40 @@ class UpdateTeamMvp {
   }
 
   async plan(trusted, request) {
-    const state = await this.taskStore.readTask(trusted.taskId);
+    let state = await this.taskStore.readTask(trusted.taskId);
     assertTrustedTask(state, trusted);
-    const { data, sha256: baselineSha256 } = await readRaceData(this.workspaceRoot);
-    const team = resolveTeam(data.teams, request);
+
+    // 首次有效计划固化 snapshot；后续重计划永远从同一 baseline 推导，不能偷读已变化的 data.json。
+    let baseline;
+    let baselineResource;
+    if (state.execution?.baselineResourceId) {
+      const saved = await this.taskStore.readBaseline(state.taskId);
+      state = saved.state;
+      baseline = saved.baseline;
+      baselineResource = saved.resource;
+    } else {
+      const current = await readRaceData(this.workspaceRoot);
+      const team = resolveTeam(current.data.teams, request);
+      const fields = requestedValues(request);
+      const plannedChanges = buildChanges(team, request, fields);
+      if (plannedChanges.length === 0) throw new UpdateTeamMvpError("NO_EFFECT", "请求不会产生任何数据变化");
+      const saved = await this.taskStore.saveBaseline(state.taskId, state.documentRevision, current.data, current.sha256);
+      state = saved.state;
+      baseline = current.data;
+      baselineResource = saved.resource;
+    }
+
+    const team = resolveTeam(baseline.teams, request);
     const fields = requestedValues(request);
     const plannedChanges = buildChanges(team, request, fields);
-    if (plannedChanges.length === 0) {
-      throw new UpdateTeamMvpError("NO_EFFECT", "请求不会产生任何数据变化");
-    }
+    if (plannedChanges.length === 0) throw new UpdateTeamMvpError("NO_EFFECT", "请求不会产生任何数据变化");
     const plan = {
       operationId: "updateTeam",
       target: { teamId: team.id },
       requestedFields: fields,
       plannedChanges,
-      baselineDataSha256: baselineSha256,
+      baselineDataSha256: baselineResource.locator.sourceSha256,
+      baselineResourceId: baselineResource.resourceId,
     };
     plan.planHash = `sha256:${sha256(stableJson({ taskId: state.taskId, operator: state.operator.feishuOpenId, ...plan }))}`;
 
@@ -147,7 +165,22 @@ class UpdateTeamMvp {
       throw new UpdateTeamMvpError("CONFIRMATION_MESSAGE_MISMATCH", "确认消息不是当前可信 ingress");
     }
 
+    const savedBaseline = await this.taskStore.readBaseline(state.taskId);
+    if (plan.baselineResourceId !== savedBaseline.resource.resourceId
+      || plan.baselineDataSha256 !== savedBaseline.resource.locator.sourceSha256) {
+      throw new UpdateTeamMvpError("BASELINE_MISMATCH", "计划引用的 baseline snapshot 不一致");
+    }
+    // 必须在写入 CONFIRMED 前检查当前数据，失败时保留 AWAITING_CONFIRMATION，确认不产生副作用。
+    const { sha256: currentSha256 } = await readRaceData(this.workspaceRoot);
+    if (currentSha256 !== plan.baselineDataSha256) {
+      throw new UpdateTeamMvpError("BASELINE_CHANGED", "data.json 已变化，旧 plan 不能产生 candidate");
+    }
+
     const confirmed = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => {
+      assertTrustedTask(draft, trusted);
+      if (draft.lifecycle.state !== "AWAITING_CONFIRMATION" || draft.operation?.planHash !== confirmation.planHash) {
+        throw new UpdateTeamMvpError("STALE_PLAN_CONFIRMATION", "确认期间计划已变化");
+      }
       draft.confirmations = draft.confirmations || {};
       draft.confirmations.execution = {
         confirmedByFeishuOpenId: confirmation.feishuOpenId,
@@ -159,11 +192,7 @@ class UpdateTeamMvp {
       return draft;
     });
 
-    const { data, sha256: currentSha256 } = await readRaceData(this.workspaceRoot);
-    if (currentSha256 !== plan.baselineDataSha256) {
-      throw new UpdateTeamMvpError("BASELINE_CHANGED", "data.json 已变化，旧 plan 不能产生 candidate");
-    }
-    const candidate = structuredClone(data);
+    const candidate = structuredClone(savedBaseline.baseline);
     const team = candidate.teams.find((item) => item.id === plan.target.teamId);
     if (!team) throw new UpdateTeamMvpError("TEAM_NOT_FOUND", "candidate 中找不到目标 team");
     for (const change of plan.plannedChanges) {

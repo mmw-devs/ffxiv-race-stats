@@ -48,8 +48,9 @@ test("创建 task、保存 artifact 并以 CAS 更新 state", async (t) => {
     CompareAndSwapError,
   );
 
-  const baseline = await env.store.saveBaseline(created.taskId, 2, { teams: [] });
+  const baseline = await env.store.saveBaseline(created.taskId, 2, { teams: [] }, "sha256:fixture");
   assert.equal(baseline.state.documentRevision, 3);
+  assert.equal(baseline.resource.locator.sourceSha256, "sha256:fixture");
   assert.equal(baseline.state.execution.baselineResourceId, "res_baseline_snapshot_1");
   await fs.access(path.join(env.store.taskDirectory(created.taskId), "artifacts", "baseline-data.json"));
 
