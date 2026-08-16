@@ -297,6 +297,68 @@ class TaskStore {
     });
   }
 
+  async recordIngress(taskId, expectedDocumentRevision, ingress) {
+    if (!ingress || typeof ingress !== "object" || typeof ingress.requestId !== "string" || typeof ingress.route?.messageId !== "string") {
+      throw new TaskStoreInvariantError("IngressRequest 不完整");
+    }
+    return this.withTaskLock(taskId, async () => {
+      const current = await this.readTask(taskId);
+      if (current.documentRevision !== expectedDocumentRevision) {
+        throw new CompareAndSwapError(
+          `ingress revision 不匹配：期望 ${expectedDocumentRevision}，实际 ${current.documentRevision}`,
+        );
+      }
+      if (current.operator?.feishuOpenId !== ingress.operator?.feishuOpenId) {
+        throw new TaskStoreInvariantError("IngressRequest operator 与 task 不匹配");
+      }
+      if (!current.routing || current.routing.chatId !== ingress.route.chatId || current.routing.triggerMessageId !== ingress.route.triggerMessageId) {
+        throw new TaskStoreInvariantError("IngressRequest route 与 task 不匹配");
+      }
+      const messageId = ingress.route.messageId;
+      const existing = current.resources.items.find((item) => item.locator?.messageId === messageId);
+      if (existing) return { deduplicated: true, state: clone(current), resource: clone(existing) };
+
+      const digest = crypto.createHash("sha256").update(messageId).digest("hex");
+      const resourceId = `res_ingress_${digest.slice(0, 16)}`;
+      const filename = `ingress-${digest}.json`;
+      const artifactPath = path.join(this.taskDirectory(taskId), "artifacts", filename);
+      await writeJsonAtomically(artifactPath, ingress);
+      const bytes = await fsp.readFile(artifactPath);
+      const timestamp = this.now();
+      const next = clone(current);
+      const resource = {
+        resourceId,
+        type: "TEMP_FILE",
+        createdByTask: true,
+        locator: {
+          path: path.posix.join("artifacts", filename),
+          messageId,
+          sha256: `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`,
+        },
+        status: "ACTIVE",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        cleanup: { policy: "DELETE_AFTER_LOG_RETENTION", required: false, status: "PENDING", completedAt: null },
+      };
+      next.resources.items.push(resource);
+      next.routing.lastInboundMessageId = messageId;
+      next.documentRevision += 1;
+      next.updatedAt = timestamp;
+      await this.writeState(next);
+      return { deduplicated: false, state: clone(next), resource: clone(resource) };
+    });
+  }
+
+  async readLatestIngress(taskId) {
+    const state = await this.readTask(taskId);
+    const messageId = state.routing?.lastInboundMessageId;
+    if (!messageId) throw new TaskStoreInvariantError("task 没有 current ingress");
+    const resource = state.resources.items.find((item) => item.locator?.messageId === messageId);
+    if (!resource?.locator?.path) throw new TaskStoreInvariantError("current ingress resource 缺失");
+    const artifactPath = path.join(this.taskDirectory(taskId), ...resource.locator.path.split("/"));
+    return { state, ingress: await readJson(artifactPath), resource: clone(resource) };
+  }
+
   async recordPiSession(taskId, expectedDocumentRevision, session) {
     if (!session || typeof session.piSessionId !== "string" || !session.piSessionId || typeof session.sessionFile !== "string" || !session.sessionFile) {
       throw new TaskStoreInvariantError("PI session 信息不完整");

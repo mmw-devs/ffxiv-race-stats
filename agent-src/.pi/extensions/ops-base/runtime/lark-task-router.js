@@ -17,7 +17,37 @@ function normalizeRouting(event) {
     // 非 thread 首条群消息没有 root_id 时，以 trigger message 作为该话题根。
     rootMessageId: event.rootMessageId || event.triggerMessageId,
     triggerMessageId: event.triggerMessageId,
+    lastInboundMessageId: null,
     piSessionResourceId: null,
+  };
+}
+
+function buildIngress(event, state, messageKind) {
+  const sentAt = new Date().toISOString();
+  return {
+    protocolVersion: "ops-ingress/1.0.0",
+    requestId: `feishu-message:${event.triggerMessageId}`,
+    messageKind,
+    taskId: state.taskId,
+    attempt: state.lifecycle.attempt || 1,
+    sentAt,
+    operator: { identityType: "FEISHU_OPEN_ID", feishuOpenId: state.operator.feishuOpenId },
+    route: {
+      channel: "FEISHU",
+      chatType: event.chatType.toUpperCase(),
+      chatId: event.chatId,
+      threadId: event.threadId || null,
+      topicId: null,
+      rootMessageId: event.rootMessageId || null,
+      replyToMessageId: null,
+      messageId: event.triggerMessageId,
+      triggerMessageId: state.routing.triggerMessageId,
+    },
+    message: {
+      createdAt: event.createdAt || null,
+      receivedAt: sentAt,
+      text: event.text || "",
+    },
   };
 }
 
@@ -43,16 +73,26 @@ class LarkTaskRouter {
 
     const active = await this.taskStore.recoverActiveTask();
     if (!active) {
-      const state = await this.taskStore.createTask({
+      const created = await this.taskStore.createTask({
         routing: normalizeRouting(event),
         operator: { feishuOpenId: event.feishuOpenId },
       });
-      return { kind: "created", state };
+      const recorded = await this.taskStore.recordIngress(
+        created.taskId,
+        created.documentRevision,
+        buildIngress(event, created, "TASK_CREATE"),
+      );
+      return { kind: "created", state: recorded.state, deduplicated: recorded.deduplicated };
     }
 
     const sameOperator = active.operator?.feishuOpenId === event.feishuOpenId;
     if (sameOperator && isSameRoute(active.routing, event)) {
-      return { kind: "follow-up", state: active };
+      const recorded = await this.taskStore.recordIngress(
+        active.taskId,
+        active.documentRevision,
+        buildIngress(event, active, "TASK_FOLLOW_UP"),
+      );
+      return { kind: "follow-up", state: recorded.state, deduplicated: recorded.deduplicated };
     }
 
     return {
@@ -67,4 +107,4 @@ class LarkTaskRouter {
   }
 }
 
-module.exports = { LarkTaskRouter, isSameRoute, normalizeRouting };
+module.exports = { LarkTaskRouter, buildIngress, isSameRoute, normalizeRouting };

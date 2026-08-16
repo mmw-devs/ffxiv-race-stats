@@ -785,6 +785,8 @@ async function handleLarkEvent(event: LarkEvent, source: "ws" | "poll"): Promise
       threadId: event.thread_id,
       rootMessageId: event.root_id,
       triggerMessageId: event.message_id,
+      createdAt: event.create_time,
+      text: stripMention(event.content),
     });
   } catch (error: any) {
     log(`⛔ task 路由失败 msgId=${event.message_id.slice(-8)}：${error?.message?.slice(0, 160)}`);
@@ -794,6 +796,11 @@ async function handleLarkEvent(event: LarkEvent, source: "ws" | "poll"): Promise
   if (routed.kind === "rejected") {
     log(`⛔ task 路由拒绝 msgId=${event.message_id.slice(-8)} activeTask=${routed.state.taskId}`);
     sendReply(event.message_id, "当前已有运营任务处理中，请等待其结束后再创建新任务。", !!tid);
+    return;
+  }
+  if (routed.deduplicated) {
+    // WS/poll 或 Bot restart 后的同 messageId：state 已给出同一 task，但绝不重复投递 prompt。
+    log(`⏭ 持久 ingress 去重 taskId=${routed.state.taskId} msgId=${event.message_id.slice(-8)}`);
     return;
   }
 
