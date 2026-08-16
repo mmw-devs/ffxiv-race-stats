@@ -16,6 +16,8 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, appendF
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TaskStore } from "../extensions/ops-base/runtime/task-store.js";
+import { LarkTaskRouter } from "../extensions/ops-base/runtime/lark-task-router.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -281,12 +283,12 @@ async function pollActiveThreads(): Promise<void> {
         const mentioned = content.includes(`@${BOT_NAME}`);
         if (mentioned) activateThread(tid);
         else if (!isThreadActive(tid)) continue;
-        handleLarkEvent({
+        void handleLarkEvent({
           type: "im.message.receive_v1", chat_id: chatId, chat_type: "group",
           sender_id: msg.sender?.id || "unknown", message_id: msg.message_id,
           message_type: "text", content, create_time: msg.create_time || "",
           thread_id: tid, root_id: msg.root_id,
-        }, "poll");
+        }, "poll").catch((error) => log(`poll task 路由异常: ${error?.message?.slice(0, 160)}`));
       }
     } catch {}
   }
@@ -312,10 +314,10 @@ function shouldHandle(event: LarkEvent): boolean {
   return false;
 }
 
-function formatPrompt(event: LarkEvent): string {
-  const sender = event.sender_id.slice(-8);
+function formatPrompt(event: LarkEvent, taskId: string): string {
   const chatType = event.chat_type === "p2p" ? "私聊" : "群聊";
-  return `[${chatType} | 用户 ${sender}]\n${stripMention(event.content)}`;
+  // operator/taskId 只来自 task-store 路由结果；不得从用户文本或截断 sender_id 推断。
+  return `[${chatType} | operator=${event.sender_id} | taskId=${taskId}]\n${stripMention(event.content)}`;
 }
 
 // ═══════════════ 多 pi RPC 管理 ═══════════════
@@ -338,6 +340,9 @@ interface PendingTask {
   source: "ws" | "poll";     // 消息来源（WS 实时 / 话题轮询）
   createTime: string | undefined; // 飞书原始时间
   attemptCount: number;      // prompt 投递尝试次数（success:false 时递增重试）
+  taskId: string;            // ops-base 持久化任务 ID，绝不使用 promptId 代替
+  requiresNewSession: boolean; // 仅新建 task 在投递首条 prompt 前重置 PI session
+  piSessionKey: string;       // 当前 RPC 进程键，仅用于登记真实 PI session 的宿主
 }
 
 /** 单飞取回复文本的等待句柄（completeActiveTask 期间只有一个） */
@@ -360,9 +365,13 @@ interface PiSession {
   finishing: boolean;
   /** 单飞取文本的等待句柄（completeActiveTask 期间最多 1 个） */
   pendingResultFetch: PendingResultFetch | null;
+  /** 正在等待 new_session → get_state → task-store 登记的首条 task */
+  pendingSessionStart: PendingTask | null;
 }
 const sessions = new Map<string, PiSession>();
 let eventSeq = 0;
+let taskStore: TaskStore;
+let taskRouter: LarkTaskRouter;
 
 function startPi(sessionKey: string): void {
   const existing = sessions.get(sessionKey);
@@ -390,6 +399,7 @@ function startPi(sessionKey: string): void {
       seenMessageIds: new Map(),
       finishing: false,
       pendingResultFetch: null,
+      pendingSessionStart: null,
     };
     sessions.set(sessionKey, pi);
   }
@@ -445,6 +455,7 @@ function startPi(sessionKey: string): void {
 
     // 3. 重置 finishing + ready
     pi.finishing = false;
+    pi.pendingSessionStart = null;
     pi.ready = false;
     pi.proc = null as any;
 
@@ -468,8 +479,27 @@ function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void
 
   switch (event.type) {
     case "response": {
-      if (event.command === "get_state" && event.success) {
+      if (event.command === "new_session") {
+        const task = pi.pendingSessionStart;
+        const cancelled = (event as any).data?.cancelled === true;
+        if (!task || pi.activeTask?.promptId !== task.promptId) {
+          log(`⚠ 收到 new_session 响应但无待启动 task`);
+        } else if (!event.success || cancelled) {
+          finishTaskWithError(pi, task, cancelled ? "PI new_session 被取消" : "PI new_session 失败");
+        } else {
+          // 单飞：new_session 成功后才查询真实 sessionId/sessionFile，再允许投递首条 prompt。
+          pi.proc.stdin?.write('{"type":"get_state"}\n');
+        }
+      } else if (event.command === "get_state" && event.success) {
         pi.ready = true;
+        const task = pi.pendingSessionStart;
+        if (task) {
+          void finishTaskSessionStart(pi, task, (event as any).data).catch((error) => {
+            log(`💥 PI session 登记失败: ${error?.message?.slice(0, 200)}`);
+            finishTaskWithError(pi, task, "PI session 登记失败");
+          });
+          break;
+        }
         log(`[pi:${sessionKey.slice(-12)}] 就绪`);
         // 重启补偿：队列有任务且无 activeTask，自动晋升
         if (!pi.activeTask && pi.waitingTasks.length > 0) {
@@ -550,12 +580,42 @@ function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void
  * 启动处理一个任务：占位 activeTask、切换到 THINKING 表情、向 pi 投递 prompt。
  * 投递成功/失败由 pi RPC 的 prompt 响应决定（成功 → 等 agent_settled；失败 → attemptCount++ 重试）。
  */
+function sendPrompt(pi: PiSession, task: PendingTask): void {
+  const line = JSON.stringify({ type: "prompt", id: task.promptId, message: task.prompt });
+  pi.proc.stdin?.write(line + "\n");
+  log(`🚀 startTask taskId=${task.taskId} promptId=${task.promptId} msgId=${task.msgId.slice(-8)} source=${task.source} queue=${pi.waitingTasks.length}`);
+}
+
+async function finishTaskSessionStart(pi: PiSession, task: PendingTask, data: any): Promise<void> {
+  if (pi.pendingSessionStart?.promptId !== task.promptId || pi.activeTask?.promptId !== task.promptId) return;
+  const piSessionId = data?.sessionId;
+  const sessionFile = data?.sessionFile;
+  if (typeof piSessionId !== "string" || !piSessionId || typeof sessionFile !== "string" || !sessionFile) {
+    throw new Error("get_state 未返回 sessionId/sessionFile");
+  }
+  const state = await taskStore.readTask(task.taskId);
+  if (state.lifecycle.state === "ENDED") {
+    throw new Error("task 已结束，拒绝投递首条 prompt");
+  }
+  await taskRouter.recordPiSession(task.taskId, state.documentRevision, {
+    piSessionId,
+    sessionFile,
+    sessionKey: task.piSessionKey,
+  });
+  pi.pendingSessionStart = null;
+  sendPrompt(pi, task);
+}
+
 function startTask(pi: PiSession, task: PendingTask): void {
   pi.activeTask = task;
   switchReaction(task, EMOJI_THINKING);
-  const line = JSON.stringify({ type: "prompt", id: task.promptId, message: task.prompt });
-  pi.proc.stdin?.write(line + "\n");
-  log(`🚀 startTask promptId=${task.promptId} msgId=${task.msgId.slice(-8)} source=${task.source} queue=${pi.waitingTasks.length}`);
+  if (task.requiresNewSession) {
+    pi.pendingSessionStart = task;
+    pi.proc.stdin?.write('{"type":"new_session"}\n');
+    log(`🆕 taskId=${task.taskId} 在首条 prompt 前请求 PI new_session`);
+    return;
+  }
+  sendPrompt(pi, task);
 }
 
 /**
@@ -598,6 +658,7 @@ function finishTaskWithError(pi: PiSession, task: PendingTask, reason: string): 
     log(`回复 ERROR 失败: ${e?.message?.slice(0, 80)}`);
   }
   if (pi.activeTask?.promptId === task.promptId) {
+    if (pi.pendingSessionStart?.promptId === task.promptId) pi.pendingSessionStart = null;
     pi.activeTask = null;
     pi.finishing = false; // 防御性：避免异常路径下 finishing 残留
     promoteNext(pi);
@@ -633,6 +694,15 @@ async function completeActiveTask(pi: PiSession): Promise<void> {
     return;
   }
   pi.finishing = true;
+
+  // agent_settled 只表示 PI turn 空闲；任务是否结束始终以 task-store state 为准。
+  try {
+    const state = await taskStore.readTask(task.taskId);
+    log(`🏁 [${task.promptId}] agent_settled taskId=${task.taskId} lifecycle=${state.lifecycle.state}`);
+  } catch (error: any) {
+    finishTaskWithError(pi, task, `读取 task state 失败：${error?.message ?? "unknown"}`);
+    return;
+  }
 
   const fetchId = `result-${task.promptId}`;
 
@@ -687,13 +757,13 @@ async function completeActiveTask(pi: PiSession): Promise<void> {
  *   3. 创建 PendingTask，初始表情 WAVE
  *   4. 分流：activeTask 空 → 立即 startTask；否则 → 表情 WAITING + push 等待队列
  */
-function handleLarkEvent(event: LarkEvent, source: "ws" | "poll"): void {
+async function handleLarkEvent(event: LarkEvent, source: "ws" | "poll"): Promise<void> {
   if (event.chat_id) knownChatIds.add(event.chat_id);
   if (!shouldHandle(event)) return;
 
   const key = sessionKey(event);
   const pi = getPiSession(key);
-  if (!pi?.ready) { sendReply(event.message_id, "Bot 启动中，请稍后再试..."); return; }
+  if (!pi?.ready || !taskRouter) { sendReply(event.message_id, "Bot 启动中，请稍后再试..."); return; }
 
   const tid = threadKey(event);
   if (tid) { activateThread(tid); }
@@ -705,12 +775,33 @@ function handleLarkEvent(event: LarkEvent, source: "ws" | "poll"): void {
   }
   pi.seenMessageIds.set(event.message_id, Date.now());
 
-  // 2. 创建 task
+  // 2. task-store 是唯一运营任务路由源；sender_id 必须是完整 Feishu open_id。
+  let routed: any;
+  try {
+    routed = await taskRouter.route({
+      chatId: event.chat_id,
+      chatType: event.chat_type,
+      feishuOpenId: event.sender_id,
+      threadId: event.thread_id,
+      rootMessageId: event.root_id,
+      triggerMessageId: event.message_id,
+    });
+  } catch (error: any) {
+    log(`⛔ task 路由失败 msgId=${event.message_id.slice(-8)}：${error?.message?.slice(0, 160)}`);
+    sendReply(event.message_id, "无法验证运营身份或任务状态，操作已拒绝。", !!tid);
+    return;
+  }
+  if (routed.kind === "rejected") {
+    log(`⛔ task 路由拒绝 msgId=${event.message_id.slice(-8)} activeTask=${routed.state.taskId}`);
+    sendReply(event.message_id, "当前已有运营任务处理中，请等待其结束后再创建新任务。", !!tid);
+    return;
+  }
+
   const promptId = `f-${++eventSeq}-${event.message_id.slice(-8)}`;
   const task: PendingTask = {
     promptId,
     msgId: event.message_id,
-    prompt: formatPrompt(event),
+    prompt: formatPrompt(event, routed.state.taskId),
     reactionId: null,
     replyInThread: !!tid,
     chatId: event.chat_id,
@@ -719,19 +810,22 @@ function handleLarkEvent(event: LarkEvent, source: "ws" | "poll"): void {
     source,
     createTime: event.create_time,
     attemptCount: 0,
+    taskId: routed.state.taskId,
+    requiresNewSession: routed.kind === "created",
+    piSessionKey: key,
   };
 
   // 3. WAVE
   task.reactionId = addReaction(event.message_id, EMOJI_READ);
-  log(`📩 [${key.slice(-12)}] 入队 msgId=${event.message_id.slice(-8)} promptId=${promptId} source=${source} queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} content="${event.content.slice(0, 40)}"`);
+  log(`📩 [${key.slice(-12)}] taskId=${task.taskId} route=${routed.kind} msgId=${event.message_id.slice(-8)} promptId=${promptId} source=${source} queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} content="${event.content.slice(0, 40)}"`);
 
-  // 4. 分流
+  // 4. 同一 task 的连续消息可沿用当前 PI session FIFO；不同 task 已在路由层拒绝。
   if (pi.activeTask === null) {
     startTask(pi, task);
   } else {
     switchReaction(task, EMOJI_WAITING);
     pi.waitingTasks.push(task);
-    log(`⏳ [${promptId}] WAITING 分支 msgId=${task.msgId.slice(-8)} source=${task.source} depth=${pi.waitingTasks.length}`);
+    log(`⏳ [${promptId}] WAITING taskId=${task.taskId} msgId=${task.msgId.slice(-8)} source=${task.source} depth=${pi.waitingTasks.length}`);
   }
 }
 
@@ -748,7 +842,7 @@ function startLarkEvents(): ChildProcess {
     while ((idx = buf.indexOf("\n")) !== -1) {
       const line = buf.slice(0, idx); buf = buf.slice(idx + 1);
       if (!line.trim()) continue;
-      try { handleLarkEvent(JSON.parse(line), "ws"); } catch {}
+      try { void handleLarkEvent(JSON.parse(line), "ws").catch((error) => log(`WS task 路由异常: ${error?.message?.slice(0, 160)}`)); } catch {}
     }
   });
 
@@ -784,7 +878,16 @@ function startAllPi(): void {
   }
 }
 
-function main(): void {
+async function initializeTaskRuntime(): Promise<void> {
+  taskStore = new TaskStore({ workspaceRoot: PROJECT_DIR });
+  await taskStore.initialize();
+  taskRouter = new LarkTaskRouter(taskStore);
+  const active = await taskStore.recoverActiveTask();
+  if (active) log(`🔒 恢复 active task taskId=${active.taskId} lifecycle=${active.lifecycle.state}`);
+}
+
+async function main(): Promise<void> {
+  await initializeTaskRuntime();
   // 启动期 PID 校验：使用 isAlive() 确保 Windows 下也能准确检测
   if (existsSync(PID_FILE)) {
     try {
@@ -847,4 +950,7 @@ function cleanup(): void {
   process.exit(0);
 }
 
-main();
+main().catch((error) => {
+  log(`💥 lark-bot 初始化失败：${error?.message?.slice(0, 240)}`);
+  process.exit(1);
+});

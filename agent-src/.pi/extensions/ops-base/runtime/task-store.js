@@ -297,6 +297,46 @@ class TaskStore {
     });
   }
 
+  async recordPiSession(taskId, expectedDocumentRevision, session) {
+    if (!session || typeof session.piSessionId !== "string" || !session.piSessionId || typeof session.sessionFile !== "string" || !session.sessionFile) {
+      throw new TaskStoreInvariantError("PI session 信息不完整");
+    }
+    return this.updateState(taskId, expectedDocumentRevision, (state) => {
+      const resourceId = `res_pi_session_${state.lifecycle.attempt || 1}`;
+      if (state.resources.items.some((item) => item.resourceId === resourceId)) {
+        throw new TaskStoreInvariantError(`PI session 已登记：${resourceId}`);
+      }
+      const timestamp = this.now();
+      state.resources.items.push({
+        resourceId,
+        type: "PI_SESSION",
+        createdByTask: true,
+        locator: {
+          piSessionId: session.piSessionId,
+          sessionFile: session.sessionFile,
+          sessionKey: session.sessionKey,
+        },
+        status: "ACTIVE",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        cleanup: { policy: "MANUAL_RETENTION", required: false, status: "PENDING", completedAt: null },
+      });
+      if (!state.routing || typeof state.routing !== "object") state.routing = {};
+      state.routing.piSessionResourceId = resourceId;
+      return state;
+    });
+  }
+
+  async endTask(taskId, expectedDocumentRevision, finalResult = "ENDED") {
+    const state = await this.updateState(taskId, expectedDocumentRevision, (next) => {
+      next.lifecycle.state = "ENDED";
+      next.lifecycle.finalResult = finalResult;
+      return next;
+    });
+    await this.releaseMutationLock(taskId);
+    return state;
+  }
+
   async scanNonEndedTasks() {
     const entries = await fsp.readdir(this.tasksRoot(), { withFileTypes: true });
     const states = [];
