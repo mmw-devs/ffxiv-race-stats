@@ -4,6 +4,7 @@
 const crypto = require("node:crypto");
 const { PHASE_ORDER } = require("../../../../constants.js");
 const { UpdateTeamMvpError } = require("./update-team-mvp.js");
+const { generateUpdateTeamOpLog } = require("../../../../scripts/update-team-op-log.js");
 
 const ALLOWED_FIELDS = new Set(["phase", "bossHP", "isLive"]);
 
@@ -80,6 +81,13 @@ function validateUpdateTeam({ baseline, candidate, plan }) {
 
 class UpdateTeamValidator {
   constructor({ taskStore }) { this.taskStore = taskStore; }
+
+  async generateOpLog(taskId, timestamp) {
+    const state = await this.taskStore.readTask(taskId);
+    if (state.lifecycle.state !== "VALIDATED") throw new UpdateTeamMvpError("OP_LOG_NOT_ALLOWED", "仅 VALIDATED task 可以生成提交 OP_LOG");
+    const report = await this.taskStore.readResourceJson(taskId, state.validation.reportResourceId);
+    return generateUpdateTeamOpLog(state, report.payload, timestamp);
+  }
 
   async validate(taskId) {
     let state = await this.taskStore.readTask(taskId);

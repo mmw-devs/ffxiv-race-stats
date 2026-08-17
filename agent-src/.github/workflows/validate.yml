@@ -60,6 +60,8 @@ jobs:
 
       - name: Validate operation log (content/* PR only)
         if: startsWith(github.head_ref, 'content/')
+        env:
+          OPS_BASE_ALLOWED_OPEN_IDS: ${{ vars.OPS_BASE_ALLOWED_OPEN_IDS }}
         run: |
           echo "::group::操作日志校验"
           git fetch origin "${{ github.base_ref }}"
