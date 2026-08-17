@@ -287,15 +287,23 @@ class TaskStore {
     return this.saveJsonArtifact(taskId, expectedDocumentRevision, "baseline", baseline, { sourceSha256 });
   }
 
-  async readBaseline(taskId) {
+  async readResourceJson(taskId, resourceId) {
     const state = await this.readTask(taskId);
-    const resourceId = state.execution?.baselineResourceId;
     const resource = state.resources.items.find((item) => item.resourceId === resourceId);
-    if (!resource?.locator?.path || typeof resource.locator.sourceSha256 !== "string") {
-      throw new TaskStoreInvariantError("baseline snapshot 或来源 sha256 缺失");
-    }
+    if (!resource?.locator?.path) throw new TaskStoreInvariantError(`JSON resource 缺失：${resourceId}`);
     const artifactPath = path.join(this.taskDirectory(taskId), ...resource.locator.path.split("/"));
-    return { state, resource: clone(resource), baseline: await readJson(artifactPath) };
+    return { state, resource: clone(resource), payload: await readJson(artifactPath) };
+  }
+
+  async readBaseline(taskId) {
+    const result = await this.readResourceJson(taskId, (await this.readTask(taskId)).execution?.baselineResourceId);
+    if (typeof result.resource.locator.sourceSha256 !== "string") throw new TaskStoreInvariantError("baseline 来源 sha256 缺失");
+    return { state: result.state, resource: result.resource, baseline: result.payload };
+  }
+
+  async readCandidateData(taskId) {
+    const result = await this.readResourceJson(taskId, (await this.readTask(taskId)).execution?.candidateResourceId);
+    return { state: result.state, resource: result.resource, candidate: result.payload };
   }
 
   async saveValidationReport(taskId, expectedDocumentRevision, report) {
@@ -312,6 +320,7 @@ class TaskStore {
       "validation-report": { filename: "validation-report-attempt", resourceId: "res_validation_report", type: "TEMP_FILE", pointer: ["validation", "reportResourceId"] },
       "change-record": { filename: "change-record-attempt", resourceId: "res_change_record", type: "CHANGE_RECORD", pointer: ["validation", "changeRecordResourceId"] },
       candidate: { filename: "candidate-data", resourceId: "res_candidate_data", type: "TEMP_FILE", pointer: ["execution", "candidateResourceId"] },
+      "candidate-restore": { filename: "candidate-restored-baseline", resourceId: "res_candidate_restore", type: "TEMP_FILE", pointer: ["execution", "candidateResourceId"] },
     };
     const definition = definitions[kind];
     if (!definition) throw new TaskStoreInvariantError(`未知 artifact 类型：${kind}`);
@@ -359,6 +368,10 @@ class TaskStore {
 
   async saveCandidateData(taskId, expectedDocumentRevision, candidate) {
     return this.saveJsonArtifact(taskId, expectedDocumentRevision, "candidate", candidate);
+  }
+
+  async restoreCandidateBaseline(taskId, expectedDocumentRevision, baseline) {
+    return this.saveJsonArtifact(taskId, expectedDocumentRevision, "candidate-restore", baseline);
   }
 
   async recordIngress(taskId, expectedDocumentRevision, ingress) {

@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { TaskStore } from "./runtime/task-store.js";
 import { loadTrustedIngress } from "./runtime/trusted-ingress.js";
 import { UpdateTeamMvp } from "./runtime/update-team-mvp.js";
+import { UpdateTeamValidator } from "./runtime/update-team-validator.js";
 
 /** 从当前 PI session 获得唯一可信 task；不接受模型提供的 taskId/operator。 */
 async function getRuntime(ctx: any) {
@@ -11,7 +12,11 @@ async function getRuntime(ctx: any) {
   const piSessionId = ctx.sessionManager.getSessionId();
   const trusted = piSessionId ? await loadTrustedIngress(store, piSessionId) : null;
   if (!trusted) throw new Error("当前 PI session 没有可信 ops-base task ingress");
-  return { trusted, updateTeam: new UpdateTeamMvp({ taskStore: store, workspaceRoot: ctx.cwd }) };
+  return {
+    trusted,
+    store,
+    updateTeam: new UpdateTeamMvp({ taskStore: store, workspaceRoot: ctx.cwd }),
+  };
 }
 
 /**
@@ -90,6 +95,18 @@ export default function opsBaseExtension(pi: ExtensionAPI) {
         messageId: trusted.messageId,
         planHash: input.planHash,
       });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+    },
+  });
+
+  pi.registerTool({
+    name: "ops_base_validate_update_team",
+    label: "Validate updateTeam candidate",
+    description: "校验已确认的 updateTeam candidate；失败时恢复 baseline candidate，绝不创建 PR。",
+    parameters: Type.Object({}, { additionalProperties: false }),
+    async execute(_id, _input, _signal, _onUpdate, ctx) {
+      const { trusted, store } = await getRuntime(ctx);
+      const result = await new UpdateTeamValidator({ taskStore: store }).validate(trusted.taskId);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
     },
   });

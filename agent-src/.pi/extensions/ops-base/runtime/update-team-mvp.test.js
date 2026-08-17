@@ -9,6 +9,7 @@ const test = require("node:test");
 const { LarkTaskRouter } = require("./lark-task-router.js");
 const { TaskStore } = require("./task-store.js");
 const { UpdateTeamMvp, UpdateTeamMvpError } = require("./update-team-mvp.js");
+const { UpdateTeamValidator } = require("./update-team-validator.js");
 
 const fixtureData = {
   meta: {},
@@ -78,6 +79,25 @@ test("正常 bossHP 修改生成计划和 candidate，绝不写 data.json", asyn
   const resource = candidate.state.resources.items.find((item) => item.resourceId === candidate.candidateResourceId);
   const artifact = JSON.parse(await fs.readFile(path.join(env.store.taskDirectory(env.trusted.taskId), ...resource.locator.path.split("/")), "utf8"));
   assert.equal(artifact.teams.find((team) => team.id === "t1").bossHP, 40);
+});
+
+test("validator 失败后恢复 baseline candidate 且不进入可提交状态", async (t) => {
+  const env = await fixture();
+  t.after(env.cleanup);
+  const planned = await env.update.plan(env.trusted, { teamId: "t1", bossHP: 40 });
+  const confirmed = await env.update.confirm(env.trusted, {
+    feishuOpenId: "ou_owner", messageId: "om_create", planHash: planned.plan.planHash,
+  });
+  const candidateResource = confirmed.state.resources.items.find((item) => item.resourceId === confirmed.candidateResourceId);
+  const candidatePath = path.join(env.store.taskDirectory(env.trusted.taskId), ...candidateResource.locator.path.split("/"));
+  const malicious = JSON.parse(await fs.readFile(candidatePath, "utf8"));
+  malicious.teams[0].region = "EU";
+  await fs.writeFile(candidatePath, JSON.stringify(malicious));
+  const result = await new UpdateTeamValidator({ taskStore: env.store }).validate(env.trusted.taskId);
+  assert.equal(result.report.success, false);
+  assert.equal(result.state.lifecycle.state, "VALIDATION_FAILED");
+  const restored = await env.store.readCandidateData(env.trusted.taskId);
+  assert.deepEqual(restored.candidate, fixtureData);
 });
 
 test("baseline 变化会拒绝确认且保持 AWAITING_CONFIRMATION", async (t) => {
