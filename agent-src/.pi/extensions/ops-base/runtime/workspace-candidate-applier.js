@@ -15,8 +15,14 @@ class WorkspaceCandidateApplier {
   async apply(taskId) {
     let state = await this.taskStore.readTask(taskId);
     if (state.lifecycle.state !== "VALIDATED") throw new WorkspaceCandidateApplierError("APPLY_NOT_VALIDATED", "只有 VALIDATED task 可以应用 candidate");
+    if (state.confirmations?.execution?.boundPlanHash !== state.operation?.planHash) {
+      throw new WorkspaceCandidateApplierError("PLAN_HASH_MISMATCH", "已确认 planHash 与当前 operation 不匹配");
+    }
     if (state.execution?.workspaceCandidateSha256) return { state, idempotent: true };
     const baseline = await this.taskStore.readBaseline(taskId);
+    if (state.operation?.baselineDataSha256 !== baseline.resource.locator.sourceSha256) {
+      throw new WorkspaceCandidateApplierError("BASELINE_HASH_MISMATCH", "operation baseline hash 与 snapshot 不一致");
+    }
     const candidate = await this.taskStore.readCandidateData(taskId);
     const record = await this.taskStore.readResourceJson(taskId, state.validation.changeRecordResourceId);
     const check = validateUpdateTeam({ baseline: baseline.baseline, candidate: candidate.candidate, plan: state.operation });

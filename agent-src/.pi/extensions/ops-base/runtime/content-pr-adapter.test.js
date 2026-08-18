@@ -12,8 +12,8 @@ const changed = { teams: [{ id: "t1", phase: "P3", bossHP: 40, isLive: true, reg
 const actualChanges = [{ path: "teams[id=t1].bossHP", from: 50, to: 40, source: "ACTUAL" }];
 async function fixture({ workspaceData = base, lifecycle = "VALIDATED", apply = true } = {}) {
  const root=await fs.mkdtemp(path.join(os.tmpdir(),"ops-pr-")), workspace=path.join(root,"workspace"); await fs.mkdir(path.join(workspace,"public"),{recursive:true}); await fs.writeFile(path.join(workspace,"public","data.json"),JSON.stringify(workspaceData));
- const store=new TaskStore({workspaceRoot:workspace,runtimeRoot:path.join(root,"runtime")}); await store.initialize(); let state=await store.createTask({lifecycleState:lifecycle,operator:{feishuOpenId:"ou_allowed"},operation:{action:"updateTeam",target:{type:"team",id:"t1"},plannedChanges:actualChanges}});
- state=await store.updateState(state.taskId,state.documentRevision,(draft)=>{draft.confirmations={execution:{status:"CONFIRMED"}};return draft;});
+ const store=new TaskStore({workspaceRoot:workspace,runtimeRoot:path.join(root,"runtime")}); await store.initialize(); let state=await store.createTask({lifecycleState:lifecycle,operator:{feishuOpenId:"ou_allowed"},operation:{action:"updateTeam",target:{type:"team",id:"t1"},planHash:"sha256:plan",baselineDataSha256:"sha256:test",plannedChanges:actualChanges}});
+ state=await store.updateState(state.taskId,state.documentRevision,(draft)=>{draft.confirmations={execution:{status:"CONFIRMED",boundPlanHash:"sha256:plan"}};return draft;});
  state=await store.saveBaseline(state.taskId,state.documentRevision,base,"sha256:test"); state=state.state;
  state=(await store.saveCandidateData(state.taskId,state.documentRevision,changed)).state;
  state=(await store.saveValidationReport(state.taskId,state.documentRevision,{success:true,actualChanges})).state;
