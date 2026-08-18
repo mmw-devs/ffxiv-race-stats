@@ -5,6 +5,7 @@ import { loadTrustedIngress } from "./runtime/trusted-ingress.js";
 import { UpdateTeamMvp } from "./runtime/update-team-mvp.js";
 import { UpdateTeamValidator } from "./runtime/update-team-validator.js";
 import { ContentPrAdapter } from "./runtime/content-pr-adapter.js";
+import { WorkspaceCandidateApplier } from "./runtime/workspace-candidate-applier.js";
 
 /** 从当前 PI session 获得唯一可信 task；不接受模型提供的 taskId/operator。 */
 async function getRuntime(ctx: any) {
@@ -108,6 +109,18 @@ export default function opsBaseExtension(pi: ExtensionAPI) {
     async execute(_id, _input, _signal, _onUpdate, ctx) {
       const { trusted, store } = await getRuntime(ctx);
       const result = await new UpdateTeamValidator({ taskStore: store }).validate(trusted.taskId);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+    },
+  });
+
+  pi.registerTool({
+    name: "ops_base_apply_validated_candidate",
+    label: "Apply validated candidate",
+    description: "将已 VALIDATED 的 candidate artifact 显式写入共享 workspace data.json；不创建 branch、commit 或 PR。",
+    parameters: Type.Object({}, { additionalProperties: false }),
+    async execute(_id, _input, _signal, _onUpdate, ctx) {
+      const { trusted, store } = await getRuntime(ctx);
+      const result = await new WorkspaceCandidateApplier({ taskStore: store, workspaceRoot: ctx.cwd }).apply(trusted.taskId);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
     },
   });

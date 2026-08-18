@@ -81,7 +81,7 @@ test("正常 bossHP 修改生成计划和 candidate，绝不写 data.json", asyn
   assert.equal(artifact.teams.find((team) => team.id === "t1").bossHP, 40);
 });
 
-test("validator 失败后恢复 baseline candidate 且不进入可提交状态", async (t) => {
+test("validator 失败只保存报告并拒绝进入可提交状态", async (t) => {
   const env = await fixture();
   t.after(env.cleanup);
   const planned = await env.update.plan(env.trusted, { teamId: "t1", bossHP: 40 });
@@ -96,8 +96,8 @@ test("validator 失败后恢复 baseline candidate 且不进入可提交状态",
   const result = await new UpdateTeamValidator({ taskStore: env.store }).validate(env.trusted.taskId);
   assert.equal(result.report.success, false);
   assert.equal(result.state.lifecycle.state, "VALIDATION_FAILED");
-  const restored = await env.store.readCandidateData(env.trusted.taskId);
-  assert.deepEqual(restored.candidate, fixtureData);
+  const preserved = await env.store.readCandidateData(env.trusted.taskId);
+  assert.equal(preserved.candidate.teams[0].region, "EU", "validator 不得隐式恢复或写 workspace");
 });
 
 test("baseline 变化会拒绝确认且保持 AWAITING_CONFIRMATION", async (t) => {

@@ -108,9 +108,8 @@ class UpdateTeamValidator {
     Object.assign(report, validateUpdateTeam({ baseline: baseline.baseline, candidate: candidate.candidate, plan: state.operation }));
     const savedReport = await this.taskStore.saveValidationReport(taskId, state.documentRevision, report);
     if (!report.success) {
-      // D3 checkpoint 没有 workspace；恢复的对象是唯一可继续消费的 candidate artifact。
-      const restored = await this.taskStore.restoreCandidateBaseline(taskId, savedReport.state.documentRevision, baseline.baseline);
-      const failed = await this.taskStore.transitionState(taskId, restored.state.documentRevision, "VALIDATION_FAILED", (draft) => {
+      // validator 只产生证据和状态；workspace 恢复由后续受控恢复流程负责，不能在此隐式写入。
+      const failed = await this.taskStore.transitionState(taskId, savedReport.state.documentRevision, "VALIDATION_FAILED", (draft) => {
         draft.validation.status = "FAILED";
         return draft;
       });
