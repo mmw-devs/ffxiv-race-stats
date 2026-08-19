@@ -1,4 +1,6 @@
 # 推荐审批人（非强制，Branch Protection 已关闭 CODEOWNERS review）
+# 注：项目单人维护，branch protection 的 `require_code_owner_reviews: false` 是有意设置。
+# 多人协作时应改为 `true` 强制走 weunimix review，避免外部贡献者绕过代码所有者审批。
 *    @weunimix
 
 # data.json → content PR 由 race-ops-bot GitHub App 创建 + CI 校验通过后自动合并
