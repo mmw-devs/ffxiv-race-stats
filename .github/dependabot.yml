@@ -1,0 +1,57 @@
+# Dependabot 配置 — 自动升级项目依赖
+#
+# 范围：
+#   - github-actions：升级 .github/workflows/*.yml 里 uses: ... 的 action 版本
+#   - npm：升级 package.json 里的 devDependencies
+#
+# 策略：
+#   - 频率 weekly（每周一上午 09:00 UTC，避免周末堆积）
+#   - 每个 ecosystem 最多 5 个 PR 并行
+#   - commit message 沿用项目规范：ci / deps 前缀
+#
+# 排除项：
+#   - @larksuite/cli：飞书 CLI 由运营节奏控制，不由 Dependabot 自动升
+#   - astro / vue / @astrojs/vue major 版本：避免无声 breaking
+
+version: 2
+
+updates:
+  # 1. GitHub Actions 版本
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      prefix-development: "ci(dev)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # 2. npm 依赖
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+    ignore:
+      # 飞书 CLI 由运营节奏控制，不由 Dependabot 升
+      - dependency-name: "@larksuite/cli"
+      # UI 主框架 major 改动需要人工 review
+      - dependency-name: "astro"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vue"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@astrojs/vue"
+        update-types: ["version-update:semver-major"]
