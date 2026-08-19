@@ -16,16 +16,17 @@ npm run dev          # 启动 Astro dev server → http://localhost:4321
 # 生产构建
 npm run build        # 输出到 dist/
 npm run preview      # 预览构建产物
-
-# 提交前校验数据
-node scripts/validate-data.js
 ```
 
 ## 架构
 
 ```
 public/data.json ──→  src/App.vue ──→  13 个 Vue 组件
-schema/*.json    ──→  scripts/validate-data.js （CI 数据契约）
+                          ↑
+                  （dev runtime 实际读 agent-src/public/data.json；
+                   数据真源在 ops 仓库 mmw-devs/ffxiv-race-ops）
+
+schema/*.json    ──→  ops 仓库 CI 数据契约（dev 不再校验）
 ```
 
 **技术栈：** Astro 7 + Vue 3（Composition API + `<script setup>`），输出为纯静态 HTML/CSS/JS。
@@ -55,7 +56,7 @@ src/
 ```
 
 **三分职责：**
-- `public/data.json` — `RACE_DATA` 纯数据值（JSON）。运营侧维护，dev PR 零触碰。
+- `public/data.json` — `RACE_DATA` 纯数据值（JSON）。由 ops 仓库 `race-ops-bot` GitHub App 维护；dev 仓库的 `sync-agent-src` workflow 把变更同步成 `agent-src/public/data.json` 只读镜像
 - `schema/*.json` — 6 个 JSON Schema 文件（draft-2020-12），定义 `RACE_DATA` 数据契约。开发者维护。
 - `src/` — 所有 UI 代码（Astro + Vue）。开发者维护。
 
@@ -68,35 +69,41 @@ src/
 
 **CSS 使用 OKLCH token 系统**，定义在 `BaseLayout.astro` 的 `:root` 中。修改 6–10 个自定义属性即可整体换肤。
 
-## 分支模型（双轨）
+## 分支模型（dev / ops 双仓库）
 
-| 轨道 | 分支前缀 | 变更对象 | 操作者 |
-|------|---------|---------|--------|
-| 开发 | `feature/*`、`fix/*` | `src/`、`schema/`、`scripts/`、`.pi/`、CI、docs | 开发者 |
-| 运营 | `content/*` | `public/data.json` 数据值 | PI Agent（代表运营者） |
+项目分两个仓库：
 
-两条轨统一使用 squash merge 合入 `main`。`content/*` 分支名中 `content/` 后面的部分必须 ≤ 20 字符（Cloudflare Pages 分支别名截断到 28 字符）。
+| 仓库 | 用途 | 默认分支 | 分支前缀 | 变更对象 | 操作者 |
+|------|------|---------|---------|---------|--------|
+| `mmw-devs/ffxiv-race-stats` | dev：源码 + 构建 | `main` | `feature/*`、`fix/*`、`ops-sync/*` | `src/`、`schema/`、`scripts/`、`.pi/`、`.github/`、`agent-src/`、`docs/`、CI 配置 | 开发者 |
+| `mmw-devs/ffxiv-race-ops` | ops：data.json + Cloudflare Pages 部署 | `main` | `content/*` | `public/data.json` 数据值 | PI Agent（运营） |
 
-**分支纪律：**
+**Dev 仓库分支纪律：**
 - **禁止直推 `main`** — 所有变更通过 PR + CI 合入
 - 开发轨：`feature/<动词>-<描述>`（如 `feature/add-dark-mode`）
 - 修复轨：`fix/<描述>`（如 `fix/mobile-overflow`）
+- 自动同步：`ops-sync/*` 由 ops 仓库 CI 触发（用于同步 `public/data.json` 变更）
+- 两条轨统一使用 squash merge 合入 `main`
+
+**Ops 仓库分支纪律（不在本仓库管理，仅供参考）：**
 - 运营轨：`content/<操作>-<目标>`（如 `content/update-t1-p5`）
 - `content/` 后缀 ≤ 20 字符（Cloudflare Pages 分支别名截断到 28 字符）
-- CI 双向硬阻断：dev PR 禁含 `public/data.json`，content PR 仅允许 `public/data.json`
+- `content/*` PR 由 `race-ops-bot` GitHub App 创建 + CI 校验通过后自动合并
 
-## CI
+## CI（dev 仓库）
 
-GitHub Actions（`.github/workflows/validate.yml`）在每次 PR 时运行：
+Dev 仓库的 GitHub Actions 位于 `.github/workflows/`，当前 6 个 workflow：
 
-1. **所有 PR**：`npm ci` → `node scripts/validate-data.js` — 三阶段校验：
-   - **结构**：Ajv 对照 `schema/*.json` 校验类型、必填、嵌套、数组长度
-   - **值域**：与白名单交叉校验（phase ∈ `PHASE_ORDER`、region ∈ `VALID_REGIONS` 等）
-   - **业务规则**：rank 连续性、`bossHP` ∈ [0,100]、每队恰好 8 人
+| Workflow | 触发 | 作用 |
+|---|---|---|
+| `build-verify` | PR | **branch protection 唯一必需 check**。`npm ci` + `npm run build` 验证 src/ 可成功构建；阻断 `agent-src/public/data.json` 改动 |
+| `build-dist-push` | push main | 把 dev 的 `dist/` 产物推到 ops 仓库 |
+| `sync-agent-src` | push main（paths: `agent-src/**`） | rsync `agent-src/` 到 ops 仓库（用 `agent-src-sync` GitHub App） |
+| `Sync Issue to Feishu` | issue 事件 | 同步 issue 到飞书 bitable |
+| `Sync PR to Feishu` | PR 事件 | 同步 PR 到飞书 bitable |
+| `actionlint` | PR / push（paths: `.github/workflows/**`） | 静态检查 workflow YAML（`rhysd/actionlint`） |
 
-2. **`feature/*` / `fix/*` PR**：文件范围检查 — diff **不得**含 `public/data.json`。违规 → 直接 FAIL。
-
-3. **`content/*` PR**：文件范围检查 — diff **仅**允许 `public/data.json`。含其他文件 → 直接 FAIL。
+**数据校验**：`scripts/validate-data.js` 三阶段校验（schema 结构 + 值域 + 业务规则）由 ops 仓库 CI 负责，不在 dev 仓库跑。
 
 ## Agent 配置
 
@@ -113,19 +120,7 @@ PI Agent 配置位于 `.pi/` 目录，按职责分层：
 
 ### 双模工作
 
-Agent 支持两种模式，通过 Prompt 模板切换：
-
-| | 运营模式（默认） | 开发模式（`/dev`） |
-|---|---|---|
-| 允许修改 | `public/data.json` | 除 `public/data.json` 外所有文件 |
-| 分支前缀 | `content/*` | `feature/*`、`fix/*` |
-| Git 鉴权 | GitHub App | 个人 gh CLI |
-| PR 确认方 | 运营人员 | Code Review |
-
-平台级硬约束（GitHub Ruleset + CI）：
-- GitHub App 仅可推送 `content/*` 分支
-- `feature/*` / `fix/*` PR 含 `public/data.json` → CI 阻断
-- `content/*` PR 含非 `public/data.json` 文件 → CI 阻断
+Dev 仓库不再有 PI Agent 运营模式 —— 所有 data.json 改动由 ops 仓库的 PI Agent 通过 `race-ops-bot` GitHub App 直接处理。Dev 仓库内的 PI Agent 仅用于开发协助（读代码、写代码、跑测试），分支策略统一走 `feature/*` / `fix/*`。
 
 ## 数据校验规则
 
