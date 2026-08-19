@@ -1,0 +1,36 @@
+name: actionlint
+
+# ────────────────────────────────────────────────────────────────
+# 用途: 静态检查 .github/workflows/*.yml，防止低级 YAML 错误进 CI
+# 触发:
+#   - PR 涉及 .github/workflows/**
+#   - push main 涉及 .github/workflows/**
+#   - workflow_dispatch（手动重跑）
+# 行为: 仅 fast-fail 报告错误，不修改业务逻辑
+# 依赖: rhysd/actionlint@v1.7.12（specific pin，Dependabot 跟 minor 升级）
+# 注：rhysd/actionlint 不发布 major version tag（如 v1/v2），
+# 所以不能用 @v1 这种 pin；只能 pin 到具体版本
+# ────────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run actionlint
+        uses: rhysd/actionlint@v1.7.12
