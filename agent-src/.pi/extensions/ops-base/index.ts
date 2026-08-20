@@ -6,6 +6,7 @@ import { UpdateTeamMvp } from "./runtime/update-team-mvp.js";
 import { UpdateTeamValidator } from "./runtime/update-team-validator.js";
 import { ContentPrAdapter } from "./runtime/content-pr-adapter.js";
 import { WorkspaceCandidateApplier } from "./runtime/workspace-candidate-applier.js";
+import { TaskEndService } from "./runtime/task-end-service.js";
 
 /** 从当前 PI session 获得唯一可信 task；不接受模型提供的 taskId/operator。 */
 async function getRuntime(ctx: any) {
@@ -63,6 +64,18 @@ export default function opsBaseExtension(pi: ExtensionAPI) {
       return { block: true, reason: "D3 禁止通过 bash 访问或修改 public/data.json；请使用 ops-base tool" };
     }
     return undefined;
+  });
+
+  pi.registerTool({
+    name: "ops_base_end_task",
+    label: "End ops task",
+    description: "结束当前可信 task：按状态恢复 baseline、关闭未合并 PR 或只清理已合并 task；可重复执行。",
+    parameters: Type.Object({}, { additionalProperties: false }),
+    async execute(_id, _input, _signal, _onUpdate, ctx) {
+      const { trusted, store } = await getRuntime(ctx);
+      const result = await new TaskEndService({ taskStore: store, workspaceRoot: ctx.cwd }).end(trusted.taskId);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+    },
   });
 
   pi.registerTool({
