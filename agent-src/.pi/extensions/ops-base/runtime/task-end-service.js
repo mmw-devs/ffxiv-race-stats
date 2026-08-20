@@ -40,7 +40,7 @@ class TaskEndService {
 
   async recoverBranch(state) {
     const effect = state.control.pendingEffect;
-    if (effect.stage === "BRANCH_CREATED" && state.submission?.branch === effect.branch) return { taskId: state.taskId, kind: "recovered" };
+    if (effect.stage === "BRANCH_CREATED" && state.submission?.branch === effect.branch) return { taskId: state.taskId, kind: "recovered", state };
     let listed;
     try { listed = String(this.run("git", ["branch", "--list", effect.branch]) || ""); } catch (error) { return this.markBranchManual(state, `查询 branch 失败：${error.message}`); }
     if (!listed.split("\n").some((line) => line.replace(/^\*\s*/, "").trim() === effect.branch)) return this.markBranchManual(state, "未找到已创建的 task branch，禁止自动 checkout");
@@ -158,7 +158,13 @@ class TaskEndService {
    */
   async checkPendingEffectsBeforeEnd(state, reconcileCreatePr = false) {
     const effect = state.control?.pendingEffect;
-    if (!effect || effect.kind === "CREATE_CONTENT_BRANCH") return state;
+    if (!effect) return state;
+    if (effect.kind === "CREATE_CONTENT_BRANCH") {
+      const result = await this.recoverBranch(state);
+      if (result.kind !== "recovered") throw new Error("CREATE_CONTENT_BRANCH 尚未确认，禁止结束 task");
+      const recovered = result.state || await this.taskStore.readTask(state.taskId);
+      return this.taskStore.updateState(recovered.taskId, recovered.documentRevision, (draft) => { draft.control.pendingEffect = null; return draft; });
+    }
     if (effect.kind === "APPLY_CANDIDATE") {
       throw new Error("APPLY_CANDIDATE 尚未对账，禁止结束 task");
     }
