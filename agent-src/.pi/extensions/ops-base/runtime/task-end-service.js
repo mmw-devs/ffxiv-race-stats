@@ -108,8 +108,8 @@ class TaskEndService {
   async restoreAndClean(state) {
     if (!state.execution?.restoreAppliedAt) {
       const baseline = await this.taskStore.readBaseline(state.taskId);
-      this.run("git", ["checkout", "main"]);
       await fs.writeFile(path.join(this.workspaceRoot, "public", "data.json"), `${JSON.stringify(baseline.baseline, null, 2)}\n`);
+      this.run("git", ["checkout", "main"]);
       state = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => { draft.execution.workspaceCandidateSha256 = null; draft.execution.restoreAppliedAt = new Date().toISOString(); draft.control.pendingEffect = null; return draft; });
     }
     return this.clean(state, "restored");
@@ -150,10 +150,26 @@ class TaskEndService {
    * 进入 ENDED。不要提前写 ENDED；否则失败时会丢失 cleanup 尚未完成的事实。
    * 反过来，CLEANING 或已写 cleanup 但未 ENDED 都不是已完成的幂等终态。
    */
+  async ensureWorkspaceClean(state) {
+    let branch = String(this.run("git", ["branch", "--show-current"]) || "").trim();
+    if (branch !== "main") {
+      if (state.execution?.workspaceCandidateSha256) {
+        const baseline = await this.taskStore.readBaseline(state.taskId);
+        await fs.writeFile(path.join(this.workspaceRoot, "public", "data.json"), `${JSON.stringify(baseline.baseline, null, 2)}\n`);
+      }
+      this.run("git", ["checkout", "main"]);
+      branch = String(this.run("git", ["branch", "--show-current"]) || "").trim();
+    }
+    if (branch !== "main") throw new Error(`workspace cleanup 未切换到 main：${branch || "(detached)"}`);
+    const dirty = String(this.run("git", ["status", "--porcelain"]) || "").trim();
+    if (dirty) throw new Error("workspace cleanup 后仍存在 Git 修改，禁止结束 task");
+  }
+
   async clean(state, reason) {
     if (state.lifecycle.state !== "CLEANING") {
       state = await this.taskStore.transitionState(state.taskId, state.documentRevision, "CLEANING");
     }
+    await this.ensureWorkspaceClean(state);
     state = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => {
       draft.cleanup = {
         ...(draft.cleanup || {}),
