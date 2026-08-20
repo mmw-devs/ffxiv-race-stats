@@ -79,6 +79,7 @@ class TaskEndService {
       await this.taskStore.releaseMutationLock(taskId);
       return { state, idempotent: true };
     }
+    state = await this.checkPendingEffectsBeforeEnd(state, true);
     if (state.lifecycle.state === "CLEANING") return this.clean(state, "resume_cleaning");
     if (state.lifecycle.state === "RESTORING") return this.restoreAndClean(state);
 
@@ -150,6 +151,20 @@ class TaskEndService {
    * 进入 ENDED。不要提前写 ENDED；否则失败时会丢失 cleanup 尚未完成的事实。
    * 反过来，CLEANING 或已写 cleanup 但未 ENDED 都不是已完成的幂等终态。
    */
+  async checkPendingEffectsBeforeEnd(state, reconcileCreatePr = false) {
+    const effect = state.control?.pendingEffect;
+    if (!effect || effect.kind === "CREATE_CONTENT_BRANCH") return state;
+    if (effect.kind === "APPLY_CANDIDATE") {
+      throw new Error("APPLY_CANDIDATE 尚未对账，禁止结束 task");
+    }
+    if (effect.kind === "CREATE_PR" && reconcileCreatePr) {
+      const result = await new ContentPrRecovery({ taskStore: this.taskStore, workspaceRoot: this.workspaceRoot, run: this.run }).recoverTask(state.taskId);
+      if (result.kind === "recovered") return result.state;
+      throw new Error("CREATE_PR 尚未确认，禁止结束 task");
+    }
+    throw new Error(`${effect.kind} 尚未对账，禁止结束 task`);
+  }
+
   async ensureWorkspaceClean(state) {
     let branch = String(this.run("git", ["branch", "--show-current"]) || "").trim();
     if (branch !== "main") {
@@ -170,6 +185,8 @@ class TaskEndService {
       state = await this.taskStore.transitionState(state.taskId, state.documentRevision, "CLEANING");
     }
     await this.ensureWorkspaceClean(state);
+    // end() 已在进入取消流程前对 CREATE_PR 做查询；此处保留最终 guard，禁止任何未确认 effect 写入 ENDED。
+    state = await this.checkPendingEffectsBeforeEnd(state, false);
     state = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => {
       draft.cleanup = {
         ...(draft.cleanup || {}),
