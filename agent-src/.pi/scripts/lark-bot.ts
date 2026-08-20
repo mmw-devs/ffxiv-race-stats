@@ -18,6 +18,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TaskStore } from "../extensions/ops-base/runtime/task-store.js";
 import { LarkTaskRouter } from "../extensions/ops-base/runtime/lark-task-router.js";
+import { ContentPrRecovery } from "../extensions/ops-base/runtime/content-pr-recovery.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -981,6 +982,11 @@ async function initializeTaskRuntime(): Promise<void> {
   taskRouter = new LarkTaskRouter(taskStore);
   const active = await taskStore.recoverActiveTask();
   if (active) log(`🔒 恢复 active task taskId=${active.taskId} lifecycle=${active.lifecycle.state}`);
+  const recovery = await new ContentPrRecovery({ taskStore, workspaceRoot: PROJECT_DIR }).recoverAll();
+  for (const result of recovery) {
+    if (result.kind === "recovered") log(`✅ CREATE_PR 对账恢复 taskId=${result.taskId}`);
+    if (result.kind === "manual") log(`⚠ CREATE_PR 需人工处理 taskId=${result.taskId}：${result.reason}`);
+  }
 }
 
 async function main(): Promise<void> {
