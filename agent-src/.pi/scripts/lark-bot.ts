@@ -18,7 +18,6 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TaskStore } from "../extensions/ops-base/runtime/task-store.js";
 import { LarkTaskRouter } from "../extensions/ops-base/runtime/lark-task-router.js";
-import { ContentPrRecovery } from "../extensions/ops-base/runtime/content-pr-recovery.js";
 import { TaskEndService } from "../extensions/ops-base/runtime/task-end-service.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -981,13 +980,11 @@ async function initializeTaskRuntime(): Promise<void> {
   taskRouter = new LarkTaskRouter(taskStore);
   const active = await taskStore.recoverActiveTask();
   if (active) log(`🔒 恢复 active task taskId=${active.taskId} lifecycle=${active.lifecycle.state}`);
-  const recovery = await new ContentPrRecovery({ taskStore, workspaceRoot: PROJECT_DIR }).recoverAll();
+  const recovery = await new TaskEndService({ taskStore, workspaceRoot: PROJECT_DIR }).recoverAll();
   for (const result of recovery) {
     if (result.kind === "recovered") log(`✅ CREATE_PR 对账恢复 taskId=${result.taskId}`);
-    if (result.kind === "manual") log(`⚠ CREATE_PR 需人工处理 taskId=${result.taskId}：${result.reason}`);
+    if (result.kind === "manual") log(`⚠ 启动恢复需人工处理 taskId=${result.taskId}：${result.reason ?? "请人工对账"}`);
   }
-  const genericRecovery = await new TaskEndService({ taskStore, workspaceRoot: PROJECT_DIR }).recoverAll();
-  for (const result of genericRecovery) if (result.kind === "error" || result.kind === "manual") log(`⚠ 启动恢复需人工处理 taskId=${result.taskId}`);
 }
 
 async function main(): Promise<void> {

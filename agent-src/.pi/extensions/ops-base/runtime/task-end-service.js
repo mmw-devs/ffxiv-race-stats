@@ -2,6 +2,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { ContentPrRecovery } = require("./content-pr-recovery.js");
 
 /**
  * 任务结束不是一组可交换的清理动作，而是受 lifecycle guard 约束的有序流程。
@@ -21,27 +22,17 @@ class TaskEndService {
    * 供人工处理。本方法不会关闭 PR、checkout 分支或重写 data.json。
    */
   async recoverAll() {
-    const tasks = await this.taskStore.scanNonEndedTasks();
+    const prRecovery = new ContentPrRecovery({ taskStore: this.taskStore, workspaceRoot: this.workspaceRoot, run: this.run });
     const results = [];
-    for (const state of tasks) {
+    for (const state of await this.taskStore.scanNonEndedTasks()) {
       const effect = state.control?.pendingEffect;
-      if (!effect || effect.kind === "CREATE_PR") {
-        results.push({ taskId: state.taskId, kind: "restored" });
-        continue;
-      }
-      try {
-        const next = await this.taskStore.transitionState(state.taskId, state.documentRevision, "ERROR", (draft) => {
-          draft.control.pendingEffect = {
-            ...effect,
-            stage: "MANUAL_RECONCILIATION_REQUIRED",
-            reason: "启动恢复遇到未知副作用",
-          };
-          return draft;
-        });
-        results.push({ taskId: state.taskId, kind: "error", state: next });
-      } catch (error) {
-        results.push({ taskId: state.taskId, kind: "manual", error: error.message });
-      }
+      if (!effect) { results.push({ taskId: state.taskId, kind: "restored" }); continue; }
+      if (effect.kind === "CREATE_PR") { results.push(await prRecovery.recoverTask(state.taskId)); continue; }
+      const next = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => {
+        draft.control.pendingEffect = { ...effect, stage: "MANUAL_RECONCILIATION_REQUIRED", manualRequired: true, reason: "启动恢复遇到未知副作用" };
+        return draft;
+      });
+      results.push({ taskId: state.taskId, kind: "manual", state: next });
     }
     return results;
   }
@@ -65,6 +56,8 @@ class TaskEndService {
   async end(taskId) {
     let state = await this.taskStore.readTask(taskId);
     if (state.lifecycle.state === "ENDED") return { state, idempotent: true };
+    if (state.lifecycle.state === "CLEANING") return this.clean(state, "resume_cleaning");
+    if (state.lifecycle.state === "RESTORING") return this.restoreAndClean(state);
 
     const merged = await this.isMerged(state);
     if (merged) {
@@ -74,34 +67,31 @@ class TaskEndService {
 
     state = await this.to(state, "CANCELLING");
     const hasWorkspaceChange = Boolean(state.execution?.workspaceCandidateSha256);
-    if (state.submission?.prUrl) {
+    if (state.submission?.prUrl && state.submission.status !== "CLOSED_BY_END") {
       this.run("gh", ["pr", "close", state.submission.prUrl]);
       state = await this.taskStore.updateState(taskId, state.documentRevision, (draft) => {
         draft.submission = { ...draft.submission, status: "CLOSED_BY_END" };
         return draft;
       });
     }
-    if (hasWorkspaceChange) {
-      state = await this.to(state, "RESTORING");
-      const baseline = await this.taskStore.readBaseline(taskId);
-      this.run("git", ["checkout", "main"]);
-      await fs.writeFile(
-        path.join(this.workspaceRoot, "public", "data.json"),
-        `${JSON.stringify(baseline.baseline, null, 2)}\n`,
-      );
-      state = await this.taskStore.updateState(taskId, state.documentRevision, (draft) => {
-        draft.execution.workspaceCandidateSha256 = null;
-        draft.control.pendingEffect = null;
-        return draft;
-      });
-    }
-    return this.clean(state, hasWorkspaceChange ? "restored" : "no_workspace_change");
+    if (hasWorkspaceChange) { state = await this.to(state, "RESTORING"); return this.restoreAndClean(state); }
+    return this.clean(state, "no_workspace_change");
   }
 
   /**
    * 远端查询失败沿用既有行为：按“未确认已合并”处理并返回 false；这里不
    * 吞掉已持久化状态，也不把查询失败伪装成 MERGED。
    */
+  async restoreAndClean(state) {
+    if (!state.execution?.restoreAppliedAt) {
+      const baseline = await this.taskStore.readBaseline(state.taskId);
+      this.run("git", ["checkout", "main"]);
+      await fs.writeFile(path.join(this.workspaceRoot, "public", "data.json"), `${JSON.stringify(baseline.baseline, null, 2)}\n`);
+      state = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => { draft.execution.workspaceCandidateSha256 = null; draft.execution.restoreAppliedAt = new Date().toISOString(); draft.control.pendingEffect = null; return draft; });
+    }
+    return this.clean(state, "restored");
+  }
+
   async isMerged(state) {
     if (state.lifecycle.state === "MERGED") return true;
     if (!state.submission?.prUrl) return false;
