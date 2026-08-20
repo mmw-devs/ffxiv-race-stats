@@ -109,8 +109,13 @@ class TaskEndService {
   async restoreAndClean(state) {
     if (!state.execution?.restoreAppliedAt) {
       const baseline = await this.taskStore.readBaseline(state.taskId);
-      await fs.writeFile(path.join(this.workspaceRoot, "public", "data.json"), `${JSON.stringify(baseline.baseline, null, 2)}\n`);
+      // 已提交 candidate 的 content branch 工作树本来干净，应先 checkout main；
+      // 只有未提交修改时才先写 baseline，避免 checkout 覆盖本 task 的 dirty data.json。
+      const dirty = String(this.run("git", ["status", "--porcelain"]) || "").trim();
+      if (dirty) await fs.writeFile(path.join(this.workspaceRoot, "public", "data.json"), `${JSON.stringify(baseline.baseline, null, 2)}\n`);
       this.run("git", ["checkout", "main"]);
+      // baseline JSON 序列化格式未必等于 Git blob；以 main 的 tracked blob 收尾，保证 status clean。
+      this.run("git", ["checkout", "--", "public/data.json"]);
       state = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => { draft.execution.workspaceCandidateSha256 = null; draft.execution.restoreAppliedAt = new Date().toISOString(); draft.control.pendingEffect = null; return draft; });
     }
     return this.clean(state, "restored");
@@ -168,11 +173,15 @@ class TaskEndService {
   async ensureWorkspaceClean(state) {
     let branch = String(this.run("git", ["branch", "--show-current"]) || "").trim();
     if (branch !== "main") {
-      if (state.execution?.workspaceCandidateSha256) {
+      // 与 restoreAndClean 保持同一顺序：干净的已提交 branch 直接切 main，
+      // 仅在存在工作树修改时恢复 baseline，避免把已提交 candidate 人为变成 dirty。
+      const dirty = String(this.run("git", ["status", "--porcelain"]) || "").trim();
+      if (state.execution?.workspaceCandidateSha256 && dirty) {
         const baseline = await this.taskStore.readBaseline(state.taskId);
         await fs.writeFile(path.join(this.workspaceRoot, "public", "data.json"), `${JSON.stringify(baseline.baseline, null, 2)}\n`);
       }
       this.run("git", ["checkout", "main"]);
+      if (state.execution?.workspaceCandidateSha256) this.run("git", ["checkout", "--", "public/data.json"]);
       branch = String(this.run("git", ["branch", "--show-current"]) || "").trim();
     }
     if (branch !== "main") throw new Error(`workspace cleanup 未切换到 main：${branch || "(detached)"}`);
