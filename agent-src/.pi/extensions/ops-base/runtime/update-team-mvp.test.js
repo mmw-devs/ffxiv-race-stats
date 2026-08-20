@@ -44,7 +44,11 @@ async function fixture() {
     store,
     router,
     trusted,
-    update: new UpdateTeamMvp({ taskStore: store, workspaceRoot: workspace, allowedOperators: ["ou_owner"] }),
+    update: new UpdateTeamMvp({ taskStore: store, workspaceRoot: workspace, allowedOperators: ["ou_owner"], runGit: (args) => {
+      if (args[0] === "branch") return "main\n";
+      if (args[0] === "status") return "";
+      return "0123456789abcdef\n";
+    } }),
     async cleanup() { await fs.rm(root, { recursive: true, force: true }); },
   };
 }
@@ -60,6 +64,7 @@ test("正常 bossHP 修改生成计划和 candidate，绝不写 data.json", asyn
 
   const planned = await env.update.plan(env.trusted, { teamId: "t1", bossHP: 40 });
   assert.equal(planned.state.lifecycle.state, "AWAITING_CONFIRMATION");
+  assert.deepEqual(planned.state.recovery.preparing, { branch: "main", headCommitSha: "0123456789abcdef", originMainSha: "0123456789abcdef", checkedAt: planned.state.recovery.preparing.checkedAt });
   assert.deepEqual(planned.state.operator.permissions.permissionSet, ["race.updateTeam"]);
   assert.deepEqual(planned.plan.plannedChanges, [{ path: "teams[id=t1].bossHP", from: 50, to: 40, source: "OPERATOR" }]);
   assert.equal(planned.plan.baselineResourceId, "res_baseline_snapshot_1");
@@ -114,6 +119,16 @@ test("baseline 变化会拒绝确认且保持 AWAITING_CONFIRMATION", async (t) 
   assert.equal(state.lifecycle.state, "AWAITING_CONFIRMATION");
   assert.equal(state.confirmations?.execution, undefined);
   assert.equal(state.execution.candidateResourceId, undefined);
+});
+
+test("PREPARING 必须记录固定 main/base，失败不得进入后续状态", async (t) => {
+  const env = await fixture();
+  t.after(env.cleanup);
+  env.update.runGit = (args) => args[0] === "branch" ? "feature/dirty\n" : "";
+  await expectCode(env.update.plan(env.trusted, { teamId: "t1", bossHP: 40 }), "PREPARING_CHECK_FAILED");
+  const state = await env.store.readTask(env.trusted.taskId);
+  assert.equal(state.lifecycle.state, "PREPARING");
+  assert.equal(state.operation, null);
 });
 
 test("未列入 allowlist 的完整 openId 不得规划", async (t) => {

@@ -5,6 +5,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 const { PHASE_ORDER } = require("../../../../constants.js");
 
 const ALLOWED_FIELDS = new Set(["phase", "bossHP", "isLive"]);
@@ -100,10 +101,27 @@ function buildChanges(team, request, fields) {
 }
 
 class UpdateTeamMvp {
-  constructor({ taskStore, workspaceRoot, allowedOperators = configuredOperators() }) {
+  constructor({ taskStore, workspaceRoot, allowedOperators = configuredOperators(), runGit = (args) => execFileSync("git", args, { cwd: workspaceRoot, encoding: "utf8" }) }) {
     this.taskStore = taskStore;
     this.workspaceRoot = workspaceRoot;
     this.allowedOperators = new Set(allowedOperators);
+    this.runGit = runGit;
+  }
+
+  async prepareCheckpoint(state, trusted) {
+    const branch = String(this.runGit(["branch", "--show-current"]) || "").trim();
+    const dirty = String(this.runGit(["status", "--porcelain"]) || "").trim();
+    const headCommitSha = String(this.runGit(["rev-parse", "HEAD"]) || "").trim();
+    const originMainSha = String(this.runGit(["rev-parse", "origin/main"]) || "").trim();
+    if (branch !== "main" || dirty || !headCommitSha || !originMainSha || headCommitSha !== originMainSha) {
+      throw new UpdateTeamMvpError("PREPARING_CHECK_FAILED", "PREPARING 要求干净 main 且 HEAD 与 origin/main 一致", { branch, dirty, headCommitSha, originMainSha });
+    }
+    return this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => {
+      assertTrustedTask(draft, trusted);
+      draft.recovery = draft.recovery || {};
+      draft.recovery.preparing = { branch, headCommitSha, originMainSha, checkedAt: new Date().toISOString() };
+      return draft;
+    });
   }
 
   assertAuthorized(state) {
@@ -124,6 +142,7 @@ class UpdateTeamMvp {
     };
     const steps = paths[state.lifecycle.state];
     if (!steps) throw new UpdateTeamMvpError("INVALID_LIFECYCLE", `当前状态 ${state.lifecycle.state} 不允许规划或重规划`);
+    if (state.lifecycle.state === "PREPARING") state = await this.prepareCheckpoint(state, trusted);
     for (const nextState of steps) {
       state = await this.taskStore.transitionState(state.taskId, state.documentRevision, nextState, (draft) => {
         assertTrustedTask(draft, trusted);
@@ -140,6 +159,7 @@ class UpdateTeamMvp {
         }
         return draft;
       });
+      if (nextState === "PREPARING") state = await this.prepareCheckpoint(state, trusted);
     }
     return state;
   }
