@@ -18,8 +18,10 @@ async function fixture({ workspaceData = base, lifecycle = "VALIDATED", apply = 
  state=(await store.saveCandidateData(state.taskId,state.documentRevision,changed)).state;
  state=(await store.saveValidationReport(state.taskId,state.documentRevision,{success:true,actualChanges})).state;
  state=(await store.saveChangeRecord(state.taskId,state.documentRevision,{actualChanges})).state;
- if (apply && lifecycle === "VALIDATED") state=(await new WorkspaceCandidateApplier({taskStore:store,workspaceRoot:workspace}).apply(state.taskId)).state;
- const commands=[]; const adapter=new ContentPrAdapter({taskStore:store,workspaceRoot:workspace,run:(file,args)=>{commands.push([file,args]); if(file==="gh") return "https://github.test/pr/1\n"; if(file==="git"&&args[0]==="branch") return "main\n"; if(file==="git"&&args[0]==="status") return " M public/data.json\n"; return "";}});
+ let currentBranch="main";
+ const applyRun=(file,args)=>{if(file==="git"&&args[0]==="branch")return `${currentBranch}\n`;if(file==="git"&&args[0]==="status")return "";if(file==="git"&&args[0]==="checkout"){currentBranch=args[2];return "";}return "";};
+ if (apply && lifecycle === "VALIDATED") state=(await new WorkspaceCandidateApplier({taskStore:store,workspaceRoot:workspace,run:applyRun}).apply(state.taskId)).state;
+ const commands=[]; const adapter=new ContentPrAdapter({taskStore:store,workspaceRoot:workspace,run:(file,args)=>{commands.push([file,args]); if(file==="gh") return "https://github.test/pr/1\n"; if(file==="git"&&args[0]==="branch") return `${currentBranch}\n`; if(file==="git"&&args[0]==="status") return " M public/data.json\n"; return "";}});
  return {store,state,adapter,commands,cleanup:()=>fs.rm(root,{recursive:true,force:true})};
 }
 test("validated task 创建一个 PR，且 adapter 不写 data.json",async(t)=>{const e=await fixture();t.after(e.cleanup);const before=await fs.readFile(path.join(e.adapter.workspaceRoot,"public/data.json"),"utf8");const r=await e.adapter.submit(e.state.taskId);assert.equal(r.state.lifecycle.state,"PR_CREATED");assert.equal(r.opLog.operator,"ou_allowed");assert.deepEqual(r.opLog.changes,[{field:"teams[id=t1].bossHP",from:50,to:40}]);assert.equal(await fs.readFile(path.join(e.adapter.workspaceRoot,"public/data.json"),"utf8"),before);assert.equal(e.commands.filter(([f])=>f==="gh").length,1);});

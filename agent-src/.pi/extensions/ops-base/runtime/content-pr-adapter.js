@@ -37,8 +37,8 @@ class ContentPrAdapter {
     }
     const currentBranch = String(this.run("git", ["branch", "--show-current"]) || "").trim();
     const dirtyPaths = String(this.run("git", ["status", "--porcelain"]) || "").split("\n").filter(Boolean).map((line) => line.slice(3).trim());
-    if (currentBranch !== "main" || dirtyPaths.some((file) => file !== "public/data.json")) {
-      throw new ContentPrAdapterError("WORKSPACE_NOT_FIXED_BASE", "提交前 workspace 必须位于干净 main（仅允许已应用的 public/data.json）");
+    if (state.submission?.status !== "BRANCH_CREATED" || !state.submission.branch || currentBranch !== state.submission.branch || dirtyPaths.some((file) => file !== "public/data.json")) {
+      throw new ContentPrAdapterError("WORKSPACE_NOT_OWNED_BRANCH", "提交前必须位于本 task 创建的 content branch，且仅允许 public/data.json 变更");
     }
     const record = await this.taskStore.readResourceJson(taskId, state.validation.changeRecordResourceId);
     const baseline = await this.taskStore.readBaseline(taskId);
@@ -49,14 +49,12 @@ class ContentPrAdapter {
     }
     // OP_LOG 只消费 validator 的 change-record，绝不读取或信任 Agent/validation report 自述 changes。
     const opLog = generateUpdateTeamOpLog(state, { success: true, actualChanges: record.payload.actualChanges });
-    const branch = branchName(taskId, state.operation.target.id);
+    const branch = state.submission.branch;
     state = await this.taskStore.transitionState(taskId, state.documentRevision, "SUBMITTING", (draft) => {
       draft.control.pendingEffect = { kind: "CREATE_PR", idempotencyKey: `submit:${taskId}:${draft.lifecycle.attempt}`, branch, status: "INTENT_RECORDED" };
       return draft;
     });
-    // 此 adapter 只消费 workspace 已有事实；没有 writeFile、patch 或 data.json 修改命令。
-    this.run("git", ["checkout", "-b", branch]);
-    state = await this.taskStore.updateState(taskId, state.documentRevision, (draft) => { draft.control.pendingEffect.stage = "BRANCH_CREATED"; return draft; });
+    // branch ownership 已由 WorkspaceCandidateApplier 在写 data 前持久化；adapter 不再切换或创建 branch。
     this.run("git", ["add", "public/data.json"]);
     this.run("git", ["commit", "-m", formatCommitMessage(`update ${state.operation.target.id}`, opLog)]);
     state = await this.taskStore.updateState(taskId, state.documentRevision, (draft) => { draft.control.pendingEffect.stage = "COMMITTED"; return draft; });
