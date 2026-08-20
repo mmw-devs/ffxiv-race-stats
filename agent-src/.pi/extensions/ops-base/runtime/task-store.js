@@ -539,8 +539,17 @@ class TaskStore {
     }
     const owner = await this.readMutationLockOwner();
     if (active.length === 0) {
-      if (owner) throw new TaskStoreInvariantError(`没有 active task 但 mutation lock 仍属于 ${owner.taskId}`);
-      return null;
+      if (!owner) return null;
+      // endTask 先原子写 ENDED、再释放 lock；仅此确定窗口允许启动期回收 orphan lock。
+      let ownerState;
+      try { ownerState = await this.readTask(owner.taskId); } catch {
+        throw new TaskStoreInvariantError(`没有 active task 但 mutation lock 仍属于 ${owner.taskId}`);
+      }
+      if (ownerState.lifecycle.state === "ENDED") {
+        await this.releaseMutationLock(owner.taskId);
+        return null;
+      }
+      throw new TaskStoreInvariantError(`没有 active task 但 mutation lock 仍属于 ${owner.taskId}`);
     }
     const task = active[0];
     if (!owner) {
