@@ -28,6 +28,7 @@ class TaskEndService {
       const effect = state.control?.pendingEffect;
       if (!effect) { results.push({ taskId: state.taskId, kind: "restored" }); continue; }
       if (effect.kind === "CREATE_PR") { results.push(await prRecovery.recoverTask(state.taskId)); continue; }
+      if (effect.kind === "CREATE_CONTENT_BRANCH") { results.push(await this.recoverBranch(state)); continue; }
       const next = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => {
         draft.control.pendingEffect = { ...effect, stage: "MANUAL_RECONCILIATION_REQUIRED", manualRequired: true, reason: "启动恢复遇到未知副作用" };
         return draft;
@@ -35,6 +36,24 @@ class TaskEndService {
       results.push({ taskId: state.taskId, kind: "manual", state: next });
     }
     return results;
+  }
+
+  async recoverBranch(state) {
+    const effect = state.control.pendingEffect;
+    if (effect.stage === "BRANCH_CREATED" && state.submission?.branch === effect.branch) return { taskId: state.taskId, kind: "recovered" };
+    let listed;
+    try { listed = String(this.run("git", ["branch", "--list", effect.branch]) || ""); } catch (error) { return this.markBranchManual(state, `查询 branch 失败：${error.message}`); }
+    if (!listed.split("\n").some((line) => line.replace(/^\*\s*/, "").trim() === effect.branch)) return this.markBranchManual(state, "未找到已创建的 task branch，禁止自动 checkout");
+    const next = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => {
+      draft.submission = { ...(draft.submission || {}), status: "BRANCH_CREATED", branch: effect.branch, recoveredAt: new Date().toISOString() };
+      draft.control.pendingEffect = { ...effect, stage: "BRANCH_CREATED" };
+      return draft;
+    });
+    return { taskId: state.taskId, kind: "recovered", state: next };
+  }
+  async markBranchManual(state, reason) {
+    const next = await this.taskStore.updateState(state.taskId, state.documentRevision, (draft) => { draft.control.pendingEffect = { ...draft.control.pendingEffect, stage: "MANUAL_RECONCILIATION_REQUIRED", manualRequired: true, reason }; return draft; });
+    return { taskId: state.taskId, kind: "manual", state: next, reason };
   }
 
   /**

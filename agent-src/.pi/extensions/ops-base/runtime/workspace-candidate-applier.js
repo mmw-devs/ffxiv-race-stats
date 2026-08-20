@@ -63,6 +63,10 @@ class WorkspaceCandidateApplier {
         return draft;
       });
     }
+    if (state.submission?.branch) {
+      const currentBranch = String(this.run("git", ["branch", "--show-current"]) || "").trim();
+      if (currentBranch !== state.submission.branch) throw new WorkspaceCandidateApplierError("WORKSPACE_NOT_OWNED_BRANCH", "恢复后 workspace 不在 task-owned branch，禁止自动 checkout");
+    }
     if (JSON.stringify(current) !== JSON.stringify(baseline.baseline)) throw new WorkspaceCandidateApplierError("WORKSPACE_BASELINE_MISMATCH", "共享 workspace 不等于固定 baseline，拒绝覆盖");
     state = await this.taskStore.updateState(taskId, state.documentRevision, (draft) => { draft.control.pendingEffect = { kind: "APPLY_CANDIDATE", stage: "INTENT_RECORDED", candidateResourceId: candidate.resource.resourceId, branch }; return draft; });
     if (this.beforeWrite) await this.beforeWrite(state);
