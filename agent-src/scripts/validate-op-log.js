@@ -10,6 +10,10 @@ const { validateUpdateTeamOpLog } = require("./update-team-op-log.js");
 
 const root = path.resolve(__dirname, "..");
 const baseRef = process.argv[2] || "origin/main";
+// updateTeam 走新增严格路径；未迁移的人工 action 保留原有通用校验，避免范围外回归。
+const probe = execSync(`git log --no-merges ${baseRef}..HEAD --format=%B%x00`, { cwd: root, encoding: "utf8" })
+  .split("\0").filter(Boolean).map(parseLogFromMessage).filter(Boolean);
+if (probe.some((log) => log.action !== "updateTeam")) require("./validate-op-log-legacy.js");
 function fail(message) { console.error(`::error::${message}`); process.exitCode = 1; }
 function readBase() { return JSON.parse(execSync(`git show ${baseRef}:public/data.json`, { cwd: root, encoding: "utf8" })); }
 

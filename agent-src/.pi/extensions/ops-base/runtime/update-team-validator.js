@@ -37,6 +37,9 @@ function validateUpdateTeam({ baseline, candidate, plan }) {
   for (const key of keys) {
     if (key !== "teams" && !same(baseline[key], candidate[key])) error(errors, "OUT_OF_SCOPE_CHANGE", key, "只允许修改目标 team 字段");
   }
+  const baselineIds = baseline.teams.map((team) => team?.id);
+  const candidateIds = candidate.teams.map((team) => team?.id);
+  if (!same(baselineIds, candidateIds)) error(errors, "TEAM_ORDER_CHANGED", "teams", "不得新增、删除、重排或替换 teams 数组");
   const baselineById = new Map(baseline.teams.map((team) => [team?.id, team]));
   const candidateById = new Map(candidate.teams.map((team) => [team?.id, team]));
   if (baselineById.size !== baseline.teams.length || candidateById.size !== candidate.teams.length) {
@@ -66,6 +69,7 @@ function validateUpdateTeam({ baseline, candidate, plan }) {
         if (typeof after[field] !== "number" || !Number.isFinite(after[field]) || after[field] < 0 || after[field] > 100) error(errors, "INVALID_BOSS_HP", changePath, "bossHP 必须在 0~100");
         if (after[field] > before[field]) error(errors, "BOSS_HP_REGRESSION", changePath, "bossHP 不得增加");
       }
+      if (field === "isLive" && typeof after[field] !== "boolean") error(errors, "INVALID_IS_LIVE", changePath, "isLive 必须是布尔值");
       if (field === "phase") {
         if (!PHASE_ORDER.includes(before[field]) || !PHASE_ORDER.includes(after[field])) error(errors, "INVALID_PHASE", changePath, "phase 不在 PHASE_ORDER 中");
         else if (PHASE_ORDER.indexOf(after[field]) < PHASE_ORDER.indexOf(before[field])) error(errors, "PHASE_REGRESSION", changePath, "phase 不得后退");

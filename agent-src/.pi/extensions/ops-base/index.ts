@@ -104,7 +104,7 @@ export default function opsBaseExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "ops_base_validate_update_team",
     label: "Validate updateTeam candidate",
-    description: "校验已确认的 updateTeam candidate；失败时恢复 baseline candidate，绝不创建 PR。",
+    description: "校验已确认的 updateTeam candidate；失败只保存报告，绝不创建 PR 或修改 workspace。",
     parameters: Type.Object({}, { additionalProperties: false }),
     async execute(_id, _input, _signal, _onUpdate, ctx) {
       const { trusted, store } = await getRuntime(ctx);

@@ -667,7 +667,18 @@ function promoteNext(pi: PiSession): void {
     log(`💤 队列空，session 空闲`);
     return;
   }
-  startTask(pi, next);
+  void taskStore.readTask(next.taskId).then((state) => {
+    if (["ENDED", "CLEANING", "ERROR", "CANCELLING", "RESTORING"].includes(state.lifecycle.state)) {
+      log(`⏭ taskId=${next.taskId} lifecycle=${state.lifecycle.state}，拒绝投递排队 prompt`);
+      switchReaction(next, EMOJI_ERROR);
+      promoteNext(pi);
+      return;
+    }
+    startTask(pi, next);
+  }).catch((error) => {
+    log(`💥 投递前读取 task state 失败: ${error?.message?.slice(0, 160)}`);
+    finishTaskWithError(pi, next, "task 状态读取失败");
+  });
 }
 
 /**

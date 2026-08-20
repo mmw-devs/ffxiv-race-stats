@@ -2,7 +2,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { generateUpdateTeamOpLog, validateUpdateTeamOpLog } = require("./update-team-op-log.js");
-const before = { teams: [{ id: "t1", phase: "P3", bossHP: 50, isLive: true, region: "JP" }] };
+const before = { teams: [{ id: "t1", phase: "P3", bossHP: 50, isLive: true, region: "JP" }, { id: "t2", phase: "P2", bossHP: 80, isLive: true, region: "NA" }] };
 const after = () => structuredClone(before);
 const log = (changes) => ({ operator: "ou_allowed", timestamp: "2026-01-01T00:00:00.000Z", action: "updateTeam", target: "t1", changes });
 const change = (field, from, to) => ({ field, from, to });
@@ -18,3 +18,4 @@ test("未授权 operator hard fail", () => { const data = after(); data.teams[0]
 test("bossHP 增加 hard fail", () => { const data = after(); data.teams[0].bossHP = 60; assert.ok(validate(data, [change("teams[id=t1].bossHP", 50, 60)]).errors.some((e) => e.includes("bossHP"))); });
 test("phase 后退 hard fail", () => { const data = after(); data.teams[0].phase = "P2"; assert.ok(validate(data, [change("teams[id=t1].phase", "P3", "P2")]).errors.some((e) => e.includes("phase"))); });
 test("非允许字段 hard fail", () => { const data = after(); data.teams[0].region = "EU"; assert.ok(validate(data, []).errors.some((e) => e.includes("允许字段"))); });
+test("teams 重排 hard fail", () => { const data = after(); data.teams.reverse(); assert.equal(validate(data, []).success, false); });

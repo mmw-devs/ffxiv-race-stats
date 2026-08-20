@@ -39,6 +39,13 @@ test("修改其他字段失败", () => {
   assert.ok(result.errors.some((item) => item.code === "UNSUPPORTED_FIELD_CHANGE"));
 });
 
+test("teams 重排失败", () => {
+  const data = candidate(); data.teams.reverse();
+  const result = validateUpdateTeam({ baseline, candidate: data, plan: plan([]) });
+  assert.equal(result.success, false);
+  assert.ok(result.errors.some((item) => item.code === "TEAM_ORDER_CHANGED"));
+});
+
 test("实际 diff 与 plan 不一致失败", () => {
   const data = candidate(); data.teams[0].bossHP = 40;
   const result = validateUpdateTeam({ baseline, candidate: data, plan: plan([change("teams[id=t1].bossHP", 50, 35)]) });

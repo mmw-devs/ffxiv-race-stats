@@ -23,10 +23,13 @@ function generateUpdateTeamOpLog(state, validationReport, timestamp = new Date()
 
 function actualChanges(baseline, candidate, target) {
   const changes = [];
+  const errors = [];
+  const beforeIds = (baseline.teams || []).map((team) => team.id);
+  const afterIds = (candidate.teams || []).map((team) => team.id);
+  if (JSON.stringify(beforeIds) !== JSON.stringify(afterIds)) errors.push("teams 数组顺序或 id 序列发生变化");
   const beforeTeams = new Map((baseline.teams || []).map((team) => [team.id, team]));
   const afterTeams = new Map((candidate.teams || []).map((team) => [team.id, team]));
   if (beforeTeams.size !== (baseline.teams || []).length || afterTeams.size !== (candidate.teams || []).length) return { changes, errors: ["teams id 不唯一"] };
-  const errors = [];
   if (JSON.stringify(Object.fromEntries(Object.entries(baseline).filter(([key]) => key !== "teams"))) !== JSON.stringify(Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== "teams")))) errors.push("存在 teams 外变更");
   for (const id of new Set([...beforeTeams.keys(), ...afterTeams.keys()])) {
     const before = beforeTeams.get(id), after = afterTeams.get(id);

@@ -35,6 +35,11 @@ class ContentPrAdapter {
     if (!state.execution?.workspaceCandidateSha256) {
       throw new ContentPrAdapterError("CANDIDATE_NOT_APPLIED", "必须先通过 WorkspaceCandidateApplier 显式应用已验证 candidate");
     }
+    const currentBranch = String(this.run("git", ["branch", "--show-current"]) || "").trim();
+    const dirtyPaths = String(this.run("git", ["status", "--porcelain"]) || "").split("\n").filter(Boolean).map((line) => line.slice(3).trim());
+    if (currentBranch !== "main" || dirtyPaths.some((file) => file !== "public/data.json")) {
+      throw new ContentPrAdapterError("WORKSPACE_NOT_FIXED_BASE", "提交前 workspace 必须位于干净 main（仅允许已应用的 public/data.json）");
+    }
     const record = await this.taskStore.readResourceJson(taskId, state.validation.changeRecordResourceId);
     const baseline = await this.taskStore.readBaseline(taskId);
     const workspaceData = JSON.parse(await fs.readFile(path.join(this.workspaceRoot, "public", "data.json"), "utf8"));
