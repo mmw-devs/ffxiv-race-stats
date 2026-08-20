@@ -739,9 +739,11 @@ async function completeActiveTask(pi: PiSession): Promise<void> {
   pi.finishing = true;
 
   // agent_settled 只表示 PI turn 空闲；任务是否结束始终以 task-store state 为准。
+  let settledLifecycle: string;
   try {
     const state = await taskStore.readTask(task.taskId);
-    log(`🏁 [${task.promptId}] agent_settled taskId=${task.taskId} lifecycle=${state.lifecycle.state}`);
+    settledLifecycle = state.lifecycle.state;
+    log(`🏁 [${task.promptId}] agent_settled taskId=${task.taskId} lifecycle=${settledLifecycle}`);
   } catch (error: any) {
     finishTaskWithError(pi, task, `读取 task state 失败：${error?.message ?? "unknown"}`);
     return;
@@ -789,9 +791,22 @@ async function completeActiveTask(pi: PiSession): Promise<void> {
     }
   }
 
-  // 7+8：清理 + 晋升
+  // 7+8：按持久 lifecycle 决定是否继续投递；绝不由 settled 本身推断结束。
   pi.activeTask = null;
   pi.finishing = false;
+  if (settledLifecycle === "ENDED") {
+    log(`🔓 [${task.promptId}] task 已 ENDED，释放 session 并晋升队列`);
+    promoteNext(pi);
+    return;
+  }
+  if (["ERROR", "CANCELLING", "RESTORING", "CLEANING"].includes(settledLifecycle)) {
+    log(`⏹ [${task.promptId}] lifecycle=${settledLifecycle}，停止继续投递 prompt`);
+    return;
+  }
+  if (settledLifecycle === "AWAITING_CONFIRMATION") {
+    log(`⏸ [${task.promptId}] 保持 AWAITING_CONFIRMATION task，等待后续确认输入`);
+    return;
+  }
   promoteNext(pi);
 }
 
