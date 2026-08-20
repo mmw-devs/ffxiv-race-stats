@@ -74,7 +74,11 @@ class TaskEndService {
    */
   async end(taskId) {
     let state = await this.taskStore.readTask(taskId);
-    if (state.lifecycle.state === "ENDED") return { state, idempotent: true };
+    // 兼容 state 已写 ENDED、进程却在释放全局 lock 前中断的窗口；end 仍可安全补偿释放。
+    if (state.lifecycle.state === "ENDED") {
+      await this.taskStore.releaseMutationLock(taskId);
+      return { state, idempotent: true };
+    }
     if (state.lifecycle.state === "CLEANING") return this.clean(state, "resume_cleaning");
     if (state.lifecycle.state === "RESTORING") return this.restoreAndClean(state);
 
@@ -160,7 +164,7 @@ class TaskEndService {
       return draft;
     });
     return {
-      state: await this.taskStore.transitionState(state.taskId, state.documentRevision, "ENDED"),
+      state: await this.taskStore.endTask(state.taskId, state.documentRevision, reason),
       idempotent: false,
     };
   }
