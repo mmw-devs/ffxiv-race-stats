@@ -13,10 +13,6 @@ function sameChanges(left, right) {
   const normalize = (items) => items.map(({ path, field, from, to }) => ({ path: path || field, from, to })).sort((a, b) => a.path.localeCompare(b.path));
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 }
-function branchName(taskId, target) {
-  return `content/update-${String(target).replace(/[^A-Za-z0-9-]/g, "-").slice(0, 8)}-${taskId.slice(-6).toLowerCase()}`;
-}
-
 class ContentPrAdapter {
   constructor({ taskStore, workspaceRoot, run = (file, args) => execFileSync(file, args, { cwd: workspaceRoot, encoding: "utf8" }) }) {
     this.taskStore = taskStore;
@@ -50,6 +46,14 @@ class ContentPrAdapter {
     // OP_LOG 只消费 validator 的 change-record，绝不读取或信任 Agent/validation report 自述 changes。
     const opLog = generateUpdateTeamOpLog(state, { success: true, actualChanges: record.payload.actualChanges });
     const branch = state.submission.branch;
+    // CREATE_PR 恢复协议：先进入 SUBMITTING 并记录 intent，之后严格按
+    // commit → COMMITTED → push → PUSHED → create PR → PR_CREATED 执行。
+    // 每个 stage 只在前一个外部副作用返回后写入；进程若在两者之间中断，
+    // state 只能说明最后已登记的检查点，不能证明 git/远端动作未发生。
+    // 因此 submit 见到 CREATE_PR pendingEffect 会拒绝再次执行。启动时仅由
+    // ContentPrRecovery 对 branch 做只读 PR 查询：恰有一个 PR 才补写 PR_CREATED，
+    // 查询失败、零个或多个结果都转人工对账，绝不自动重放 commit、push 或
+    // create PR。尤其 create PR 的响应丢失时，盲目重试可能创建第二个 PR。
     state = await this.taskStore.transitionState(taskId, state.documentRevision, "SUBMITTING", (draft) => {
       draft.control.pendingEffect = { kind: "CREATE_PR", idempotencyKey: `submit:${taskId}:${draft.lifecycle.attempt}`, branch, status: "INTENT_RECORDED" };
       return draft;
@@ -70,4 +74,4 @@ class ContentPrAdapter {
     return { state: created, branch, prUrl, opLog };
   }
 }
-module.exports = { ContentPrAdapter, ContentPrAdapterError, branchName };
+module.exports = { ContentPrAdapter, ContentPrAdapterError };

@@ -314,6 +314,20 @@ class TaskStore {
     return this.saveJsonArtifact(taskId, expectedDocumentRevision, "change-record", record);
   }
 
+  /**
+   * artifact/state 双持久化协议，顺序不得交换：
+   * 1. 在 task lock 内读取 state 并先做 documentRevision CAS；CAS 失败时尚未
+   *    写入任何 artifact，调用方必须从最新 state 重新决策。
+   * 2. 以临时文件 rename 将 artifact 完整落盘，再读取其字节生成 locator sha256
+   *    和 resource 描述；只有完整文件才允许被后续 state 引用。
+   * 3. 将 resource 注册、更新对应 pointer 并递增 state revision，最后原子替换
+   *    state.json。state.json 是唯一有效资源目录，artifact 本身不是当前事实源。
+   *
+   * 若第 2 步成功而第 3 步 state 写入失败，旧 state 不含 resource pointer，启动
+   * 恢复不会扫描或采纳这个未登记文件；同一受控操作以未变化的 revision 重试时会
+   * 使用确定性文件名重新落盘并再尝试登记。不能反过来先登记 state，否则进程在
+   * artifact 落盘前中断会留下指向不存在文件的有效资源引用。
+   */
   async saveJsonArtifact(taskId, expectedDocumentRevision, kind, payload, options = {}) {
     const definitions = {
       baseline: { filename: "baseline-data", resourceId: "res_baseline_snapshot", type: "TEMP_FILE", pointer: ["execution", "baselineResourceId"] },
@@ -374,6 +388,22 @@ class TaskStore {
     return this.saveJsonArtifact(taskId, expectedDocumentRevision, "candidate-restore", baseline);
   }
 
+  /**
+   * 可信 ingress 的双持久化与幂等边界：
+   * - task lock 与 CAS 先固定当前 task 快照；operator、chatId 和 task 的初始
+   *   triggerMessageId 必须与 state 一致，校验失败或 revision 过期都不是可接受的
+   *   “重复投递”。
+   * - 去重范围仅限同一 task 的 resources.items：上述绑定校验通过后，完全相同的
+   *   messageId 返回既有 resource；同一 messageId 携带不同 operator、chatId 或
+   *   triggerMessageId 会在去重前被拒绝。
+   * - 新消息先以 messageId 派生的确定性路径写入 artifact，再注册 resource 并
+   *   更新 lastInboundMessageId；currentTurnMessageId 仍由 activateIngress 单独
+   *   切换，排队消息不能在此覆盖已投递 turn。
+   *
+   * artifact 成功而 state 写入失败时，state 没有新 resource，也不会把该文件当作
+   * 已接收 ingress；保持相同 operator、route/messageId 绑定和 revision 的受控
+   * 重试会重新写入该确定性路径后登记。不得通过放宽绑定或忽略 CAS 来“恢复”投递。
+   */
   async recordIngress(taskId, expectedDocumentRevision, ingress) {
     if (!ingress || typeof ingress !== "object" || typeof ingress.requestId !== "string" || typeof ingress.route?.messageId !== "string") {
       throw new TaskStoreInvariantError("IngressRequest 不完整");

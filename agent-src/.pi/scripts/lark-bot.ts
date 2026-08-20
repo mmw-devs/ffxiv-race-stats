@@ -499,8 +499,6 @@ function startPi(sessionKey: string): void {
   }, 3000);
 }
 
-function getPiSession(key: string): PiSession | undefined { return sessions.get(key); }
-
 function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void {
   const pi = sessions.get(sessionKey);
   if (!pi) return;
@@ -625,7 +623,7 @@ async function finishTaskSessionStart(pi: PiSession, task: PendingTask, data: an
   if (state.lifecycle.state === "ENDED") {
     throw new Error("task 已结束，拒绝投递首条 prompt");
   }
-  await taskRouter.recordPiSession(task.taskId, state.documentRevision, {
+  await taskStore.recordPiSession(task.taskId, state.documentRevision, {
     piSessionId,
     sessionFile,
     sessionKey: task.piSessionKey,
@@ -814,7 +812,7 @@ async function handleLarkEvent(event: LarkEvent, source: "ws" | "poll"): Promise
   const key = sessionKey(event);
   // DIAG-RT: record routing decision
   log(`🔍 [DIAG-RT] sessionKey=${key} msgId=${event.message_id.slice(-8)}`);
-  const pi = getPiSession(key);
+  const pi = sessions.get(key);
   if (!pi?.ready || !taskRouter) { sendReply(event.message_id, "Bot 启动中，请稍后再试..."); return; }
 
   const tid = threadKey(event);

@@ -102,10 +102,6 @@ class LarkTaskRouter {
       reason: "当前已有其他运营任务处理中",
     };
   }
-
-  async recordPiSession(taskId, expectedDocumentRevision, session) {
-    return this.taskStore.recordPiSession(taskId, expectedDocumentRevision, session);
-  }
 }
 
 module.exports = { LarkTaskRouter, buildIngress, isSameRoute, normalizeRouting };

@@ -88,7 +88,7 @@ test("仅在 new_session 成功后登记本 task 的 PI session，隔离上下�
   const env = await fixture();
   t.after(env.cleanup);
   const first = await env.router.route(event());
-  const attached = await env.router.recordPiSession(first.state.taskId, first.state.documentRevision, {
+  const attached = await env.store.recordPiSession(first.state.taskId, first.state.documentRevision, {
     piSessionId: "pi-session-fresh-1",
     sessionFile: "/outside-workspace/sessions/fresh-1.jsonl",
     sessionKey: "p2p",

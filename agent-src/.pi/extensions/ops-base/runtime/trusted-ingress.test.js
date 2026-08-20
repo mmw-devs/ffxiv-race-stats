@@ -18,7 +18,7 @@ test("排队 follow-up 不得覆盖已投递 turn 的可信 ingress", async (t) 
   const router = new LarkTaskRouter(store);
   const event = (messageId) => ({ chatId: "oc_1", chatType: "p2p", feishuOpenId: "ou_owner", triggerMessageId: messageId, text: "消息" });
   const first = await router.route(event("om_a"));
-  const session = await router.recordPiSession(first.state.taskId, first.state.documentRevision, {
+  const session = await store.recordPiSession(first.state.taskId, first.state.documentRevision, {
     piSessionId: "pi_1", sessionFile: "/tmp/pi_1.jsonl", sessionKey: "p2p",
   });
   await store.activateIngress(first.state.taskId, "om_a"); // A 已获发送资格

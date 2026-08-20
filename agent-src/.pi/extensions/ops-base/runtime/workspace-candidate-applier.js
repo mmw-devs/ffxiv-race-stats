@@ -16,6 +16,25 @@ class WorkspaceCandidateApplier {
   constructor({ taskStore, workspaceRoot, run = (file, args) => execFileSync(file, args, { cwd: workspaceRoot, encoding: "utf8" }), beforeWrite, afterWrite }) {
     this.taskStore = taskStore; this.workspaceRoot = workspaceRoot; this.run = run; this.beforeWrite = beforeWrite; this.afterWrite = afterWrite;
   }
+  /**
+   * 共享 workspace 的副作用协议；以下持久化顺序是恢复证据，不是可交换步骤：
+   * 1. 写 CREATE_CONTENT_BRANCH/INTENT_RECORDED，再执行 git checkout -b；成功后
+   *    才登记 submission.branch 和 BRANCH_CREATED。
+   * 2. 写 APPLY_CANDIDATE/INTENT_RECORDED，再以临时文件 rename 写 candidate；
+   *    文件成功后才登记 workspaceCandidateSha256 和 DATA_WRITTEN，最后清除
+   *    pendingEffect。
+   *
+   * 每个 stage 都可能落在外部副作用之前或之后：例如创建 branch 后但 state 写入
+   * 前仍会保留 INTENT_RECORDED；写入 data.json 后但 hash 写入前仍会保留
+   * APPLY_CANDIDATE intent。pendingEffect 因而只是一份对账线索，不能据此盲目
+   * 重放 git checkout 或文件写入。启动期 TaskEndService.recoverAll 对非 CREATE_PR
+   * effect 只尝试转为 ERROR/人工对账，不自动执行这些副作用。
+   *
+   * 唯一明确的重复调用出口是已持久化 workspaceCandidateSha256，此时直接返回
+   * idempotent。若 candidate 已写但 hash 尚未落盘，后续 apply 会被 baseline guard
+   * 拒绝，而非覆盖不确定的 workspace；必须依据 stage、branch 和实际文件人工
+   * 对账。不要调整 intent、外部命令和 stage 写入的相对顺序。
+   */
   async apply(taskId) {
     let state = await this.taskStore.readTask(taskId);
     if (state.lifecycle.state !== "VALIDATED") throw new WorkspaceCandidateApplierError("APPLY_NOT_VALIDATED", "只有 VALIDATED task 可以应用 candidate");
