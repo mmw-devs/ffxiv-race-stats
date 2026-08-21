@@ -2,40 +2,65 @@
 /**
  * scripts/sync — GitHub Issue/PR → 飞书多维表格 同步脚本
  *
- * 同步生命周期:
- *   Observe → Acquire → Reflect → Diff → Plan → Apply → Verify → Audit
- *
- * 阶段 0: 骨架 (hello world + 参数解析)
- * 阶段 1: 领域类型 + 端口定义
- * 阶段 2: 适配器 (gh CLI + lark-cli 子进程)
- * 阶段 3: 生命周期 8 步 + 编排
- * 阶段 4: 测试 (fixture + integration + e2e)
- * 阶段 5: CI 集成
- * 阶段 6: 灰度 + 删旧脚本
+ * 同步生命周期 (阶段 3):
+ *   acquire → reflect → transform → plan → apply → verify → audit
  */
 
 import { parseArgs, type SyncArgs } from './cli.js';
+import { GhCli } from './adapters/gh-cli.js';
+import { LarkCliFeishu } from './adapters/lark-cli-feishu.js';
+import { AuditStdout } from './adapters/audit-stdout.js';
+import {
+  syncOnePullRequest,
+  syncOneIssue,
+  syncAllPullRequests,
+  syncAllIssues,
+  type SyncDeps,
+} from './lifecycle.js';
 
 async function main(): Promise<void> {
   const args: SyncArgs = parseArgs(process.argv.slice(2));
 
-  // ===== 阶段 0: 骨架 (后续会被 lifecycle.ts 替换) =====
-  console.log('[scripts/sync] starting');
-  console.log('[scripts/sync] command:    ', args.command);
-  console.log('[scripts/sync] number:     ', args.number ?? '(全量)');
-  console.log('[scripts/sync] dryRun:     ', args.dryRun);
-  console.log('[scripts/sync] profile:    ', args.profile);
-  console.log('[scripts/sync] baseToken:  ', redact(args.baseToken));
-  console.log('[scripts/sync] prTable:    ', args.prTableId);
-  console.log('[scripts/sync] issueTable: ', args.issueTableId);
-  console.log('[scripts/sync] OK (阶段 0: 骨架)');
-}
+  const github = new GhCli();
+  const feishu = new LarkCliFeishu({
+    profile: args.profile,
+    baseToken: args.baseToken,
+    prTableId: args.prTableId,
+    issueTableId: args.issueTableId,
+  });
+  const audit = new AuditStdout();
 
-/** 抹除敏感字段（demo 用，阶段 1 会有专门 redact 模块） */
-function redact(value: string | undefined): string {
-  if (!value) return '(unset)';
-  if (value.length <= 8) return '***';
-  return `${value.slice(0, 4)}***${value.slice(-4)}`;
+  const deps: SyncDeps = {
+    github,
+    feishu,
+    audit,
+    dryRun: args.dryRun,
+  };
+
+  console.error(`[scripts/sync] starting ${args.command} ${args.dryRun ? '[dry-run]' : ''}`);
+
+  if (args.command === 'pr') {
+    if (args.number === undefined) {
+      throw new Error('pr 命令需要 number');
+    }
+    const out = await syncOnePullRequest(args.number, deps);
+    console.error(`[scripts/sync] PR #${args.number}: ${out.action}${out.recordId ? ` (recordId=${out.recordId})` : ''} — ${out.reason}`);
+  } else if (args.command === 'issue') {
+    if (args.number === undefined) {
+      throw new Error('issue 命令需要 number');
+    }
+    const out = await syncOneIssue(args.number, deps);
+    console.error(`[scripts/sync] Issue #${args.number}: ${out.action}${out.recordId ? ` (recordId=${out.recordId})` : ''} — ${out.reason}`);
+  } else {
+    console.error('[scripts/sync] 全量回填 PRs ...');
+    const prOuts = await syncAllPullRequests(deps);
+    console.error(`[scripts/sync] PRs: ${prOuts.length} 条`);
+    console.error('[scripts/sync] 全量回填 Issues ...');
+    const issueOuts = await syncAllIssues(deps);
+    console.error(`[scripts/sync] Issues: ${issueOuts.length} 条`);
+  }
+
+  console.error('[scripts/sync] OK');
 }
 
 main().catch((err) => {
