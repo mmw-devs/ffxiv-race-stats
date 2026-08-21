@@ -41,6 +41,9 @@ error.log
 # 临时登录 QR（不入仓）
 /auth-qr.png
 
+# 同步脚本 scratch / 临时产物（lark-cli QR、mock server 等）
+/.pi/runtime/
+
 # vendored npm 包目录（应在 .pi/npm/ 或 node_modules/）
 /package/
 

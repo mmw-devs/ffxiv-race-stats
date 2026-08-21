@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "@astrojs/vue": "^7.0.1",
-    "@larksuite/cli": "^1.0.72",
+    "@larksuite/cli": "1.0.72",
     "astro": "^7.0.6",
     "vue": "^3.5.39"
   },
