@@ -1,0 +1,17 @@
+{
+  "recordId": "recOPEN456",
+  "fields": {
+    "编号": 103,
+    "标题": "ci(deps): bump actions/checkout from 4 to 7",
+    "状态": "open",
+    "作者": "dependabot[bot]",
+    "负责人": null,
+    "标签": null,
+    "源分支": "dependabot/github_actions/actions/checkout-7",
+    "目标分支": "main",
+    "创建时间": "2026-08-19T08:00:00Z",
+    "更新时间": "2026-08-19T08:00:00Z",
+    "URL": "https://github.com/mmw-devs/ffxiv-race-stats/pull/103",
+    "GitHub ID": "PR_kwDOS6dS4s8a1b2c"
+  }
+}

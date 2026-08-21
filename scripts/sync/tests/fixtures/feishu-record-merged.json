@@ -1,0 +1,17 @@
+{
+  "recordId": "recVP9abc123",
+  "fields": {
+    "编号": 70,
+    "标题": "feat: GitHub Issue/PR 同步到飞书多维表格",
+    "状态": "merged",
+    "作者": "weunimix",
+    "负责人": "ops-bot",
+    "标签": ["feature", "P0"],
+    "源分支": "feature/github-feishu-sync",
+    "目标分支": "main",
+    "创建时间": "2026-08-15T10:00:00Z",
+    "更新时间": "2026-08-15T10:30:00Z",
+    "URL": "https://github.com/mmw-devs/ffxiv-race-stats/pull/70",
+    "GitHub ID": "PR_kwDOS6dS4s7zdOIC"
+  }
+}

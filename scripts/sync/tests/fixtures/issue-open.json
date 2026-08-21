@@ -1,0 +1,14 @@
+{
+  "number": 50,
+  "title": "测试 issue (open)",
+  "state": "open",
+  "author": { "login": "weunimix" },
+  "assignees": [],
+  "labels": [
+    { "name": "bug" }
+  ],
+  "createdAt": "2026-08-19T10:00:00Z",
+  "updatedAt": "2026-08-19T10:00:00Z",
+  "url": "https://github.com/mmw-devs/ffxiv-race-stats/issues/50",
+  "id": "I_kwDOS6dS4s8b2c3d"
+}

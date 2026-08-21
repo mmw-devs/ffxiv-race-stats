@@ -1,0 +1,14 @@
+{
+  "number": 100,
+  "title": "测试 issue (closed)",
+  "state": "closed",
+  "author": { "login": "alice" },
+  "assignees": [{ "login": "bob" }],
+  "labels": [
+    { "name": "won't fix" }
+  ],
+  "createdAt": "2026-07-01T10:00:00Z",
+  "updatedAt": "2026-07-15T10:00:00Z",
+  "url": "https://github.com/mmw-devs/ffxiv-race-stats/issues/100",
+  "id": "I_kwDOS6dS4s8c3d4e"
+}

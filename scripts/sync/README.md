@@ -14,8 +14,12 @@ Observe → Acquire → Reflect → Diff → Plan → Apply → Verify → Audit
 
 ## 当前状态
 
-- **阶段 0 骨架**（本 commit）：参数解析 + hello world
-- 阶段 1-6 后续实现
+- **阶段 0 骨架** (commit b647bc1)：参数解析 + hello world
+- **阶段 1 端口** (commit d5df6c8)：domain types + port interfaces + errors
+- **阶段 2 适配器** (commit 476522c)：gh-cli / lark-cli-feishu / audit-stdout
+- **阶段 3 生命周期** (commit 53a2448)：field-mapping + 8 步 lifecycle + wiring
+- **阶段 4 测试** (本 commit)：31 tests pass (unit + integration)
+- 阶段 5-6 待办
 
 ## 调用
 
@@ -61,14 +65,54 @@ Observe → Acquire → Reflect → Diff → Plan → Apply → Verify → Audit
 ```
 scripts/sync/
 ├── tsconfig.json
+├── vitest.config.ts
 ├── src/
 │   ├── index.ts          # CLI 入口
 │   ├── cli.ts            # 参数解析
-│   ├── domain/           # 阶段 1
-│   ├── ports/            # 阶段 1
-│   ├── adapters/         # 阶段 2
-│   ├── usecases/         # 阶段 3
-│   └── lifecycle.ts      # 阶段 3
-├── tests/                # 阶段 4
+│   ├── field-mapping.ts  # GitHub → Feishu 字段映射
+│   ├── errors.ts         # 错误类型
+│   ├── domain/           # 阶段 1: 领域类型 + zod schemas
+│   │   ├── types.ts
+│   │   └── schemas.ts
+│   ├── ports/            # 阶段 1: 接口边界
+│   │   ├── github-source.ts
+│   │   ├── feishu-target.ts
+│   │   └── audit-log.ts
+│   ├── adapters/         # 阶段 2: 端口实现 (子进程 spawn)
+│   │   ├── gh-cli.ts
+│   │   ├── lark-cli-feishu.ts
+│   │   └── audit-stdout.ts
+│   ├── usecases/         # 阶段 3: 8 步生命周期
+│   │   ├── acquire.ts
+│   │   ├── reflect.ts
+│   │   ├── diff.ts
+│   │   ├── plan.ts
+│   │   ├── apply.ts
+│   │   ├── verify.ts
+│   │   └── audit.ts
+│   └── lifecycle.ts      # 阶段 3: 编排
+├── tests/
+│   ├── fixtures/         # JSON fixture
+│   ├── helpers/          # 测试工具
+│   ├── unit/             # 纯函数测试
+│   └── integration/      # 注入 mock 端口跳 lifecycle
 └── scripts/run.sh
 ```
+
+## 测试
+
+```bash
+npm test              # 一次跑所有 31 个测试
+npm run test:watch    # 监听模式
+```
+
+带详细输出:
+```bash
+cd scripts/sync && npx vitest run --reporter=verbose
+```
+
+测试覆盖:
+- 13 unit tests (field-mapping)
+- 6 unit tests (diff)
+- 5 unit tests (plan)
+- 7 integration tests (lifecycle, 注入 fake 端口)

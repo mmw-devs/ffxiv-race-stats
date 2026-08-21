@@ -1,0 +1,17 @@
+{
+  "number": 103,
+  "title": "ci(deps): bump actions/checkout from 4 to 7",
+  "state": "open",
+  "mergedAt": null,
+  "author": { "login": "dependabot[bot]" },
+  "assignees": [],
+  "labels": [
+    { "name": "dependencies" }
+  ],
+  "headRefName": "dependabot/github_actions/actions/checkout-7",
+  "baseRefName": "main",
+  "createdAt": "2026-08-19T08:00:00Z",
+  "updatedAt": "2026-08-19T08:00:00Z",
+  "url": "https://github.com/mmw-devs/ffxiv-race-stats/pull/103",
+  "id": "PR_kwDOS6dS4s8a1b2c"
+}

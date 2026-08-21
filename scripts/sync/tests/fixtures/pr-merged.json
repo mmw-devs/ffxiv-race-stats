@@ -1,0 +1,18 @@
+{
+  "number": 70,
+  "title": "feat: GitHub Issue/PR 同步到飞书多维表格",
+  "state": "closed",
+  "mergedAt": "2026-08-15T10:30:00Z",
+  "author": { "login": "weunimix" },
+  "assignees": [{ "login": "ops-bot" }],
+  "labels": [
+    { "name": "feature" },
+    { "name": "P0" }
+  ],
+  "headRefName": "feature/github-feishu-sync",
+  "baseRefName": "main",
+  "createdAt": "2026-08-15T10:00:00Z",
+  "updatedAt": "2026-08-15T10:30:00Z",
+  "url": "https://github.com/mmw-devs/ffxiv-race-stats/pull/70",
+  "id": "PR_kwDOS6dS4s7zdOIC"
+}

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "test": "cd scripts/sync && npx vitest run",
+    "test:watch": "cd scripts/sync && npx vitest"
   },
   "devDependencies": {
     "@astrojs/vue": "^7.0.1",
