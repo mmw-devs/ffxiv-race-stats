@@ -1,0 +1,5 @@
+# scripts/sync 产物
+/dist/
+/*.tsbuildinfo
+/tests/.scratch/
+/.mock-server.pid
