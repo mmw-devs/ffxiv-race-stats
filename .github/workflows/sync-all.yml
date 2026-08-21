@@ -1,0 +1,58 @@
+name: Sync All (cron full backfill)
+
+# 定时全量回填: 每天 02:00 UTC 跑所有 PR/Issue
+# 默认 dry-run (待 staging 验证确认后改真写)
+# 解决 event 触发漏同步的问题 (e.g. dependabot、闭 PR)
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'dry-run (默认 true)'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # 全量回填 91 PR + 17 Issue ≈ 5-10 分钟, 给 30 分钟
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure lark-cli
+        env:
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: |
+          echo "$FEISHU_APP_SECRET" | npx lark-cli profile add \
+            --name ci-bot \
+            --app-id "${{ secrets.FEISHU_APP_ID }}" \
+            --app-secret-stdin \
+            --use \
+            --brand feishu
+
+      - name: Run sync (full backfill)
+        env:
+          LARK_PROFILE: ci-bot
+          LARK_BASE_TOKEN: ${{ secrets.FEISHU_BITABLE_TOKEN }}
+          LARK_PR_TABLE_ID: ${{ secrets.FEISHU_PR_TABLE_ID }}
+          LARK_ISSUE_TABLE_ID: ${{ secrets.FEISHU_ISSUE_TABLE_ID }}
+        run: |
+          DRY_FLAG=""
+          if [ "${{ inputs.dry_run }}" != "false" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+          ./scripts/sync/scripts/run.sh all $DRY_FLAG

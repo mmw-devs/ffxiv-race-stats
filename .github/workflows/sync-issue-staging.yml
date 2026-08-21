@@ -1,0 +1,66 @@
+name: Sync Issue to Feishu (staging — new scripts/sync)
+
+# 灰度工作流: 用新 scripts/sync/ 替代旧 sync-gh-to-bitable.sh
+# 默认 dry-run (用户手动验证后再切到真写)
+# 触发: Issue 事件 + workflow_dispatch 手动
+
+on:
+  issues:
+    types: [opened, closed, reopened, labeled, unlabeled, assigned, unassigned, edited]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue 编号 (留空用事件中的 Issue)'
+        required: false
+        type: string
+      dry_run:
+        description: 'dry-run (默认 true)'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure lark-cli
+        env:
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: |
+          echo "$FEISHU_APP_SECRET" | npx lark-cli profile add \
+            --name ci-bot \
+            --app-id "${{ secrets.FEISHU_APP_ID }}" \
+            --app-secret-stdin \
+            --use \
+            --brand feishu
+
+      - name: Run sync
+        env:
+          LARK_PROFILE: ci-bot
+          LARK_BASE_TOKEN: ${{ secrets.FEISHU_BITABLE_TOKEN }}
+          LARK_PR_TABLE_ID: ${{ secrets.FEISHU_PR_TABLE_ID }}
+          LARK_ISSUE_TABLE_ID: ${{ secrets.FEISHU_ISSUE_TABLE_ID }}
+        run: |
+          ISSUE_NUMBER="${{ github.event.issue.number || inputs.issue_number }}"
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "::error::No Issue number specified"
+            exit 1
+          fi
+          DRY_FLAG=""
+          if [ "${{ inputs.dry_run }}" != "false" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+          ./scripts/sync/scripts/run.sh issue "$ISSUE_NUMBER" $DRY_FLAG

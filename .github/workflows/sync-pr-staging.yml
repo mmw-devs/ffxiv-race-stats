@@ -1,0 +1,73 @@
+name: Sync PR to Feishu (staging — new scripts/sync)
+
+# 灰度工作流: 用新 scripts/sync/ 替代旧 sync-gh-to-bitable.sh
+# 默认 dry-run (用户手动验证后再切到真写)
+# 触发: PR 事件 + workflow_dispatch 手动
+#
+# 验证流程:
+#   1. 在 Actions 页面手动 Run workflow, 选 PR 编号, dry_run=true (默认)
+#   2. 读 audit log, 确认 plan 决策
+#   3. 验证后改 dry_run=false, 再跑一次
+#   4. 飞书无异常, 把 sync-pr.yml 切到新脚本
+#   5. 删这个 staging 文件
+
+on:
+  pull_request:
+    types: [opened, closed, reopened, labeled, unlabeled, assigned, unassigned, edited]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR 编号 (留空用事件中的 PR)'
+        required: false
+        type: string
+      dry_run:
+        description: 'dry-run (默认 true, 改成 false 才真写)'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure lark-cli
+        env:
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: |
+          echo "$FEISHU_APP_SECRET" | npx lark-cli profile add \
+            --name ci-bot \
+            --app-id "${{ secrets.FEISHU_APP_ID }}" \
+            --app-secret-stdin \
+            --use \
+            --brand feishu
+
+      - name: Run sync
+        env:
+          LARK_PROFILE: ci-bot
+          LARK_BASE_TOKEN: ${{ secrets.FEISHU_BITABLE_TOKEN }}
+          LARK_PR_TABLE_ID: ${{ secrets.FEISHU_PR_TABLE_ID }}
+          LARK_ISSUE_TABLE_ID: ${{ secrets.FEISHU_ISSUE_TABLE_ID }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number || inputs.pr_number }}"
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::error::No PR number specified"
+            exit 1
+          fi
+          DRY_FLAG=""
+          if [ "${{ inputs.dry_run }}" != "false" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+          ./scripts/sync/scripts/run.sh pr "$PR_NUMBER" $DRY_FLAG
