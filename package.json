@@ -11,8 +11,12 @@
   "devDependencies": {
     "@astrojs/vue": "^7.0.1",
     "@larksuite/cli": "1.0.72",
+    "@types/node": "^26.2.0",
     "astro": "^7.0.6",
-    "vue": "^3.5.39"
-  },
-  "dependencies": {}
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11",
+    "vue": "^3.5.39",
+    "zod": "^4.4.3"
+  }
 }
