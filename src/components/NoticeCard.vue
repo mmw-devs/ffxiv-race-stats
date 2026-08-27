@@ -1,6 +1,7 @@
 <template>
   <SidebarCard
     title="赛事公告"
+    title-tag="h2"
     :items="notices"
     :threshold="1"
     expanded-key="notice"

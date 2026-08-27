@@ -12,6 +12,7 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "size": "size-limit",
+    "lhci": "lhci autorun",
     "typegen": "node scripts/generate-types.mjs",
     "typecheck": "vue-tsc --noEmit",
     "typegen:typecheck": "npm run typegen && npm run typecheck"
@@ -41,6 +42,7 @@
   "devDependencies": {
     "@astrojs/vue": "^7.0.1",
     "@larksuite/cli": "^1.0.72",
+    "@lhci/cli": "^0.15.1",
     "@size-limit/preset-app": "^13.0.3",
     "@types/node": "^26.2.0",
     "@vue/eslint-config-typescript": "^14.9.0",
