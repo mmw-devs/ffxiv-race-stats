@@ -52,5 +52,11 @@ jobs:
         if: startsWith(github.head_ref, 'ops-sync/')
         run: echo "✓ ops-sync/* 分支自动同步，跳过 data.json 检查"
 
+      - name: Generate types from schema
+        run: npm run typegen
+
+      - name: Type-check
+        run: npm run typecheck
+
       - name: Build
         run: npm run build
