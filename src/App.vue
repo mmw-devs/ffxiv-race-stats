@@ -7,8 +7,8 @@
   <div v-else-if="loading" class="loading">加载中...</div>
   <template v-else>
     <StatusBar
-      :eventName="meta.eventName" :dataCenter="meta.dataCenter"
-      :dungeon="meta.dungeon" :startTime="meta.startTime" :status="meta.status"
+      :eventName="meta.eventName ?? ''" :dataCenter="meta.dataCenter ?? ''"
+      :dungeon="meta.dungeon ?? ''" :startTime="meta.startTime ?? ''" :status="meta.status"
     />
     <header class="header">
       <div><div class="header-brand">FFXIV 高难首杀竞速网站</div></div>
@@ -31,8 +31,8 @@
   </template>
 </template>
 
-<script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+<script setup lang="ts">
+import { ref, computed, onMounted, nextTick, type Ref } from 'vue'
 import { useExpand } from './composables/useExpand.js'
 import StatusBar from './components/StatusBar.vue'
 import HeroSection from './components/HeroSection.vue'
@@ -40,21 +40,28 @@ import RankingTable from './components/RankingTable.vue'
 import Sidebar from './components/Sidebar.vue'
 import NewsTicker from './components/NewsTicker.vue'
 import AppFooter from './components/AppFooter.vue'
+import type { Meta, Team, NewsItem, Broadcaster } from '../types/race-data'
+import type { Coverage } from './components/StreamCover.vue'
 
-const meta = ref({})
-const teams = ref([])
-const news = ref([])
-const broadcasters = ref([])
-const notices = ref([])
-const sponsors = ref([])
+interface Sponsor {
+  name: string
+  desc: string
+}
+
+const meta: Ref<Meta> = ref<Meta>({} as Meta)
+const teams: Ref<Team[]> = ref<Team[]>([])
+const news: Ref<NewsItem[]> = ref<NewsItem[]>([])
+const broadcasters: Ref<Broadcaster[]> = ref<Broadcaster[]>([])
+const notices: Ref<string[]> = ref<string[]>([])
+const sponsors: Ref<Sponsor[]> = ref<Sponsor[]>([])
 const loading = ref(true)
-const error = ref(null)
+const error: Ref<string | null> = ref<string | null>(null)
 
 // 展开态互斥：同一时间只有一个模块展开（'ranking' | 'sponsor' | 'notice' | null）
 const expandedId = useExpand()
 
 // 直播覆盖统计
-const streamCoverage = computed(() => {
+const streamCoverage = computed<Coverage>(() => {
   let totalPlayers = 0, streamingPlayers = 0, teamsWithCoverage = 0
   for (const t of teams.value) {
     let hasStream = false
@@ -67,14 +74,14 @@ const streamCoverage = computed(() => {
   return { totalPlayers, streamingPlayers, teamsWithCoverage }
 })
 
-async function loadData() {
+async function loadData(): Promise<void> {
   loading.value = true
   error.value = null
   try {
     const resp = await fetch('/data.json')
     if (!resp.ok) throw new Error('加载失败: HTTP ' + resp.status)
     const data = await resp.json()
-    meta.value = data.meta || {}
+    meta.value = (data.meta || {}) as Meta
     teams.value = data.teams || []
     news.value = data.news || []
     broadcasters.value = data.broadcasters || []
@@ -82,7 +89,7 @@ async function loadData() {
     sponsors.value = data.sponsors || []
   } catch (e) {
     console.error('数据加载失败:', e)
-    error.value = (e && e.message) ? e.message : '未知错误，请稍后重试'
+    error.value = (e instanceof Error && e.message) ? e.message : '未知错误，请稍后重试'
   } finally {
     loading.value = false
     // 等待 Vue 渲染 DOM 后再启动入场序列
@@ -91,15 +98,15 @@ async function loadData() {
   }
 }
 
-function reload() {
+function reload(): void {
   loadData()
 }
 
 onMounted(loadData)
 
 // 入场序列：用 animation-delay 错开各模块的入场动画
-function startEntrySequence() {
-  const entries = document.querySelectorAll('.anim-entry')
+function startEntrySequence(): void {
+  const entries = document.querySelectorAll<HTMLElement>('.anim-entry')
   entries.forEach((el, i) => {
     el.style.animationDelay = (i * 70) + 'ms'
   })

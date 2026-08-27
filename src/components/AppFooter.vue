@@ -5,8 +5,8 @@
   </footer>
 </template>
 
-<script setup>
-defineProps({ eventName: String })
+<script setup lang="ts">
+defineProps<{ eventName: string }>()
 </script>
 
 <style scoped>

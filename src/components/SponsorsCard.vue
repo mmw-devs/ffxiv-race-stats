@@ -13,9 +13,16 @@
   </SidebarCard>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import SidebarCard from './SidebarCard.vue'
-defineProps({ sponsors: { type: Array, default: () => [] } })
+
+/** 赞助商项。schema 未指定 items，组件内局部类型约定为 { name; desc } */
+interface Sponsor {
+  name: string
+  desc: string
+}
+
+defineProps<{ sponsors?: Sponsor[] }>()
 </script>
 
 <style scoped>

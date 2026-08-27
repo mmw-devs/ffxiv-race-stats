@@ -6,9 +6,9 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { useTimer } from '../composables/useTimer.js'
-const props = defineProps({ startTime: String, startLabel: String })
+const props = defineProps<{ startTime: string; startLabel: string }>()
 const { elapsed } = useTimer(props.startTime)
 </script>
 

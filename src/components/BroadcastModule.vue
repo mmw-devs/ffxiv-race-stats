@@ -12,8 +12,9 @@
   </div>
 </template>
 
-<script setup>
-defineProps({ broadcasters: Array })
+<script setup lang="ts">
+import type { Broadcaster } from '../../types/race-data'
+defineProps<{ broadcasters: Broadcaster[] }>()
 </script>
 
 <style scoped>

@@ -13,9 +13,13 @@
   </SidebarCard>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import SidebarCard from './SidebarCard.vue'
-defineProps({ notices: { type: Array, default: () => [] } })
+
+/** 公告项。schema 未指定 items，组件内局部类型约定为 string */
+type Notice = string
+
+defineProps<{ notices?: Notice[] }>()
 </script>
 
 <style scoped>

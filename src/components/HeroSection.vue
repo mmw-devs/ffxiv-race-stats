@@ -13,10 +13,16 @@
   </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import NoticeCard from './NoticeCard.vue'
 import BroadcastModule from './BroadcastModule.vue'
-defineProps({ meta: Object, notices: Array, broadcasters: Array })
+import type { Meta, Broadcaster } from '../../types/race-data'
+
+defineProps<{
+  meta: Meta
+  notices: string[]
+  broadcasters: Broadcaster[]
+}>()
 </script>
 
 <style scoped>
