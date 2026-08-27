@@ -1,0 +1,5 @@
+# /data.json    /data.json    200
+# Astro build 会自动把本文件复制到 dist/_redirects
+# 显式路由 /data.json，避免 CF Pages 默认 SPA fallback
+# 把 /data.json 请求重写到 index.html（HTML）导致 fetch 拿到非 JSON 内容
+/data.json    /data.json    200
