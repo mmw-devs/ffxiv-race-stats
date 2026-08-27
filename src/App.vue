@@ -1,5 +1,10 @@
 <template>
-  <div v-if="loading" class="loading">加载中...</div>
+  <div v-if="error" class="error-banner" role="alert">
+    <strong>数据加载失败</strong>
+    <p>{{ error }}</p>
+    <button class="error-reload" @click="reload">重新加载</button>
+  </div>
+  <div v-else-if="loading" class="loading">加载中...</div>
   <template v-else>
     <StatusBar
       :eventName="meta.eventName" :dataCenter="meta.dataCenter"
@@ -43,6 +48,7 @@ const broadcasters = ref([])
 const notices = ref([])
 const sponsors = ref([])
 const loading = ref(true)
+const error = ref(null)
 
 // 展开态互斥：同一时间只有一个模块展开（'ranking' | 'sponsor' | 'notice' | null）
 const expandedId = useExpand()
@@ -61,10 +67,12 @@ const streamCoverage = computed(() => {
   return { totalPlayers, streamingPlayers, teamsWithCoverage }
 })
 
-onMounted(async () => {
+async function loadData() {
+  loading.value = true
+  error.value = null
   try {
     const resp = await fetch('/data.json')
-    if (!resp.ok) throw new Error('加载失败: ' + resp.status)
+    if (!resp.ok) throw new Error('加载失败: HTTP ' + resp.status)
     const data = await resp.json()
     meta.value = data.meta || {}
     teams.value = data.teams || []
@@ -74,13 +82,20 @@ onMounted(async () => {
     sponsors.value = data.sponsors || []
   } catch (e) {
     console.error('数据加载失败:', e)
+    error.value = (e && e.message) ? e.message : '未知错误，请稍后重试'
   } finally {
     loading.value = false
     // 等待 Vue 渲染 DOM 后再启动入场序列
     await nextTick()
     startEntrySequence()
   }
-})
+}
+
+function reload() {
+  loadData()
+}
+
+onMounted(loadData)
 
 // 入场序列：用 animation-delay 错开各模块的入场动画
 function startEntrySequence() {
@@ -96,6 +111,41 @@ function startEntrySequence() {
   display: flex; align-items: center; justify-content: center;
   min-height: 100vh; font-family: var(--font-mono); color: var(--muted);
 }
+.error-banner {
+  margin: 24px 0;
+  padding: 16px 20px;
+  border: 2px solid var(--live);
+  background: oklch(98% 0.04 28);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.error-banner strong {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.error-banner p {
+  margin: 0;
+  flex: 1;
+  min-width: 200px;
+  color: var(--muted);
+}
+.error-reload {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  padding: 6px 14px;
+  border: 2px solid var(--fg);
+  background: var(--fg);
+  color: var(--bg);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.error-reload:hover { background: var(--bg); color: var(--fg); }
 .header {
   display: flex; align-items: flex-start; justify-content: space-between;
   padding: 24px 0 20px; border-bottom: 2px solid var(--border);
