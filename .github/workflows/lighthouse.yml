@@ -1,0 +1,49 @@
+name: lighthouse
+
+# ────────────────────────────────────────────────────────────────
+# 用途: PR 触发，跑 Lighthouse CI 收集性能 / a11y / SEO / best-practices 分数
+# 触发:
+#   - pull_request（opened, synchronize, reopened）
+#   - workflow_dispatch（手动重新验证）
+# 验证:
+#   - npm ci 依赖安装
+#   - npm run build:preview（含 typegen + typecheck + build + cp data.json）
+#   - treosh/lighthouse-ci-action 跑 lhci autorun（内置 Chrome + 3 次取中位数）
+# 阈值:
+#   - 4 个分类分数 ≥ 0.9（性能 / a11y / best-practices / SEO）
+#   - skip color-contrast（已知妥协：StatusBar 上小字 var(--accent) 在深背景上对比度不足，
+#     因 token 系统要求单 --accent 适配深浅两背景，妥协保留 token 化一致性）
+# ────────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    types: [opened,synchronize,reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (with data.json mirror)
+        run: npm run build:preview
+
+      - name: Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          configPath: .lighthouserc.json
+          uploadArtifacts: true
+          temporaryPublicStorage: true

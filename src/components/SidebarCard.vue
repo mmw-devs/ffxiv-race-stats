@@ -1,6 +1,6 @@
 <template>
   <div class="sidebar-card" :class="[wrapperClass, { 'is-popped': expanded }]">
-    <h3>{{ title }}</h3>
+    <component :is="titleTag">{{ title }}</component>
     <div
       v-for="(item, i) in items"
       :key="i"
@@ -32,11 +32,14 @@ const props = withDefaults(defineProps<{
   wrapperClass?: string
   /** 展开按钮文案（'条' / '项'） */
   unit?: string
+  /** 标题元素标签（默认 h3，notice-card 等场景用 h2 保持层级） */
+  titleTag?: 'h2' | 'h3' | 'h4'
 }>(), {
   items: () => [] as T[],
   threshold: 1,
   wrapperClass: '',
   unit: '项',
+  titleTag: 'h3',
 })
 
 const expandedId = useExpand()
@@ -53,7 +56,7 @@ function toggle() {
   margin-bottom: 16px;
   background: var(--surface);
 }
-.sidebar-card h3 {
+.sidebar-card :is(h2, h3, h4) {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.08em;
