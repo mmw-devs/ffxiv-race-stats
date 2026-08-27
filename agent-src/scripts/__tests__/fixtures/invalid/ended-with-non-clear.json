@@ -1,0 +1,88 @@
+{
+  "meta": {
+    "eventName": "X",
+    "dungeons": [
+      {
+        "id": "M1S",
+        "name": "M1S"
+      },
+      {
+        "id": "M2S",
+        "name": "M2S"
+      }
+    ],
+    "status": "ended"
+  },
+  "teams": [
+    {
+      "id": "t1",
+      "rank": 1,
+      "bossHP": 5,
+      "phase": "M1S-P5",
+      "region": "NA",
+      "isLive": false,
+      "players": [
+        {
+          "job": "PLD",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "WAR",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "DRK",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "GNB",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "WHM",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "SCH",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "AST",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "SGE",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        }
+      ]
+    }
+  ],
+  "news": [],
+  "broadcasters": [],
+  "notices": [],
+  "sponsors": []
+}

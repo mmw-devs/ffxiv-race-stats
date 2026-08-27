@@ -20,20 +20,42 @@
       </template>
     </div>
     <span class="crt-hp">{{ team.bossHP.toFixed(1) }}%</span>
-    <span class="crt-phase">{{ team.phase }}</span>
+    <span class="crt-phase">{{ displayPhase }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Team } from '../../types/race-data'
-const props = defineProps<{ team: Team; index: number }>()
+import type { Team, Dungeon } from '../../types/race-data'
+const props = defineProps<{
+  team: Team
+  index: number
+  /** 副本列表（用于阶段显示：单副本隐藏名称、多副本显示 "id · stage"） */
+  dungeons?: Dungeon[]
+}>()
 
 const rankStyle = computed(() => {
   if (props.index === 0) return 'n1'
   if (props.index === 1) return 'n2'
   if (props.index === 2) return 'n3'
   return ''
+})
+
+/**
+ * 阶段显示逻辑：
+ * - phase 是复合 string "<副本id>-<阶段>"（如 M1S-P5、M2S-CLEAR）
+ * - 单副本场景（dungeons.length <= 1）：只显示阶段（如 P5、CLEAR）
+ * - 多副本场景：显示 "副本id · 阶段"（如 M1S · P5、M2S · CLEAR）
+ */
+const displayPhase = computed(() => {
+  const phase = props.team.phase ?? ''
+  const dashIdx = phase.indexOf('-')
+  if (dashIdx < 0) return phase  // 容错：旧数据无 '-' 时原样显示
+  const stage = phase.slice(dashIdx + 1)
+  const dungeons = props.dungeons ?? []
+  if (dungeons.length <= 1) return stage
+  const dungeonId = phase.slice(0, dashIdx)
+  return `${dungeonId} · ${stage}`
 })
 </script>
 

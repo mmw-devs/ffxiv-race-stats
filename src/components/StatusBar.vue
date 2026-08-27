@@ -1,7 +1,7 @@
 <template>
   <div class="status-bar">
     <span class="status-event">{{ eventName }} · 第 2 日</span>
-    <span class="status-dc">{{ dataCenter }} · {{ dungeon }}</span>
+    <span class="status-dc">{{ dataCenter }}</span>
     <span class="status-timer">开赛 {{ elapsed }}</span>
     <span v-if="status === 'live'" class="live-indicator">LIVE</span>
   </div>
@@ -12,7 +12,6 @@ import { useTimer } from '../composables/useTimer.js'
 const props = defineProps<{
   eventName: string
   dataCenter: string
-  dungeon: string
   startTime: string
   status: string
 }>()

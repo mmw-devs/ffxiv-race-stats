@@ -1,12 +1,13 @@
 <template>
   <div class="crt-module anim-entry" :class="{ 'is-popped': expanded }">
     <h2>实时排名 TOP 10</h2>
-    <RankingRow v-for="(team, i) in topTeams" :key="team.id" :team="team" :index="i" />
+    <RankingRow v-for="(team, i) in topTeams" :key="team.id" :team="team" :index="i" :dungeons="dungeons" />
     <RankingRow
       v-for="(team, i) in restTeams"
       :key="team.id"
       :team="team"
       :index="i + 10"
+      :dungeons="dungeons"
       :class="{ 'is-hidden': !expanded }"
     />
     <button class="crt-expand" @click="toggle">
@@ -19,9 +20,12 @@
 import { computed } from 'vue'
 import RankingRow from './RankingRow.vue'
 import { useExpand } from '../composables/useExpand.js'
-import type { Team } from '../../types/race-data'
+import type { Team, Dungeon } from '../../types/race-data'
 
-const props = defineProps<{ teams?: Team[] }>()
+const props = defineProps<{
+  teams?: Team[]
+  dungeons?: Dungeon[]
+}>()
 const topTeams = computed(() => (props.teams ?? []).filter(t => t.rank <= 10))
 const restTeams = computed(() => (props.teams ?? []).filter(t => t.rank > 10))
 
