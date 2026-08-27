@@ -7,15 +7,15 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { useTimer } from '../composables/useTimer.js'
-const props = defineProps({
-  eventName: String,
-  dataCenter: String,
-  dungeon: String,
-  startTime: String,
-  status: String,
-})
+const props = defineProps<{
+  eventName: string
+  dataCenter: string
+  dungeon: string
+  startTime: string
+  status: string
+}>()
 const { elapsed } = useTimer(props.startTime)
 </script>
 

@@ -24,9 +24,10 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
-const props = defineProps({ team: Object, index: Number })
+import type { Team } from '../../types/race-data'
+const props = defineProps<{ team: Team; index: number }>()
 
 const rankStyle = computed(() => {
   if (props.index === 0) return 'n1'

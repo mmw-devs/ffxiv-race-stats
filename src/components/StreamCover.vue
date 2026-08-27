@@ -3,34 +3,41 @@
     <h3>直播覆盖</h3>
     <p class="cover-stat">
       <span class="cover-num count-up">{{ displayStream }}</span>
-      <span class="cover-total"> / {{ coverage.totalPlayers }}</span>
+      <span class="cover-total"> / {{ coverage?.totalPlayers ?? 0 }}</span>
     </p>
     <p class="cover-label">名选手直播中</p>
     <p class="cover-stat" style="margin-top:10px">
       <span class="cover-num count-up">{{ displayTeams }}</span>
-      <span class="cover-total"> / {{ teamCount }}</span>
+      <span class="cover-total"> / {{ teamCount ?? 0 }}</span>
     </p>
     <p class="cover-label">支队伍有在线视角</p>
   </div>
 </template>
 
-<script setup>
-import { ref, onMounted } from 'vue'
+<script setup lang="ts">
+import { ref, onMounted, type Ref } from 'vue'
 
-const props = defineProps({
-  coverage: Object,
-  teamCount: Number,
-})
+/** 直播覆盖统计。由 App.vue 从 data.json 计算后传入。 */
+export interface Coverage {
+  totalPlayers: number
+  streamingPlayers: number
+  teamsWithCoverage: number
+}
 
-const displayStream = ref(0)
-const displayTeams = ref(0)
+const props = defineProps<{
+  coverage?: Coverage
+  teamCount?: number
+}>()
 
-function countUp(el, target, duration = 600) {
+const displayStream: Ref<number> = ref(0)
+const displayTeams: Ref<number> = ref(0)
+
+function countUp(el: Ref<number>, target: number, duration = 600): void {
   const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   if (prefersReduced) { el.value = target; return }
   const start = performance.now()
   const from = 0
-  function tick(now) {
+  function tick(now: number): void {
     const elapsed = now - start
     const progress = Math.min(elapsed / duration, 1)
     const eased = 1 - (1 - progress) * (1 - progress)

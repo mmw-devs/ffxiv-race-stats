@@ -5,27 +5,38 @@
       v-for="(item, i) in items"
       :key="i"
       class="sponsor-item"
-      :class="{ 'is-hidden': i >= threshold && !expanded }"
+      :class="{ 'is-hidden': i >= (threshold ?? 1) && !expanded }"
     >
       <slot :item="item" :index="i" />
     </div>
-    <button v-if="items.length > threshold" class="crt-expand" @click="toggle">
-      {{ expanded ? '收起' : `展开全部 ${items.length} ${unit} +` }}
+    <button v-if="(items?.length ?? 0) > (threshold ?? 1)" class="crt-expand" @click="toggle">
+      {{ expanded ? '收起' : `展开全部 ${items?.length ?? 0} ${unit ?? '项'} +` }}
     </button>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts" generic="T">
 import { computed } from 'vue'
-import { useExpand } from '../composables/useExpand.js'
+import { useExpand, type ExpandKey } from '../composables/useExpand.js'
 
-const props = defineProps({
-  title: { type: String, required: true },
-  items: { type: Array, default: () => [] },
-  threshold: { type: Number, default: 1 },
-  expandedKey: { type: String, required: true },
-  wrapperClass: { type: String, default: '' },
-  unit: { type: String, default: '项' },
+const props = withDefaults(defineProps<{
+  /** 卡片标题 */
+  title: string
+  /** 列表项（caller 决定每项的具体类型） */
+  items?: T[]
+  /** 折叠阈值，超过的项隐藏 */
+  threshold?: number
+  /** useExpand 互斥 key */
+  expandedKey: ExpandKey
+  /** 覆盖 wrapper 样式（如 notice-card 的 flex/min-width） */
+  wrapperClass?: string
+  /** 展开按钮文案（'条' / '项'） */
+  unit?: string
+}>(), {
+  items: () => [] as T[],
+  threshold: 1,
+  wrapperClass: '',
+  unit: '项',
 })
 
 const expandedId = useExpand()

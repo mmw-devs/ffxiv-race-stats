@@ -10,19 +10,20 @@
       :class="{ 'is-hidden': !expanded }"
     />
     <button class="crt-expand" @click="toggle">
-      {{ expanded ? '收起' : '展开全部 ' + teams.length + ' 队 +' }}
+      {{ expanded ? '收起' : '展开全部 ' + (teams?.length ?? 0) + ' 队 +' }}
     </button>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 import RankingRow from './RankingRow.vue'
 import { useExpand } from '../composables/useExpand.js'
+import type { Team } from '../../types/race-data'
 
-const props = defineProps({ teams: { type: Array, default: () => [] } })
-const topTeams = computed(() => props.teams.filter(t => t.rank <= 10))
-const restTeams = computed(() => props.teams.filter(t => t.rank > 10))
+const props = defineProps<{ teams?: Team[] }>()
+const topTeams = computed(() => (props.teams ?? []).filter(t => t.rank <= 10))
+const restTeams = computed(() => (props.teams ?? []).filter(t => t.rank > 10))
 
 const expandedId = useExpand()
 const expanded = computed(() => expandedId.value === 'ranking')

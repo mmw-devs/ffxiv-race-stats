@@ -10,8 +10,9 @@
   </section>
 </template>
 
-<script setup>
-defineProps({ news: Array })
+<script setup lang="ts">
+import type { NewsItem } from '../../types/race-data'
+defineProps<{ news: NewsItem[] }>()
 </script>
 
 <style scoped>
