@@ -11,19 +11,44 @@
     "build:preview": "npm run typegen && npm run typecheck && npm run build && cp agent-src/public/data.json dist/data.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
+    "size": "size-limit",
     "typegen": "node scripts/generate-types.mjs",
     "typecheck": "vue-tsc --noEmit",
     "typegen:typecheck": "npm run typegen && npm run typecheck"
   },
+  "size-limit": [
+    {
+      "name": "Total dist/",
+      "path": "dist/**/*",
+      "limit": "150 KB"
+    },
+    {
+      "name": "index.html",
+      "path": "dist/index.html",
+      "limit": "10 KB"
+    },
+    {
+      "name": "JS bundles (Vue runtime + App)",
+      "path": "dist/_astro/*.js",
+      "limit": "100 KB"
+    },
+    {
+      "name": "CSS bundles",
+      "path": "dist/_astro/*.css",
+      "limit": "20 KB"
+    }
+  ],
   "devDependencies": {
     "@astrojs/vue": "^7.0.1",
     "@larksuite/cli": "^1.0.72",
+    "@size-limit/preset-app": "^13.0.3",
     "@types/node": "^26.2.0",
     "@vue/eslint-config-typescript": "^14.9.0",
     "astro": "^7.0.6",
     "eslint": "^9.39.5",
     "eslint-plugin-vue": "^10.10.0",
     "json-schema-to-typescript": "^15.0.4",
+    "size-limit": "^13.0.3",
     "tsx": "^4.23.12",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11",
