@@ -38,6 +38,13 @@ error.log
 # Windows/WSL 元数据
 *:Zone.Identifier
 
+# Lighthouse CI 输出目录（lhci autorun / collect 产物）
+.lighthouseci/
+
+# Chromium user-data-dir 误写入根目录（Windows/WSL 下 lhci 启 Chrome 时未指定 --userDataDir，
+# 会把整段 WSL 路径当字面目录名创建出来，PID 段范围 [0-9]+）
+*lighthouse.[0-9]*/
+
 # 临时登录 QR（不入仓）
 /auth-qr.png
 
