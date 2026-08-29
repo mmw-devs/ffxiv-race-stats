@@ -46,7 +46,7 @@
     "@size-limit/preset-app": "^13.0.3",
     "@types/node": "^26.2.0",
     "@vue/eslint-config-typescript": "^14.9.0",
-    "astro": "^7.0.6",
+    "astro": "^7.2.7",
     "eslint": "^9.39.5",
     "eslint-plugin-vue": "^10.10.0",
     "json-schema-to-typescript": "^15.0.4",
