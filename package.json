@@ -12,7 +12,7 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "size": "size-limit",
-    "lhci": "lhci autorun",
+    "lhci": "node scripts/lhci.mjs",
     "typegen": "node scripts/generate-types.mjs",
     "typecheck": "vue-tsc --noEmit",
     "typegen:typecheck": "npm run typegen && npm run typecheck"
