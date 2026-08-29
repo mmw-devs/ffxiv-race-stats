@@ -18,6 +18,24 @@ npm run build        # 输出到 dist/
 npm run preview      # 预览构建产物
 ```
 
+## 工具与凭据
+
+以下 host-level 工具默认在 Agent 环境中可用，无需每次 `which` 验证：
+
+| 工具 | 路径 | 说明 |
+|------|------|------|
+| `gh` | `~/.local/bin/gh` | GitHub CLI，已登录 `weunimix`，对 `mmw-devs/*` 仓库有读写权限 |
+| `git` | 系统默认 | 已配 `origin` = `mmw-devs/ffxiv-race-stats`，可推送到 dev 仓库 |
+| `python3` | `/usr/bin/python3` | 解析 GitHub API JSON 的回退方案（环境无 `jq` 时） |
+| `node` / `npm` | 系统默认 | 本地 dev / build 用 |
+
+注意：
+
+- `gh` 不在默认 `$PATH` 中，bash 会话需先 `export PATH="$HOME/.local/bin:$PATH"`
+- 查询 GitHub 优先用 `gh api` / `gh pr *` / `gh issue *`；网络偶尔抖动可重试
+- 若 `gh auth status` 超时但 token 已缓存，直接调用 `gh api` 通常仍可工作
+- `ops` 仓库（`mmw-devs/ffxiv-race-ops`）未配 git remote，操作 ops 仓库的 PR / issue 必须通过 `gh --repo mmw-devs/ffxiv-race-ops` 完成
+
 ## 架构
 
 ```
