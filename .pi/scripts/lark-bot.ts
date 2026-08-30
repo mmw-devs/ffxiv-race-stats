@@ -39,6 +39,17 @@ const opLogSchema = require(join(PROJECT_DIR, "scripts", "op-log-schema.js")) as
   getOperatorName: (operator: string) => string | null;
 };
 
+// 接口不兼容时启动期崩溃。避免有人改 op-log-schema.js 函数签名后
+// lark-bot 拿到 undefined 静默失活，导致所有合法运营者被判为未注册。
+if (
+  typeof opLogSchema.isOperatorAllowed !== "function" ||
+  typeof opLogSchema.getOperatorName !== "function"
+) {
+  throw new Error(
+    "op-log-schema.js 接口不兼容：缺少 isOperatorAllowed 或 getOperatorName。",
+  );
+}
+
 interface IdentityConfig {
   provider: "feishu-contact";
   canonicalClaim: "user_id";
