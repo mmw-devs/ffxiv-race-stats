@@ -203,7 +203,11 @@ if (actualChanges.length > 0) {
 
   // 祖先字段判断：loggedField 是否为 actualField 的祖先路径
   // 例："news" 是 "news[2].text" 的祖先，"teams" 是 "teams[0].bossHP" 的祖先
+  // 先校验路径格式：必须是字母数字下划线 + . + [digits]，防异常输入（空串、含 "/"、畸形括号）误判
+  const FIELD_PATH_RE = /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+|\[\d+\])*$/;
   const isAncestorField = (loggedField, actualField) => {
+    if (!loggedField || !actualField) return false;
+    if (!FIELD_PATH_RE.test(loggedField)) return false;
     if (loggedField === actualField) return true;
     return actualField.startsWith(loggedField + ".") || actualField.startsWith(loggedField + "[");
   };
