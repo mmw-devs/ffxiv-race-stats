@@ -12,11 +12,11 @@
  */
 
 import { spawn, spawnSync, ChildProcess, execSync } from "node:child_process";
-import { createRequire } from "node:module";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createIdentityResolver, type OperatorContext } from "./identity-resolver.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -31,51 +31,6 @@ const IS_WIN = process.platform === "win32";
 
 const BOT_OPEN_ID = process.env.LARK_BOT_OPEN_ID || "ou_f284b18bf12c193bf5a942a273c5cbf0";
 const BOT_NAME = process.env.LARK_BOT_NAME || "FFXIV 竞速";
-
-// lark-bot 与 CI 共用同一份运营者注册表，避免权限名单出现两份来源。
-const require = createRequire(import.meta.url);
-const opLogSchema = require(join(PROJECT_DIR, "scripts", "op-log-schema.js")) as {
-  isOperatorAllowed: (operator: string) => boolean;
-  getOperatorName: (operator: string) => string | null;
-};
-
-// 接口不兼容时启动期崩溃。避免有人改 op-log-schema.js 函数签名后
-// lark-bot 拿到 undefined 静默失活，导致所有合法运营者被判为未注册。
-if (
-  typeof opLogSchema.isOperatorAllowed !== "function" ||
-  typeof opLogSchema.getOperatorName !== "function"
-) {
-  throw new Error(
-    "op-log-schema.js 接口不兼容：缺少 isOperatorAllowed 或 getOperatorName。",
-  );
-}
-
-interface IdentityConfig {
-  provider: "feishu-contact";
-  canonicalClaim: "user_id";
-}
-
-function loadIdentityConfig(): IdentityConfig {
-  const fallback: IdentityConfig = {
-    provider: "feishu-contact",
-    canonicalClaim: "user_id",
-  };
-  try {
-    const settings = JSON.parse(readFileSync(join(PROJECT_DIR, ".pi/settings.json"), "utf-8"));
-    const identity = settings?.larkBot?.identity;
-    if (identity?.provider === "feishu-contact" && identity?.canonicalClaim === "user_id") {
-      return {
-        provider: identity.provider,
-        canonicalClaim: identity.canonicalClaim,
-      };
-    }
-    return fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-const IDENTITY_CONFIG = loadIdentityConfig();
 
 // ═══════════════ 代理 ═══════════════
 if (!process.env.HTTP_PROXY) {
@@ -201,81 +156,14 @@ function stripMention(content: string): string {
 
 // ═══════════════ 运营者身份解析 ═══════════════
 
-interface OperatorContext {
-  operator: string;
-  claim: IdentityConfig["canonicalClaim"];
-  name: string | null;
-}
+const identityResolver = createIdentityResolver({
+  projectDir: PROJECT_DIR,
+  cliPath: CLI,
+  log,
+});
 
-interface CachedOperatorContext {
-  context: OperatorContext | null;
-  expiresAt: number;
-}
-
-const operatorCache = new Map<string, CachedOperatorContext>();
-const OPERATOR_CACHE_TTL_MS = 60 * 60 * 1000;
-const OPERATOR_FAILURE_CACHE_TTL_MS = 30 * 1000;
-
-/**
- * 使用完整 Feishu open_id 查询 user_id，并检查其是否已登记为运营者。
- * 解析失败、权限失败或未登记均返回 null，由入口 fail-closed。
- */
 function resolveOperator(openId: string): OperatorContext | null {
-  const now = Date.now();
-  const cached = operatorCache.get(openId);
-  if (cached && cached.expiresAt > now) return cached.context;
-
-  let context: OperatorContext | null = null;
-
-  if (typeof openId !== "string" || !openId.startsWith("ou_")) {
-    operatorCache.set(openId, { context: null, expiresAt: now + OPERATOR_FAILURE_CACHE_TTL_MS });
-    return null;
-  }
-
-  try {
-    const result = spawnSync(CLI, [
-      "contact", "+get-user", "--as", "bot",
-      "--user-id", openId,
-      "--user-id-type", "open_id",
-      "--format", "json",
-    ], {
-      timeout: 8000,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(`lark-cli exit=${result.status}`);
-
-    const payload = JSON.parse(result.stdout);
-    if (payload.ok !== true) {
-      throw new Error(payload.error?.message || "通讯录查询失败");
-    }
-
-    const operator = payload.data?.user?.[IDENTITY_CONFIG.canonicalClaim];
-    if (typeof operator !== "string" || !operator.trim()) {
-      throw new Error("响应中缺少 user_id");
-    }
-
-    const normalizedOperator = operator.trim();
-    if (!opLogSchema.isOperatorAllowed(normalizedOperator)) {
-      log(`[身份] user_id=${normalizedOperator} 未在运营者注册表中登记`);
-    } else {
-      context = {
-        operator: normalizedOperator,
-        claim: IDENTITY_CONFIG.canonicalClaim,
-        name: opLogSchema.getOperatorName(normalizedOperator),
-      };
-    }
-  } catch (error: any) {
-    log(`[身份] user_id 解析失败: ${error.message?.slice(0, 120) || "未知错误"}`);
-  }
-
-  operatorCache.set(openId, {
-    context,
-    expiresAt: now + (context ? OPERATOR_CACHE_TTL_MS : OPERATOR_FAILURE_CACHE_TTL_MS),
-  });
-  return context;
+  return identityResolver.resolveOperator(openId);
 }
 
 function isBotSender(senderId: string): boolean {
