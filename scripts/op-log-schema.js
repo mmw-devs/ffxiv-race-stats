@@ -8,8 +8,22 @@
 // 常量
 // ══════════════════════════════════════════════════════════════
 
-/** 允许的操作人列表（飞书账号/用户名） */
-const OPERATOR_ALLOWLIST = ["weunimix"];
+/**
+ * 运营者注册表 — 权限身份与展示名称的最小元数据。
+ * key 是 OP_LOG.operator 使用的稳定飞书 user_id；name 仅用于展示。
+ */
+const OPERATOR_REGISTRY = {
+  "38a32652": { name: "weunimix" },
+  "311a2ea5": { name: "赤墓" },
+};
+
+/** 允许的操作人列表（由注册表派生，保持 string[]） */
+const OPERATOR_ALLOWLIST = Object.keys(OPERATOR_REGISTRY);
+
+/** 获取操作人的展示名称，不参与权限判断。 */
+function getOperatorName(operator) {
+  return OPERATOR_REGISTRY[operator]?.name || null;
+}
 
 /** 允许的操作类型 */
 const ACTION_TYPES = [
@@ -227,9 +241,12 @@ function parseLogFromMessage(commitMessage) {
 
 module.exports = {
   // 常量
+  OPERATOR_REGISTRY,
   OPERATOR_ALLOWLIST,
   ACTION_TYPES,
   ACTION_RISK_LEVELS,
+  // 展示元数据
+  getOperatorName,
   // 权限
   isOperatorAllowed,
   isActionAllowed,

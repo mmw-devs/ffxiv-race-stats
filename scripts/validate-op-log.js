@@ -17,6 +17,7 @@ const {
   parseLogFromMessage,
   validateLogStructure,
   validateOperatorPermission,
+  getOperatorName,
 } = require("./op-log-schema");
 
 // ══════════════════════════════════════════════════════════════
@@ -108,22 +109,28 @@ for (const commit of commits) {
     continue;
   }
 
-  // 权限校验：高风险操作（删除/改元信息）权限不足时硬阻断，中低风险 warn
+  // 权限校验：身份未解析时无论风险等级都硬阻断；高风险操作权限不足时硬阻断，中低风险 warn
   const permResult = validateOperatorPermission(log);
+  const isUnknownOperator = !log.operator || log.operator === "unknown";
   if (!permResult.valid) {
     const levelLabel = { high: "高风险", medium: "中风险", low: "低风险" }[permResult.riskLevel];
+    const shouldBlock = isUnknownOperator || permResult.riskLevel === "high";
     for (const err of permResult.errors) {
-      if (permResult.riskLevel === "high") {
+      if (shouldBlock) {
         fail(`commit ${commit.hash.slice(0, 7)} 权限(${levelLabel}): ${err}`);
       } else {
         warn(`commit ${commit.hash.slice(0, 7)} 权限(${levelLabel}): ${err}`);
       }
     }
-    // 高风险操作不继续记录日志（无法进入一致性比对）
-    if (permResult.riskLevel === "high") continue;
+    // 高风险或身份未解析的操作不继续记录日志（无法进入一致性比对）
+    if (shouldBlock) continue;
   }
 
-  ok(`  operator: ${log.operator}, action: ${log.action}, target: ${log.target}, changes: ${log.changes.length} 项`);
+  const operatorName = getOperatorName(log.operator);
+  const operatorLabel = operatorName
+    ? `${log.operator} (${operatorName})`
+    : `${log.operator} (未登记)`;
+  ok(`  operator: ${operatorLabel}, action: ${log.action}, target: ${log.target}, changes: ${log.changes.length} 项`);
   allLogs.push({ commitHash: commit.hash.slice(0, 7), log });
 }
 
@@ -196,7 +203,11 @@ if (actualChanges.length > 0) {
 
   // 祖先字段判断：loggedField 是否为 actualField 的祖先路径
   // 例："news" 是 "news[2].text" 的祖先，"teams" 是 "teams[0].bossHP" 的祖先
+  // 先校验路径格式：必须是字母数字下划线 + . + [digits]，防异常输入（空串、含 "/"、畸形括号）误判
+  const FIELD_PATH_RE = /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+|\[\d+\])*$/;
   const isAncestorField = (loggedField, actualField) => {
+    if (!loggedField || !actualField) return false;
+    if (!FIELD_PATH_RE.test(loggedField)) return false;
     if (loggedField === actualField) return true;
     return actualField.startsWith(loggedField + ".") || actualField.startsWith(loggedField + "[");
   };
