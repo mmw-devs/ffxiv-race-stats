@@ -13,6 +13,7 @@
     "lint:fix": "eslint src/ --fix",
     "size": "size-limit",
     "lhci": "node scripts/lhci.mjs",
+    "test:validate-data": "cd agent-src && npx vitest run",
     "typegen": "node scripts/generate-types.mjs",
     "typecheck": "vue-tsc --noEmit",
     "typegen:typecheck": "npm run typegen && npm run typecheck"

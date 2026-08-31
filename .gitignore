@@ -53,3 +53,6 @@ error.log
 
 dist/
 .astro/
+.lighthouseci/
+# LHCI 临时 Chrome 用户数据目录（WSL 路径污染）
+\\wsl.localhost/**

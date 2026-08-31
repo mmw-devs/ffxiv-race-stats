@@ -4,11 +4,26 @@
   "title": "Meta",
   "description": "赛事元信息",
   "type": "object",
-  "required": ["eventName", "status"],
+  "required": ["eventName", "status", "dungeons"],
   "properties": {
     "eventName":  { "type": "string" },
     "edition":    { "type": "string" },
-    "dungeon":    { "type": "string" },
+    "dungeons": {
+      "type": "array",
+      "minItems": 1,
+      "description": "当前赛事涉及的副本列表。数组顺序即副本排列顺序；阶段 phase 必须按此顺序推进（M1S 阶段全 CLEAR 后才能进入 M2S 阶段）。",
+      "items": {
+        "type": "object",
+        "title": "Dungeon",
+        "description": "单个副本定义（id 用于 phase 拼接，name 用于展示）",
+        "required": ["id", "name"],
+        "properties": {
+          "id":   { "type": "string", "pattern": "^[A-Z0-9]+$", "description": "副本短代码（如 M1S），用于 phase 拼接" },
+          "name": { "type": "string", "minLength": 1, "description": "副本完整显示名" }
+        },
+        "additionalProperties": false
+      }
+    },
     "boss":       { "type": "string" },
     "dataCenter": { "type": "string" },
     "startTime":  { "type": "string", "description": "ISO 8601 格式" },

@@ -8,6 +8,14 @@
  *   阶段 1 — Ajv 结构校验：类型、必填、嵌套、数组长度
  *   阶段 2 — 值域交叉校验：phase/region/role/status 白名单（来自 constants.js）
  *   阶段 3 — 业务规则：rank 连续不跳号、占位符提醒
+ *
+ * 副本阶段绑定（feature/dungeon-phase-binding）：
+ *   - team.phase 必须形如 `<副本id>-<阶段>`（如 M1S-P5、M2S-CLEAR）
+ *   - 副本 id 必须在 meta.dungeons[] 中存在
+ *   - 阶段必须在 PHASE_ORDER 中
+ *   - status="ended" → 所有队伍 phase 必须是 lastDungeon-CLEAR
+ *   - status="upcoming" → 所有队伍 phase 必须是 firstDungeon-P1
+ *   - 跨队伍 phase 单调（按 rank 升序：(dungeonIndex, stageIndex) 非严格递增）
  */
 
 const fs = require("fs");
@@ -48,7 +56,9 @@ function ok(msg) {
 
 console.log(`${BOLD}── 1. 加载 data.json ──${RESET}`);
 
-const dataPath = path.resolve(__dirname, "..", "public", "data.json");
+const dataPath = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.resolve(__dirname, "..", "public", "data.json");
 
 let RACE_DATA;
 try {
@@ -154,6 +164,20 @@ for (const k of REQUIRED_TOP_KEYS) {
   }
 }
 
+// 4a-bis. meta.dungeons[] 解析
+const dungeons = RACE_DATA.meta && Array.isArray(RACE_DATA.meta.dungeons) ? RACE_DATA.meta.dungeons : null;
+const dungeonIds = dungeons ? dungeons.map((d) => d && d.id).filter(Boolean) : [];
+const dungeonIdSet = new Set(dungeonIds);
+
+if (dungeons && dungeons.length > 0) {
+  // 副本 id 唯一性
+  if (dungeonIds.length !== dungeonIdSet.size) {
+    fail(`meta.dungeons[] 存在重复 id: [${dungeonIds.join(", ")}]`);
+  } else {
+    ok(`meta.dungeons[] 含 ${dungeons.length} 个副本：${dungeonIds.join(", ")}`);
+  }
+}
+
 // 4b. meta.status
 if (RACE_DATA.meta) {
   if (!VALID_STATUSES.includes(RACE_DATA.meta.status)) {
@@ -163,7 +187,7 @@ if (RACE_DATA.meta) {
   }
 }
 
-// 4c. teams[] 逐队校验
+// 4c. teams[] 逐队校验（phase 复合格式 + 关联性）
 if (!Array.isArray(RACE_DATA.teams)) {
   fail("teams 不是数组");
 } else {
@@ -179,6 +203,9 @@ if (!Array.isArray(RACE_DATA.teams)) {
     ok(`rank 1–${teams.length} 连续无跳号`);
   }
 
+  // 用于跨队伍单调性校验
+  const phaseIndexByRank = new Map(); // rank -> (dungeonIndex, stageIndex, raw)
+
   for (const team of teams) {
     const prefix = `[${team.name || team.id}]`;
 
@@ -187,16 +214,34 @@ if (!Array.isArray(RACE_DATA.teams)) {
       fail(`${prefix} bossHP = ${team.bossHP} 不在 [0, 100] 范围内`);
     }
 
-    // phase ← PHASE_ORDER（来自 constants.js）
-    if (PHASE_ORDER && Array.isArray(PHASE_ORDER)) {
-      if (!PHASE_ORDER.includes(team.phase)) {
-        fail(`${prefix} phase = "${team.phase}" 不在 PHASE_ORDER 白名单中`);
+    // phase 复合格式：<副本id>-<阶段>
+    const phaseRaw = team.phase;
+    let phaseParsed = null;
+    if (typeof phaseRaw !== "string" || !phaseRaw.includes("-")) {
+      fail(`${prefix} phase = "${phaseRaw}" 格式非法，应为 <副本id>-<阶段>（如 M1S-P5）`);
+    } else {
+      const dashIdx = phaseRaw.indexOf("-");
+      const dungeonId = phaseRaw.slice(0, dashIdx);
+      const stage = phaseRaw.slice(dashIdx + 1);
+      const dungeonIndex = dungeonIds.indexOf(dungeonId);
+      const stageIndex = PHASE_ORDER ? PHASE_ORDER.indexOf(stage) : -1;
+
+      if (dungeonIndex === -1) {
+        fail(`${prefix} phase 副本 id "${dungeonId}" 不在 meta.dungeons[] 中`);
+      } else if (stageIndex === -1) {
+        fail(`${prefix} phase 阶段 "${stage}" 不在 PHASE_ORDER [${PHASE_ORDER.join(", ")}] 中`);
+      } else {
+        phaseParsed = { dungeonId, stage, dungeonIndex, stageIndex };
       }
+    }
+
+    if (phaseParsed) {
+      phaseIndexByRank.set(team.rank, phaseParsed);
     }
 
     // region ← VALID_REGIONS（来自 constants.js）
     if (!VALID_REGIONS.includes(team.region)) {
-      fail(`${prefix} region = "${team.region}" 不在 [${VALID_REGIONS.join(", ")}] 中`);
+      fail(`${prefix} region = "${team.region}" 不在 [${VALID_REGIONS.join(", ")} 中`);
     }
 
     // players[] 人数
@@ -225,6 +270,69 @@ if (!Array.isArray(RACE_DATA.teams)) {
       fail(`${prefix} isLive 不是 boolean`);
     }
   }
+
+  // 4d. status ↔ phase 关联性
+  if (RACE_DATA.meta && dungeons && dungeons.length > 0) {
+    const status = RACE_DATA.meta.status;
+    if (status === "ended") {
+      const lastDungeonId = dungeonIds[dungeonIds.length - 1];
+      const expectedPhase = `${lastDungeonId}-CLEAR`;
+      for (const team of teams) {
+        if (team.phase !== expectedPhase) {
+          fail(`${prefix(team)} meta.status="ended" 时所有队伍 phase 必须是 "${expectedPhase}"，但 rank ${team.rank} 是 "${team.phase}"`);
+        }
+      }
+      ok(`status="ended" 校验通过：所有队伍 phase = "${expectedPhase}"`);
+    } else if (status === "upcoming") {
+      const firstDungeonId = dungeonIds[0];
+      const expectedPhase = `${firstDungeonId}-${PHASE_ORDER[0]}`;
+      for (const team of teams) {
+        if (team.phase !== expectedPhase) {
+          fail(`${prefix(team)} meta.status="upcoming" 时所有队伍 phase 必须是 "${expectedPhase}"，但 rank ${team.rank} 是 "${team.phase}"`);
+        }
+      }
+      ok(`status="upcoming" 校验通过：所有队伍 phase = "${expectedPhase}"`);
+    }
+  }
+
+  // 4e. 副本顺序推进：副本 N+1 出现 → 副本 N 必须全 CLEAR
+  // 即：任何非 P1 阶段出现在副本 N+1 时，副本 N 至少有一支队伍到达 CLEAR
+  // 注意：rank 在数据模型中仅为列表序号，不代表进度排名，因此不做跨队伍单调性约束
+  // 仅 status="live" 时检查：status="ended" 由 4d 覆盖（所有队伍已是 lastDungeon-CLEAR）；
+  // status="upcoming" 时所有队伍都是 firstDungeon-P1，不会跨副本
+  if (phaseIndexByRank.size > 0 && dungeons && dungeons.length > 1 && RACE_DATA.meta && RACE_DATA.meta.status === "live") {
+    const clearStageIdx = PHASE_ORDER ? PHASE_ORDER.indexOf("CLEAR") : -1;
+    const firstStageIdx = 0; // P1 = index 0
+    let orderOk = true;
+    for (const team of teams) {
+      const parsed = phaseIndexByRank.get(team.rank);
+      if (!parsed || parsed.dungeonIndex === 0) continue;
+      // 非 P1 阶段出现在副本 N+1（N >= 1）时，检查副本 N 是否有队伍 CLEAR
+      if (parsed.stageIndex > firstStageIdx) {
+        // 找前面副本有没有 CLEAR
+        let prevHasClear = false;
+        for (const other of teams) {
+          const otherParsed = phaseIndexByRank.get(other.rank);
+          if (otherParsed && otherParsed.dungeonIndex === parsed.dungeonIndex - 1 && otherParsed.stageIndex === clearStageIdx) {
+            prevHasClear = true;
+            break;
+          }
+        }
+        if (!prevHasClear) {
+          fail(`副本顺序违反：rank ${team.rank} (${team.phase}) 在副本 ${dungeonIds[parsed.dungeonIndex]}，但前一个副本 ${dungeonIds[parsed.dungeonIndex - 1]} 还无队伍 CLEAR`);
+          orderOk = false;
+        }
+      }
+    }
+    if (orderOk) {
+      ok("副本顺序推进校验通过：副本 N+1 进入时 N 已全 CLEAR");
+    }
+  }
+}
+
+// 4-prefix helper for messages
+function prefix(team) {
+  return `[${team.name || team.id}]`;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -275,6 +383,9 @@ if (Array.isArray(RACE_DATA.teams)) {
   if (placeholderPlayerCount > 0 && RACE_DATA.meta && RACE_DATA.meta.status === "live") {
     warn(`${placeholderPlayerCount} 个直播链接仍为占位符 "#"，赛事已 LIVE`);
   }
+
+  // 单副本场景但 dungeons.length >1 时提醒（运营可能误填多副本）
+  // 此提醒仅作为提示，不阻断
 }
 
 // ══════════════════════════════════════════════════════════════

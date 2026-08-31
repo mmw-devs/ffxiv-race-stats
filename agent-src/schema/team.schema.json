@@ -10,7 +10,7 @@
     "name":   { "type": "string" },
     "rank":   { "type": "integer", "minimum": 1 },
     "bossHP": { "type": "number", "minimum": 0, "maximum": 100 },
-    "phase":  { "type": "string", "description": "必须在 PHASE_ORDER 白名单内（值域校验由 validate-data.js 交叉校验）" },
+    "phase":  { "type": "string", "pattern": "^[A-Z0-9]+-(P[0-9]+|CLEAR)$", "description": "复合阶段：<副本id>-<阶段>（副本id 必须在 meta.dungeons[] 中存在；阶段必须在 PHASE_ORDER 白名单内）" },
     "region": {
       "type": "string",
       "enum": ["JP", "NA", "EU", "OC", "CN", "KR"]

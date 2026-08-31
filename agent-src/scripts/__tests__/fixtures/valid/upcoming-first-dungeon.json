@@ -1,0 +1,155 @@
+{
+  "meta": {
+    "eventName": "FFXIV 高难首杀竞速",
+    "edition": "第1期",
+    "dungeons": [
+      {
+        "id": "M1S",
+        "name": "欧米茄绝境战 M1S"
+      },
+      {
+        "id": "M2S",
+        "name": "欧米茄绝境战 M2S"
+      }
+    ],
+    "status": "upcoming"
+  },
+  "teams": [
+    {
+      "id": "t1",
+      "rank": 1,
+      "bossHP": 100,
+      "phase": "M1S-P1",
+      "region": "NA",
+      "isLive": false,
+      "players": [
+        {
+          "job": "PLD",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "WAR",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "DRK",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "GNB",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "WHM",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "SCH",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "AST",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "SGE",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        }
+      ]
+    },
+    {
+      "id": "t2",
+      "rank": 2,
+      "bossHP": 100,
+      "phase": "M1S-P1",
+      "region": "NA",
+      "isLive": false,
+      "players": [
+        {
+          "job": "PLD",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "WAR",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "DRK",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "GNB",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "WHM",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "SCH",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "AST",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        },
+        {
+          "job": "SGE",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false,
+          "isLive": false
+        }
+      ]
+    }
+  ],
+  "news": [],
+  "broadcasters": [],
+  "notices": [],
+  "sponsors": []
+}

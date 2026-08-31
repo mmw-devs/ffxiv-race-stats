@@ -22,7 +22,12 @@ export interface RACE_DATA {
 export interface Meta {
   eventName: string;
   edition?: string;
-  dungeon?: string;
+  /**
+   * 当前赛事涉及的副本列表。数组顺序即副本排列顺序；阶段 phase 必须按此顺序推进（M1S 阶段全 CLEAR 后才能进入 M2S 阶段）。
+   *
+   * @minItems 1
+   */
+  dungeons: [Dungeon, ...Dungeon[]];
   boss?: string;
   dataCenter?: string;
   /**
@@ -33,6 +38,19 @@ export interface Meta {
   [k: string]: unknown;
 }
 /**
+ * 单个副本定义（id 用于 phase 拼接，name 用于展示）
+ */
+export interface Dungeon {
+  /**
+   * 副本短代码（如 M1S），用于 phase 拼接
+   */
+  id: string;
+  /**
+   * 副本完整显示名
+   */
+  name: string;
+}
+/**
  * 一支竞速队伍及其玩家
  */
 export interface Team {
@@ -41,7 +59,7 @@ export interface Team {
   rank: number;
   bossHP: number;
   /**
-   * 必须在 PHASE_ORDER 白名单内（值域校验由 validate-data.js 交叉校验）
+   * 复合阶段：<副本id>-<阶段>（副本id 必须在 meta.dungeons[] 中存在；阶段必须在 PHASE_ORDER 白名单内）
    */
   phase: string;
   region: "JP" | "NA" | "EU" | "OC" | "CN" | "KR";

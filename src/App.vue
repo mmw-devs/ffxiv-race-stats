@@ -8,14 +8,14 @@
   <template v-else>
     <StatusBar
       :eventName="meta.eventName ?? ''" :dataCenter="meta.dataCenter ?? ''"
-      :dungeon="meta.dungeon ?? ''" :startTime="meta.startTime ?? ''" :status="meta.status"
+      :startTime="meta.startTime ?? ''" :status="meta.status"
     />
     <header class="header">
       <div><div class="header-brand">FFXIV 高难首杀竞速网站</div></div>
     </header>
     <HeroSection :meta="meta" :notices="notices" :broadcasters="broadcasters" />
     <div class="main-grid">
-      <RankingTable :teams="teams" />
+      <RankingTable :teams="teams" :dungeons="meta.dungeons ?? []" />
       <Sidebar :meta="meta" :sponsors="sponsors" :teams="teams" :streamCoverage="streamCoverage" />
     </div>
     <NewsTicker :news="news" />
@@ -48,7 +48,7 @@ interface Sponsor {
   desc: string
 }
 
-const meta: Ref<Meta> = ref<Meta>({} as Meta)
+const meta: Ref<Meta> = ref<Meta>({ dungeons: [] } as unknown as Meta)
 const teams: Ref<Team[]> = ref<Team[]>([])
 const news: Ref<NewsItem[]> = ref<NewsItem[]>([])
 const broadcasters: Ref<Broadcaster[]> = ref<Broadcaster[]>([])
