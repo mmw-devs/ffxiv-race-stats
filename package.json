@@ -41,7 +41,7 @@
     }
   ],
   "devDependencies": {
-    "@astrojs/vue": "^7.0.1",
+    "@astrojs/vue": "^7.0.2",
     "@larksuite/cli": "^1.0.72",
     "@lhci/cli": "^0.15.1",
     "@size-limit/preset-app": "^13.0.3",
