@@ -50,7 +50,7 @@
     "astro": "^7.2.9",
     "eslint": "^9.39.5",
     "eslint-plugin-vue": "^10.10.0",
-    "json-schema-to-typescript": "^15.0.4",
+    "json-schema-to-typescript": "^16.0.0",
     "size-limit": "^13.0.3",
     "tsx": "^4.23.12",
     "typescript": "^5.9.3",
