@@ -25,11 +25,12 @@ FFXIV 高难首杀竞速网站 — 使用 Astro + Vue 3 构建的静态站点，
 |------------|---------|--------|
 | `src/`、`schema/`、CI 配置、`.github/workflows/` | dev | 开发者 |
 | `.pi/`（PI Agent 配置总目录） | dev | 开发者 |
-| ├ `.pi/scripts/*.ts`（如 `identity-resolver.ts`、`lark-bot.ts`） | dev | 开发者 |
+| ├ `.pi/scripts/*.ts`（开发者自用辅助脚本，运营代码见 `agent-src/.pi/scripts/`） | dev | 开发者 |
 | ├ `.pi/skills/*/SKILL.md` | dev | 开发者 |
 | ├ `.pi/settings.json`、`docs/`、`runtime/`、`sessions/` | dev | 开发者 |
 | └ `AGENTS.md` 等指令文件 | dev | 开发者 |
-| `agent-src/`（含 `public/data.json` 只读镜像） | dev | 开发者（接受 ops 仓库 CI 推送） |
+| `agent-src/.pi/`（lark-bot、skills、scripts、extensions、rules 等运营代码真源） | dev | 开发者；dev CI 推送至 ops 仓库（非 ops 反向流入） |
+| `agent-src/public/data.json`（**例外：dev CI 不会推送此文件**） | **dev 镜像** | ops CI 推送到 dev；**生产数据源在 ops，由 ops 仓库 PI Agent 写入** |
 | `public/data.json`（**真源**） | **ops** | ops 仓库 PI Agent |
 | 跨仓库 RPC 写入（dev → ops） | dev PI Agent → ops PI Agent | 双侧 |
 
@@ -50,6 +51,8 @@ FFXIV 高难首杀竞速网站 — 使用 Astro + Vue 3 构建的静态站点，
 - 在 dev 仓库创建或修改 ops 仓库数据文件
 - 在 `AGENTS.md` 写入时效性内容（文件数量、存在性、版本号等）
 - 凭标题或正文中的 "ops" / "dev" / "backend" 等关键词推断路径归属
+- 凭目录字面命名（如 `agent-src/` 看似 dev 自身源码）推断路径归属；`agent-src/.pi/` 真源在 dev、由 dev CI 推送至 ops
+- 直接修改 `agent-src/public/data.json`（这是会被下次同步覆盖的孤儿文件，永远以 ops `public/data.json` 为准）
 
 判断流程：涉及路径时，按"实体抽取 → 查速查表 → 路径归属统计 → 关键词冲突仲裁"四步走；未在表内的实体必须向用户确认。
 
@@ -102,6 +105,17 @@ src/
 | ops (`mmw-devs/ffxiv-race-ops`) | `main` | `content/*` | ops 仓库 PI Agent |
 
 dev 仓库禁止直推 `main`，所有变更通过 PR + CI 合入，squash merge。ops 仓库分支纪律不在本仓库管理。
+
+## 代码 / 数据 双向同步方向
+
+`agent-src/` 是 ops 仓库的镜像源，由 dev CI 单向推送到 ops；`public/data.json` 是 ops 仓库的数据源，由 ops CI 单向推送到 dev。两边方向独立、互不干涉。
+
+| 方向 | Workflow | 推送内容 |
+|------|---------|---------|
+| **dev → ops** | dev 仓库 `.github/workflows/sync-agent-src.yml` | `agent-src/` 全部内容，**例外：`agent-src/public/data.json`（生产数据源在 ops，不由 dev 反向覆盖）** |
+| **ops → dev** | ops 仓库 `.github/workflows/sync-data-to-dev.yml` | 仅 `public/data.json` |
+
+简言之：**代码真源在 dev（`agent-src/`），数据真源在 ops（`public/data.json`）**。修改 `agent-src/public/data.json` 等于改一个会被下次同步覆盖的孤儿文件，绝不修改。
 
 ## CI（dev 仓库）
 
