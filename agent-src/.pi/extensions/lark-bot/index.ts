@@ -42,7 +42,7 @@ export default function (pi: any) {
       return;
     }
 
-    const script = join(root, ".pi", "scripts", "lark-bot.ts");
+    const script = join(root, ".pi", "scripts", "lark-bot", "main.ts");
     const nodeBin = process.execPath;
     const tsxEntry = join(root, ".pi", "npm", "node_modules", "tsx", "dist", "cli.mjs");
 
