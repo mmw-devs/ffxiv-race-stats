@@ -29,8 +29,31 @@ error.log
 # Agent 会话日志（本地，不入仓）
 .pi/sessions/
 
-# Subagent artifacts（本地，不入仓）
+# PI Agent 运行时临时文件（local-only，每次运行会重新生成）
+.pi/runtime/
+
+# Subagent 运行产物（local-only）
 .pi-subagents/
+
+# PI Agent / skills 本地状态与锁文件
+.agents/
+agent/
+skills-lock.json
+
+# archify 技能输出（临时架构图等）
+docs/archify/
+
+# PI Agent settings.json 备份与中间文件
+.pi/settings.json.*
+
+# macOS / 第三方工具偶发写入项目根的垃圾目录
+undefined:/
+
+# 临时登录 QR（不入仓）
+/auth-qr.png
+
+# 异常空目录（本地调试产物，不入仓）
+/package/
 
 # agent-src/ 内嵌的 git 仓库元数据（不影响 ops 同步，sync workflow 通过 rsync 排除）
 /agent-src/.git/
@@ -45,14 +68,7 @@ error.log
 # 会把整段 WSL 路径当字面目录名创建出来，PID 段范围 [0-9]+）
 *lighthouse.[0-9]*/
 
-# 临时登录 QR（不入仓）
-/auth-qr.png
-
-# vendored npm 包目录（应在 .pi/npm/ 或 node_modules/）
-/package/
-
 dist/
 .astro/
-.lighthouseci/
 # LHCI 临时 Chrome 用户数据目录（WSL 路径污染）
 \\wsl.localhost/**
