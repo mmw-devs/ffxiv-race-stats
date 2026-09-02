@@ -66,6 +66,50 @@ export const SESSION_MAX_AGE_DAYS = 30;
 export const SESSION_KEEP_PER_CHAT = 5;
 export const SESSION_ACTIVE_THRESHOLD_MS = 5 * 60 * 1000;
 
+// ═══════════════ 健壮性（L5 进程级防护） ═══════════════
+
+// 进程级异常处理：uncaughtException / unhandledRejection 不直接 exit，
+// 而是 log + cleanup + exit(1)，给 systemd 留下明确的 non-zero 退出码
+// 以便上层 supervisor 决定是否拉起。
+export const CRASH_LOG_PREFIX = "💥 CRASH";
+
+// 心跳日志周期，用于运维侧确认 lark-bot 进程确实活着。
+export const HEARTBEAT_INTERVAL_MS = 60_000;
+
+// 内存压力阈值（MB）：超过则输出告警日志（不主动重启，避免状态丢失）。
+export const HEAP_PRESSURE_MB = 500;
+
+// ═══════════════ 健壮性（L1 Protocol 熔断器） ═══════════════
+
+// 飞书 API 连续失败 N 次则熔断 M 秒，避免雪崩（耗尽配额 / 网络持续抖动）。
+export const CIRCUIT_BREAKER_THRESHOLD = 5;
+export const CIRCUIT_BREAKER_COOLDOWN_MS = 30_000;
+
+// ═══════════════ 健壮性（L2 Ingress 反压与输入校验） ═══════════════
+
+// waitingTasks 队列深度上限：超过则拒绝新消息并发 ERROR 表情。
+export const MAX_QUEUE_DEPTH = 100;
+
+// LarkEvent 必要字段白名单：缺失或类型错误的事件直接丢弃。
+// 注意：当前架构下 chat_type 只可能是 "p2p"，作为字段校验的一部分。
+export const REQUIRED_EVENT_FIELDS = [
+  "type", "chat_id", "chat_type", "sender_id", "message_id", "message_type", "content", "create_time",
+] as const;
+
+// ═══════════════ 健壮性（L4b 任务状态机） ═══════════════
+
+// waitingTasks 中任务最大等待时长：超时任务在 promoteNext 时丢弃并 ERROR。
+// 该值应远大于预期 Agent 处理耗时（数秒到 1 分钟），但小于飞书消息可恢复时间。
+export const TASK_MAX_AGE_MS = 30 * 60 * 1000; // 30 分钟
+
+// ═══════════════ 健壮性（L5 重启风暴保护） ═══════════════
+
+// 短时间内多次重启则暂停，避免「重启→挂→重启」循环耗资源。
+export const RESTART_HISTORY_FILE = join(tmpdir(), "lark-bot.restart-history");
+export const RESTART_STORM_WINDOW_MS = 5 * 60 * 1000;
+export const RESTART_STORM_MAX = 3;
+export const RESTART_STORM_COOLDOWN_MS = 5 * 60 * 1000;
+
 // ═══════════════ 代理注入（启动期一次性） ═══════════════
 
 if (!process.env.HTTP_PROXY) {

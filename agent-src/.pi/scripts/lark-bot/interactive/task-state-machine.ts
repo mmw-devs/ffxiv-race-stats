@@ -21,6 +21,7 @@ import {
   EMOJI_ERROR,
   EMOJI_THINKING,
   REPLY_SEND_TIMEOUT_MS,
+  TASK_MAX_AGE_MS,
   TEXT_FETCH_TIMEOUT_MS,
 } from "../config.js";
 import type { PiSession, PendingTask } from "../shared/types.js";
@@ -75,6 +76,18 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
   const task = pi.activeTask;
   if (!task) {
     log(`⚠ completeActiveTask 但 activeTask 为空`);
+    return;
+  }
+  // R4 L4b：检查 activeTask 是否已超时（例：pi 卡住很久才发 agent_settled）
+  // 超过 TASK_MAX_AGE_MS 直接 ERROR 收尾，不等 prompt 响应
+  const ageMs = Date.now() - new Date(task.createTime).getTime();
+  if (Number.isFinite(ageMs) && ageMs > TASK_MAX_AGE_MS) {
+    log(`⛔ [${task.promptId}] ERROR: activeTask 超过最大存活时间 (${Math.round(ageMs / 1000)}s > ${TASK_MAX_AGE_MS / 1000}s), 强制收尾`);
+    switchReaction(task, EMOJI_ERROR);
+    try { sendReply(task.msgId, `❌ 处理超时（超过 ${TASK_MAX_AGE_MS / 1000}s），请重试`); } catch {}
+    pi.activeTask = null;
+    pi.finishing = false;
+    promoteNext(pi);
     return;
   }
   pi.finishing = true;
@@ -133,6 +146,11 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
  * 以及 promoteNext 从队列取出时调用。
  */
 export function startTask(pi: PiSession, task: PendingTask): void {
+  // R4 L4b：状态机不变量校验 — 同一 session 同一时间只能有 1 个 activeTask
+  if (pi.activeTask) {
+    log(`🚨 [startTask] 不变量违反: activeTask=${pi.activeTask.promptId} 已存在，但被请求启动 task=${task.promptId}。强制清空旧 task 并 ERROR 收尾。`);
+    try { switchReaction(pi.activeTask, EMOJI_ERROR); } catch {}
+  }
   pi.activeTask = task;
   switchReaction(task, EMOJI_THINKING);
   const line = JSON.stringify({ type: "prompt", id: task.promptId, message: task.prompt });
@@ -145,18 +163,29 @@ export function startTask(pi: PiSession, task: PendingTask): void {
  *   - 有任务：startTask（自动占位 activeTask + 切表情 + 投 prompt）
  *   - 队列空：activeTask 保持 null，会话进入空闲
  *   - activeTask 非空时拒绝调用（防御性，避免覆盖正在处理的任务）
+ *
+ * R4 L4b：取出时检查任务年龄。超过 TASK_MAX_AGE_MS 的任务视为已死（运营者可能早已放弃），
+ * 直接 ERROR 收尾并丢弃，不入 activeTask。
  */
 export function promoteNext(pi: PiSession): void {
   if (pi.activeTask) {
     log(`⚠ promoteNext 但 activeTask 非空: ${pi.activeTask.promptId}（跳过）`);
     return;
   }
-  const next = pi.waitingTasks.shift();
-  if (!next) {
-    log(`💤 队列空，session 空闲`);
+  // 反复 shift 直到拿到未超时任务或队列空
+  while (pi.waitingTasks.length > 0) {
+    const next = pi.waitingTasks.shift()!;
+    const ageMs = Date.now() - new Date(next.createTime).getTime();
+    if (Number.isFinite(ageMs) && ageMs > TASK_MAX_AGE_MS) {
+      log(`⏰ [${next.promptId}] 任务超时丢弃: ${Math.round(ageMs / 1000)}s > ${TASK_MAX_AGE_MS / 1000}s, msgId=${next.msgId.slice(-8)}`);
+      switchReaction(next, EMOJI_ERROR);
+      try { sendReply(next.msgId, `❌ 任务排队超时（超过 ${TASK_MAX_AGE_MS / 1000}s），已丢弃。请重新发送。`); } catch {}
+      continue; // 检查下一个
+    }
+    startTask(pi, next);
     return;
   }
-  startTask(pi, next);
+  log(`💤 队列空，session 空闲`);
 }
 
 /**

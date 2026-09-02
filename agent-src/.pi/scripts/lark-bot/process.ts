@@ -11,6 +11,7 @@
 
 import { execSync } from "node:child_process";
 import {
+  appendFileSync,
   existsSync,
   readFileSync,
   writeFileSync,
@@ -21,12 +22,19 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import {
+  CRASH_LOG_PREFIX,
+  HEAP_PRESSURE_MB,
+  HEARTBEAT_INTERVAL_MS,
   IS_WIN,
   LOG_FILE,
   LOG_MAX_BYTES,
   LOG_KEEP_BACKUPS,
   PID_FILE,
   PROJECT_DIR,
+  RESTART_HISTORY_FILE,
+  RESTART_STORM_COOLDOWN_MS,
+  RESTART_STORM_MAX,
+  RESTART_STORM_WINDOW_MS,
   SESSION_ACTIVE_THRESHOLD_MS,
   SESSION_KEEP_PER_CHAT,
   SESSION_MAX_AGE_DAYS,
@@ -47,6 +55,125 @@ export function rotateLogIfNeeded(): void {
     }
     try { renameSync(LOG_FILE, `${LOG_FILE}.1`); } catch {}
   } catch {}
+}
+
+// ═══════════════ 进程级崩溃防护（R1 L5） ═══════════════
+
+/**
+ * 安装 uncaughtException + unhandledRejection 处理器。
+ *
+ * 设计目的：让崩溃成为可观察的、有日志的、能让 supervisor 重启的明确事件。
+ * 行为：
+ *   - 记录结构化日志（含 stack）
+ *   - 以 non-zero 退出码退出（systemd 看到非 0 退出才会触发 Restart=always）
+ *   - 不静默吞掉：吞掉会导致 Node 进程处于「坏状态」继续运行，后续行为不可预测
+ *
+ * 必须由 main() 在启动期调用，且只能调用一次（重复调用会覆盖前面的 handler）。
+ */
+export function installCrashHandlers(onCrash: (kind: "uncaughtException" | "unhandledRejection", err: unknown) => void): void {
+  process.on("uncaughtException", (err) => {
+    onCrash("uncaughtException", err);
+  });
+  process.on("unhandledRejection", (reason) => {
+    onCrash("unhandledRejection", reason);
+  });
+}
+
+/**
+ * 追加一条崩溃日志到 LOG_FILE（不依赖 shared/logger，避免 logger 在异常路径下二次失败）。
+ * 使用 appendFileSync 而非 writeFileSync，保证日志不丢。
+ */
+export function appendCrashLog(kind: "uncaughtException" | "unhandledRejection", err: unknown): void {
+  const ts = new Date().toISOString();
+  const stack = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  const line = `[${ts}] ${CRASH_LOG_PREFIX} ${kind}: ${stack}\n`;
+  try {
+    appendFileSync(LOG_FILE, line);
+  } catch {}
+  // 同步输出到 stderr，让 systemd journald 也能看到
+  try { process.stderr.write(line); } catch {}
+}
+
+// ═══════════════ 心跳与内存监控（R1 L5） ═══════════════
+
+/**
+ * 启动心跳定时器：周期性输出 lark-bot 存活信号 + 关键指标。
+ *
+ * 作用：长跑场景下（数天不重启），运维侧需要「确认进程是否真的活着」的简单手段。
+ * 比「最近一次日志距今多久」更可靠——因为心跳即使在零消息时也会输出。
+ *
+ * getStats 由调用方注入，避免 process.ts 反向依赖 interactive 模块。
+ */
+export function startHeartbeat(getStats: () => Record<string, unknown>): NodeJS.Timeout {
+  return setInterval(() => {
+    const mem = process.memoryUsage();
+    const heapMB = Math.round(mem.heapUsed / 1024 / 1024);
+    const rssMB = Math.round(mem.rss / 1024 / 1024);
+    const stats = getStats();
+    const line = `💓 heartbeat uptime=${Math.round(process.uptime())}s heap=${heapMB}MB rss=${rssMB}MB ${JSON.stringify(stats)}`;
+    try {
+      appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${line}\n`);
+    } catch {}
+    // 内存压力告警：超过阈值时输出醒目日志（不主动重启，避免状态丢失）
+    if (heapMB > HEAP_PRESSURE_MB) {
+      const warn = `⚠️ [memory pressure] heap=${heapMB}MB 超过阈值 ${HEAP_PRESSURE_MB}MB`;
+      try { appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${warn}\n`); } catch {}
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+}
+
+// ═══════════════ 重启风暴保护（R1 L5） ═══════════════
+
+/**
+ * 启动期检查是否处于「重启风暴」状态。
+ *
+ * 场景：lark-bot 启动后立即崩溃 → 被 supervisor 拉起 → 再崩 → 再拉起 → 资源耗尽。
+ * 防护：维护 /tmp/lark-bot.restart-history 记录最近 N 秒内的启动时间戳，
+ * 若超过 RESTART_STORM_MAX 次则暂停 RESTART_STORM_COOLDOWN_MS 不启动。
+ *
+ * 返回值：
+ *   - "ok"：可正常启动
+ *   - "cooldown"：处于冷却期，应直接 process.exit(0) 让 supervisor 等待重试
+ *
+ * 调用时机：main() 启动期，PID 单例校验之后、startAllPi 之前。
+ */
+export function checkRestartStorm(): "ok" | "cooldown" {
+  const now = Date.now();
+  const windowStart = now - RESTART_STORM_WINDOW_MS;
+
+  let history: number[] = [];
+  try {
+    if (existsSync(RESTART_HISTORY_FILE)) {
+      const raw = readFileSync(RESTART_HISTORY_FILE, "utf-8").trim();
+      history = raw ? raw.split("\n").map(Number).filter(n => Number.isFinite(n)) : [];
+    }
+  } catch {}
+
+  // 过滤掉窗口外的旧记录
+  history = history.filter(ts => ts >= windowStart);
+
+  if (history.length >= RESTART_STORM_MAX) {
+    // 处于风暴中：最后一次启动距今 < 冷却窗口，拒绝启动
+    const lastStart = history[history.length - 1] ?? now;
+    if (now - lastStart < RESTART_STORM_COOLDOWN_MS) {
+      try {
+        appendFileSync(
+          LOG_FILE,
+          `[${new Date().toISOString()}] ⛔ restart storm: ${history.length} restarts in ${RESTART_STORM_WINDOW_MS}ms, cooling down\n`,
+        );
+      } catch {}
+      return "cooldown";
+    }
+    // 冷却已过：清空历史，正常启动
+    history = [];
+  }
+
+  // 记录本次启动时间戳
+  history.push(now);
+  try {
+    writeFileSync(RESTART_HISTORY_FILE, history.join("\n") + "\n");
+  } catch {}
+  return "ok";
 }
 
 // ═══════════════ 进程存活检测 ═══════════════

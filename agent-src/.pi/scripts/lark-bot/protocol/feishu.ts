@@ -18,13 +18,66 @@
  */
 
 import { spawn, ChildProcess, execSync } from "node:child_process";
-import { BOT_NAME, CLI, EMOJI_READ, REPLY_SEND_TIMEOUT_MS } from "../config.js";
+import {
+  BOT_NAME,
+  CIRCUIT_BREAKER_COOLDOWN_MS,
+  CIRCUIT_BREAKER_THRESHOLD,
+  CLI,
+  EMOJI_READ,
+  REPLY_SEND_TIMEOUT_MS,
+} from "../config.js";
 import type { LarkEvent, PendingTask, SendReplyResult } from "../shared/types.js";
 import { log } from "../shared/logger.js";
+
+// ═══════════════ 飞书 API 熔断器（R2 L1 Protocol） ═══════════════
+
+/**
+ * 飞书 API 连续失败熔断器。
+ *
+ * 目的：避免飞书服务异常（配额耗尽 / 网络抖动 / 后端 5xx）造成调用雪崩。
+ * 行为：
+ *   - 连续 CIRCUIT_BREAKER_THRESHOLD 次失败 → 熔断 CIRCUIT_BREAKER_COOLDOWN_MS
+ *   - 熔断期间所有调用快速返回 null（表情）或 false（回复）
+ *   - 冷却期过后尝试一次成功调用 → 重置计数
+ *
+ * 设计取舍：熔断器状态为模块级单例，因为：
+ *   - lark-bot 是单进程单租户，无需多 tenant 隔离
+ *   - 与 protocol/feishu.ts 的「无业务状态」原则冲突 —— 但熔断器属于「依赖健康度」，
+ *     不是业务状态，且只能放在调用方所在的同一层
+ */
+let consecutiveFailures = 0;
+let circuitOpenUntil = 0;
+
+function recordFailure(): void {
+  consecutiveFailures++;
+  if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+    circuitOpenUntil = Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS;
+    log(`⚠️ [circuit breaker] 连续 ${consecutiveFailures} 次失败，熔断 ${CIRCUIT_BREAKER_COOLDOWN_MS}ms`);
+  }
+}
+
+function recordSuccess(): void {
+  if (consecutiveFailures > 0) {
+    log(`✅ [circuit breaker] 调用恢复，重置失败计数（之前 ${consecutiveFailures}）`);
+    consecutiveFailures = 0;
+    circuitOpenUntil = 0;
+  }
+}
+
+/** 暴露给运维侧/测试，读取当前熔断状态 */
+export function getCircuitBreakerState(): { open: boolean; failures: number; openUntil: number } {
+  return {
+    open: Date.now() < circuitOpenUntil,
+    failures: consecutiveFailures,
+    openUntil: circuitOpenUntil,
+  };
+}
 
 // ═══════════════ 表情协议 ═══════════════
 
 function addReaction(msgId: string, emoji: string): string | null {
+  // 熔断期间快速失败，不浪费 lark-cli spawn
+  if (Date.now() < circuitOpenUntil) return null;
   try {
     const params = JSON.stringify({ message_id: msgId });
     const data = JSON.stringify({ reaction_type: { emoji_type: emoji } });
@@ -32,14 +85,25 @@ function addReaction(msgId: string, emoji: string): string | null {
       `"${CLI}" im reactions create --as bot --params '${params}' --data '${data}'`,
       { timeout: 5000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
     );
+    recordSuccess();
     return JSON.parse(out).data?.reaction_id ?? null;
-  } catch { return null; }
+  } catch {
+    recordFailure();
+    return null;
+  }
 }
 
 function delReaction(msgId: string, reactionId: string): void {
   if (!reactionId) return;
+  // delReaction 是 best-effort，熔断期直接跳过
+  if (Date.now() < circuitOpenUntil) return;
   const params = JSON.stringify({ message_id: msgId, reaction_id: reactionId });
-  try { execSync(`"${CLI}" im reactions delete --as bot --params '${params}'`, { timeout: 5000, encoding: "utf-8", stdio: "ignore" }); } catch {}
+  try {
+    execSync(`"${CLI}" im reactions delete --as bot --params '${params}'`, { timeout: 5000, encoding: "utf-8", stdio: "ignore" });
+    recordSuccess();
+  } catch {
+    recordFailure();
+  }
 }
 
 /**
@@ -64,6 +128,8 @@ export function switchReaction(task: Pick<PendingTask, "msgId" | "reactionId">, 
 // ═══════════════ 飞书回复 ═══════════════
 
 export function sendReply(msgId: string, text: string): void {
+  // sendReply 是 fire-and-forget，不走熔断器（无返回值无法判断成功失败）
+  // 调用方如需确认应使用 sendReplyGetId
   const args = ["im", "+messages-reply", "--as", "bot", "--message-id", msgId, "--text", text];
   spawn(CLI, args, { stdio: "ignore" }).on("error", (e) => log(`reply fire-and-forget 失败: msgId=${msgId.slice(-8)} err=${e.message}`));
 }
@@ -74,9 +140,15 @@ export function sendReply(msgId: string, text: string): void {
  *   - 响应解析失败：走 ERROR（不猜测）
  *   - 拿不到 replyId：走 ERROR（不重发）
  *   - 一律不重试：调用方根据 ok 决定 DONE/ERROR
+ *   - 熔断期快速返回 ok=false（不浪费 spawn）
  */
 export function sendReplyGetId(msgId: string, text: string): Promise<SendReplyResult> {
   return new Promise((resolve) => {
+    // 熔断期快速失败：节省 lark-cli spawn 开销，避免加重后端压力
+    if (Date.now() < circuitOpenUntil) {
+      resolve({ ok: false, replyId: null, error: "circuit breaker open" });
+      return;
+    }
     const args = ["im", "+messages-reply", "--as", "bot", "--message-id", msgId, "--text", text, "--format", "json"];
     let out = "";
     let settled = false;
@@ -91,6 +163,7 @@ export function sendReplyGetId(msgId: string, text: string): Promise<SendReplyRe
     const timer = setTimeout(() => {
       // 超时：拿不到结果不猜测，kill 子进程防泄漏
       try { p.kill("SIGKILL"); } catch {}
+      recordFailure();
       finish({ ok: false, replyId: null, error: `timeout after ${REPLY_SEND_TIMEOUT_MS}ms`, timedOut: true });
     }, REPLY_SEND_TIMEOUT_MS);
 
@@ -102,13 +175,16 @@ export function sendReplyGetId(msgId: string, text: string): Promise<SendReplyRe
       try { parsed = JSON.parse(out); } catch {}
       const replyId = parsed?.data?.message_id;
       if (replyId && typeof replyId === "string") {
+        recordSuccess();
         finish({ ok: true, replyId });
       } else {
         const err = parsed?.msg || parsed?.error || `exit code=${code}, no message_id, stdout=${out.slice(0, 200)}`;
+        recordFailure();
         finish({ ok: false, replyId: null, error: String(err) });
       }
     });
     p.on("error", (e) => {
+      recordFailure();
       finish({ ok: false, replyId: null, error: `spawn error: ${e.message}` });
     });
   });
@@ -144,7 +220,22 @@ export function startLarkEvents(onEvent: (event: LarkEvent) => void): ChildProce
     while ((idx = buf.indexOf("\n")) !== -1) {
       const line = buf.slice(0, idx); buf = buf.slice(idx + 1);
       if (!line.trim()) continue;
-      try { onEvent(JSON.parse(line)); } catch {}
+      let parsed: LarkEvent | null = null;
+      try { parsed = JSON.parse(line); } catch {}
+      if (!parsed) {
+        // JSON 解析失败：记日志后跳过该行，绝不传播异常到 stream 监听器
+        // （否则 stream 监听器抛错会导致 lark-bot 进程崩溃）
+        log(`⚠️ [startLarkEvents] NDJSON 解析失败: ${line.slice(0, 100)}`);
+        continue;
+      }
+      // onEvent 是 ingress.handleLarkEvent，其内部已 try/catch（R3 L2）
+      // 此处不再重复包装，避免吞掉异常细节
+      try {
+        onEvent(parsed);
+      } catch (e: any) {
+        // 兜底：onEvent 抛异常时记日志但不传播
+        log(`💥 [startLarkEvents] onEvent 抛异常: ${e?.message?.slice(0, 200)}`);
+      }
     }
   });
 

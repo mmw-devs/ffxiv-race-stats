@@ -188,83 +188,89 @@ export function startAllPi(): void {
 // ═══════════════ RPC 事件分发 ═══════════════
 
 function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void {
-  const pi = sessions.get(sessionKey);
-  if (!pi) return;
+  // R5 跨层审计：handlePiEvent 是 pi stdout 流事件处理路径，必须有 try/catch
+  // 防止未知字段或协议异常拖垮整个 lark-bot 进程
+  try {
+    const pi = sessions.get(sessionKey);
+    if (!pi) return;
 
-  switch (event.type) {
-    case "response": {
-      if (event.command === "get_state" && event.success) {
-        pi.ready = true;
-        log(`[pi:${sessionKey.slice(-12)}] 就绪`);
-        // 重启补偿：队列有任务且无 activeTask，自动晋升
-        if (!pi.activeTask && pi.waitingTasks.length > 0) {
-          log(`🚀 重启就绪，补偿 promoteNext (depth=${pi.waitingTasks.length})`);
-          promoteNext(pi);
-        }
-      } else if (event.command === "prompt") {
-        // prompt 投递结果：success=true 保持 THINKING 等 agent_settled；success=false 按 attemptCount 决定重试或 ERROR
-        const id = (event as any).id as string | undefined;
-        if (!pi.activeTask) {
-          log(`⚠ [${sessionKey.slice(-12)}] prompt 响应但 activeTask 为空: id=${id ?? "?"}`);
-        } else if (pi.activeTask.promptId !== id) {
-          log(`⚠ [${sessionKey.slice(-12)}] prompt id 不匹配: 期望=${pi.activeTask.promptId} 收到=${id ?? "?"}`);
-        } else {
-          const task = pi.activeTask;
-          if (event.success) {
-            log(`✅ prompt 接受 promptId=${task.promptId} msgId=${task.msgId.slice(-8)} attempt=${task.attemptCount}，等待 agent_settled`);
+    switch (event.type) {
+      case "response": {
+        if (event.command === "get_state" && event.success) {
+          pi.ready = true;
+          log(`[pi:${sessionKey.slice(-12)}] 就绪`);
+          // 重启补偿：队列有任务且无 activeTask，自动晋升
+          if (!pi.activeTask && pi.waitingTasks.length > 0) {
+            log(`🚀 重启就绪，补偿 promoteNext (depth=${pi.waitingTasks.length})`);
+            promoteNext(pi);
+          }
+        } else if (event.command === "prompt") {
+          // prompt 投递结果：success=true 保持 THINKING 等 agent_settled；success=false 按 attemptCount 决定重试或 ERROR
+          const id = (event as any).id as string | undefined;
+          if (!pi.activeTask) {
+            log(`⚠ [${sessionKey.slice(-12)}] prompt 响应但 activeTask 为空: id=${id ?? "?"}`);
+          } else if (pi.activeTask.promptId !== id) {
+            log(`⚠ [${sessionKey.slice(-12)}] prompt id 不匹配: 期望=${pi.activeTask.promptId} 收到=${id ?? "?"}`);
           } else {
-            log(`❌ prompt 拒绝 promptId=${task.promptId} msgId=${task.msgId.slice(-8)} attempt=${task.attemptCount}`);
-            if (task.attemptCount === 0) {
-              // 首次失败：重试，unshift 到队首保持原始顺序
-              task.attemptCount++;
-              pi.activeTask = null;
-              pi.waitingTasks.unshift(task);
-              log(`🔄 [${task.promptId}] 重试入队 (depth=${pi.waitingTasks.length})`);
-              promoteNext(pi);
+            const task = pi.activeTask;
+            if (event.success) {
+              log(`✅ prompt 接受 promptId=${task.promptId} msgId=${task.msgId.slice(-8)} attempt=${task.attemptCount}，等待 agent_settled`);
             } else {
-              // 二次失败：放弃
-              finishTaskWithError(pi, task, "prompt 被拒绝");
+              log(`❌ prompt 拒绝 promptId=${task.promptId} msgId=${task.msgId.slice(-8)} attempt=${task.attemptCount}`);
+              if (task.attemptCount === 0) {
+                // 首次失败：重试，unshift 到队首保持原始顺序
+                task.attemptCount++;
+                pi.activeTask = null;
+                pi.waitingTasks.unshift(task);
+                log(`🔄 [${task.promptId}] 重试入队 (depth=${pi.waitingTasks.length})`);
+                promoteNext(pi);
+              } else {
+                // 二次失败：放弃
+                finishTaskWithError(pi, task, "prompt 被拒绝");
+              }
             }
           }
-        }
-      } else if (event.command === "get_last_assistant_text") {
-        // 单飞取文本响应：按 id 匹配（若响应未回显 id，按单飞规则用 pendingResultFetch）
-        if (pi.pendingResultFetch && pi.finishing) {
-          const fetch = pi.pendingResultFetch;
-          const text = (event as any).data?.text ?? null;
-          const id = (event as any).id;
-          if (id === undefined || id === fetch.expectedId) {
-            log(`📥 [${fetch.task.promptId}] 收到 get_last_assistant_text id=${id ?? "(无)"} text.len=${text?.length ?? 0}`);
-            fetch.resolve(text);
-            // 保留 pi.pendingResultFetch，由 completeActiveTask 在 await 返回后清理
+        } else if (event.command === "get_last_assistant_text") {
+          // 单飞取文本响应：按 id 匹配（若响应未回显 id，按单飞规则用 pendingResultFetch）
+          if (pi.pendingResultFetch && pi.finishing) {
+            const fetch = pi.pendingResultFetch;
+            const text = (event as any).data?.text ?? null;
+            const id = (event as any).id;
+            if (id === undefined || id === fetch.expectedId) {
+              log(`📥 [${fetch.task.promptId}] 收到 get_last_assistant_text id=${id ?? "(无)"} text.len=${text?.length ?? 0}`);
+              fetch.resolve(text);
+              // 保留 pi.pendingResultFetch，由 completeActiveTask 在 await 返回后清理
+            } else {
+              log(`⚠ get_last_assistant_text id 不匹配: 期望=${fetch.expectedId} 收到=${id}`);
+            }
           } else {
-            log(`⚠ get_last_assistant_text id 不匹配: 期望=${fetch.expectedId} 收到=${id}`);
+            log(`⚠ 收到 get_last_assistant_text 但无 pendingResultFetch（已超时/已清理）`);
           }
-        } else {
-          log(`⚠ 收到 get_last_assistant_text 但无 pendingResultFetch（已超时/已清理）`);
         }
-      }
-      break;
-    }
-    case "agent_end": {
-      // agent_end 不再被消费，仅记录诊断信息（含 willRetry）
-      const willRetry = (event as any).willRetry;
-      const task = pi.activeTask;
-      log(`🔚 agent_end promptId=${task?.promptId ?? "?"} msgId=${task?.msgId?.slice(-8) ?? "?"} willRetry=${willRetry}（不消费、不回复、不晋升）`);
-      break;
-    }
-    case "agent_settled": {
-      // agent_settled = Agent 真正完成，发起 completeActiveTask
-      const task = pi.activeTask;
-      if (!task) {
-        log(`⚠ agent_settled 但 activeTask 为空`);
         break;
       }
-      log(`🏁 agent_settled promptId=${task.promptId} msgId=${task.msgId.slice(-8)}，开始 completeActiveTask`);
-      // 不 await：响应处理是同步路径，完成是异步后台运行
-      completeActiveTask(pi).catch((e) => log(`💥 completeActiveTask 异常: promptId=${task.promptId} err=${e?.message?.slice(0, 200)}`));
-      break;
+      case "agent_end": {
+        // agent_end 不再被消费，仅记录诊断信息（含 willRetry）
+        const willRetry = (event as any).willRetry;
+        const task = pi.activeTask;
+        log(`🔚 agent_end promptId=${task?.promptId ?? "?"} msgId=${task?.msgId?.slice(-8) ?? "?"} willRetry=${willRetry}（不消费、不回复、不晋升）`);
+        break;
+      }
+      case "agent_settled": {
+        // agent_settled = Agent 真正完成，发起 completeActiveTask
+        const task = pi.activeTask;
+        if (!task) {
+          log(`⚠ agent_settled 但 activeTask 为空`);
+          break;
+        }
+        log(`🏁 agent_settled promptId=${task.promptId} msgId=${task.msgId.slice(-8)}，开始 completeActiveTask`);
+        // 不 await：响应处理是同步路径，完成是异步后台运行
+        completeActiveTask(pi).catch((e) => log(`💥 completeActiveTask 异常: promptId=${task.promptId} err=${e?.message?.slice(0, 200)}`));
+        break;
+      }
     }
+  } catch (e: any) {
+    log(`💥 [handlePiEvent] 异常: sessionKey=${sessionKey} event.type=${(event as any)?.type} err=${e?.message?.slice(0, 200)}`);
   }
 }
 

@@ -20,7 +20,7 @@
  *   - 入队分流（activeTask 空 → 立即 start；否则 push waitingTasks）
  */
 
-import { EMOJI_READ } from "./config.js";
+import { EMOJI_ERROR, EMOJI_READ, MAX_QUEUE_DEPTH, REQUIRED_EVENT_FIELDS } from "./config.js";
 import type { LarkEvent, PendingTask } from "./shared/types.js";
 import { log } from "./shared/logger.js";
 import { addReaction, sendReply, stripMention } from "./protocol/feishu.js";
@@ -34,6 +34,28 @@ import {
   nextPromptId,
 } from "./interactive/session-manager.js";
 import { sessionKey } from "./routing.js";
+
+// ═══════════════ 输入校验（R3 L2 Ingress） ═══════════════
+
+/**
+ * 校验 LarkEvent 必要字段全部存在且类型为 string。
+ *
+ * 防御目的：lark-cli NDJSON 可能在边缘情况下解析出残缺对象（如网络截断、
+ * schema 升级期），不做校验会让下游 protocol/feishu.ts 抛 TypeError
+ * 拖垮整个事件处理路径。
+ *
+ * 返回值：true 表示事件可信，false 表示应丢弃。
+ */
+export function validateLarkEvent(event: unknown): event is LarkEvent {
+  if (!event || typeof event !== "object") return false;
+  const e = event as Record<string, unknown>;
+  for (const field of REQUIRED_EVENT_FIELDS) {
+    if (typeof e[field] !== "string") return false;
+  }
+  // chat_type 当前架构下只能是 "p2p"；其他值（"group"）走 shouldHandle 过滤
+  if (e.chat_type !== "p2p") return false;
+  return true;
+}
 
 // ═══════════════ 类型守卫 ═══════════════
 
@@ -64,45 +86,67 @@ function formatPrompt(event: LarkEvent): string {
  *   4. 分流：activeTask 空 → 立即 startTask；否则 → push 等待队列
  */
 export function handleLarkEvent(event: LarkEvent): void {
-  if (!shouldHandle(event)) return;
+  // R3 L2 Ingress：per-event try/catch + 输入校验 + 反压
+  // 设计目的：单条坏事件不能拖垮整个 lark-bot 进程；恶意或异常高频消息不能占用队列
+  try {
+    // 1. 输入校验（防御 NDJSON 残缺）
+    if (!validateLarkEvent(event)) {
+      log(`⚠️ [ingress] 事件字段校验失败，已丢弃: type=${(event as any)?.type} chat_type=${(event as any)?.chat_type}`);
+      return;
+    }
+    if (!shouldHandle(event)) return;
 
-  const key = sessionKey(event);
-  if (!isSessionReady(key)) {
-    sendReply(event.message_id, "Bot 启动中，请稍后再试...");
-    return;
-  }
+    const key = sessionKey(event);
+    if (!isSessionReady(key)) {
+      sendReply(event.message_id, "Bot 启动中，请稍后再试...");
+      return;
+    }
 
-  const pi = getPiSession(key);
-  if (!pi) return; // 不可能走到这里（isSessionReady 已检查）
+    const pi = getPiSession(key);
+    if (!pi) return; // 不可能走到这里（isSessionReady 已检查）
 
-  // 1. 统一去重（单次运行内）
-  if (hasSeen(pi, event.message_id)) {
-    log(`⏭ [${key.slice(-12)}] 重复消息跳过: msgId=${event.message_id.slice(-8)}`);
-    return;
-  }
-  markSeen(pi, event.message_id);
+    // 2. 统一去重（单次运行内）
+    if (hasSeen(pi, event.message_id)) {
+      log(`⏭ [${key.slice(-12)}] 重复消息跳过: msgId=${event.message_id.slice(-8)}`);
+      return;
+    }
+    markSeen(pi, event.message_id);
 
-  // 2. 创建 task
-  const task: PendingTask = {
-    promptId: nextPromptId(event.message_id),
-    msgId: event.message_id,
-    prompt: formatPrompt(event),
-    reactionId: null,
-    chatId: event.chat_id,
-    createTime: event.create_time,
-    attemptCount: 0,
-  };
+    // 3. 反压：队列满则拒绝，避免内存累积拖垮 lark-bot
+    //    注意：仅对"入队等待"分支生效；activeTask 仍可立即启动（新事件时旧的已处理完）
+    if (pi.waitingTasks.length >= MAX_QUEUE_DEPTH) {
+      log(`⚠️ [${key.slice(-12)}] 队列已满 (depth=${pi.waitingTasks.length}), 拒绝 msgId=${event.message_id.slice(-8)}`);
+      addReaction(event.message_id, EMOJI_ERROR);
+      sendReply(event.message_id, "⚠️ Bot 队列已满，请稍后再试");
+      return;
+    }
 
-  // 3. WAVE
-  task.reactionId = addReaction(event.message_id, EMOJI_READ);
-  log(`📩 [${key.slice(-12)}] 入队 msgId=${event.message_id.slice(-8)} promptId=${task.promptId} queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} content="${event.content.slice(0, 40)}"`);
+    // 4. 创建 task
+    const task: PendingTask = {
+      promptId: nextPromptId(event.message_id),
+      msgId: event.message_id,
+      prompt: formatPrompt(event),
+      reactionId: null,
+      chatId: event.chat_id,
+      createTime: event.create_time,
+      attemptCount: 0,
+    };
 
-  // 4. 分流
-  if (pi.activeTask === null) {
-    startImmediate(pi, task);
-  } else {
-    enqueueTask(pi, task);
-    log(`⏳ [${task.promptId}] WAITING 分支 msgId=${task.msgId.slice(-8)} depth=${pi.waitingTasks.length}`);
+    // 5. WAVE
+    task.reactionId = addReaction(event.message_id, EMOJI_READ);
+    log(`📩 [${key.slice(-12)}] 入队 msgId=${event.message_id.slice(-8)} promptId=${task.promptId} queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} content="${event.content.slice(0, 40)}"`);
+
+    // 6. 分流
+    if (pi.activeTask === null) {
+      startImmediate(pi, task);
+    } else {
+      enqueueTask(pi, task);
+      log(`⏳ [${task.promptId}] WAITING 分支 msgId=${task.msgId.slice(-8)} depth=${pi.waitingTasks.length}`);
+    }
+  } catch (e: any) {
+    // R3 L2 Ingress 凭底：任何未捕获异常只记日志，不传播
+    // 防止单条坏事件导致 process.on('uncaughtException') 被触发
+    log(`💥 [ingress] handleLarkEvent 异常: msgId=${(event as any)?.message_id?.slice?.(-8)} err=${e?.message?.slice(0, 200)}`);
   }
 }
 

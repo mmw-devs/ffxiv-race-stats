@@ -15,17 +15,21 @@
  */
 
 import {
+  appendCrashLog,
   checkExistingPid,
+  checkRestartStorm,
   clearPidFile,
   cleanupOldSessions,
+  installCrashHandlers,
   installSignalHandlers,
   installStdinShutdown,
   onExitCleanup,
+  startHeartbeat,
   startWatchdog,
   writePidFile,
 } from "./process.js";
 import { log } from "./shared/logger.js";
-import { startAllPi, killAllSessions } from "./interactive/session-manager.js";
+import { getAllSessions, startAllPi, killAllSessions } from "./interactive/session-manager.js";
 import { handleLarkEvent } from "./ingress.js";
 import { startLarkEvents } from "./protocol/feishu.js";
 
@@ -35,6 +39,24 @@ import "./ingress.js";
 // ═══════════════ 启动 ═══════════════
 
 function main(): void {
+  // R1 L5：uncaughtException / unhandledRejection 必须在 PID 校验前安装
+  // 防止启动期崩溃时无 handler
+  installCrashHandlers((kind, err) => {
+    appendCrashLog(kind, err);
+    log(`💥 ${kind}: ${err instanceof Error ? err.message : String(err)}`);
+    cleanup();
+    // 以非零退出码退出，systemd / pm2 看到非 0 才会拉起新进程
+    process.exit(1);
+  });
+
+  // R1 L5：重启风暴检查。PID 校验之后、写入新 PID 之前。
+  // 如果处于冷却期，直接退出让 supervisor 等待重试间隔
+  const restartState = checkRestartStorm();
+  if (restartState === "cooldown") {
+    log("⛔ 处于重启风暴冷却期，拒绝启动");
+    process.exit(0);
+  }
+
   // 启动期 PID 校验：使用 isAlive() 确保 Windows 下也能准确检测
   if (checkExistingPid()) {
     log("已在运行（PID 文件存在且进程存活）");
@@ -51,6 +73,15 @@ function main(): void {
   // session 文件清理（保留，每 24h 一次）
   setTimeout(() => cleanupOldSessions(), 60 * 1000);
   setInterval(cleanupOldSessions, 24 * 60 * 60 * 1000);
+
+  // R1 L5：心跳定时器。getStats 由 main.ts 注入避免 process.ts 反向依赖 session-manager
+  startHeartbeat(() => {
+    const stats: Record<string, unknown> = {};
+    for (const pi of getAllSessions()) {
+      stats[`pi-${pi.proc ? "alive" : "dead"}`] = `waitingTasks=${pi.waitingTasks.length} seen=${pi.seenMessageIds.size}`;
+    }
+    return stats;
+  });
 
   installLarkBotLifecycle();
 }
