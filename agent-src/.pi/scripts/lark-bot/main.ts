@@ -28,8 +28,15 @@ import {
   startWatchdog,
   writePidFile,
 } from "./process.js";
+import { HEAP_HARD_LIMIT_MB } from "./config.js";
 import { log } from "./shared/logger.js";
-import { getAllSessions, startAllPi, killAllSessions } from "./interactive/session-manager.js";
+import {
+  cleanupSeenMessageIds,
+  getAllSessions,
+  getPiRestartStats,
+  startAllPi,
+  killAllSessions,
+} from "./interactive/session-manager.js";
 import { handleLarkEvent } from "./ingress.js";
 import { startLarkEvents } from "./protocol/feishu.js";
 
@@ -76,9 +83,23 @@ function main(): void {
 
   // R1 L5：心跳定时器。getStats 由 main.ts 注入避免 process.ts 反向依赖 session-manager
   startHeartbeat(() => {
-    const stats: Record<string, unknown> = {};
-    for (const pi of getAllSessions()) {
-      stats[`pi-${pi.proc ? "alive" : "dead"}`] = `waitingTasks=${pi.waitingTasks.length} seen=${pi.seenMessageIds.size}`;
+    const stats: Record<string, unknown> = {
+      sessions: getAllSessions().map(pi => ({
+        proc: pi.proc ? "alive" : "dead",
+        waitingTasks: pi.waitingTasks.length,
+        seen: pi.seenMessageIds.size,
+        ready: pi.ready,
+      })),
+      piRestarts: getPiRestartStats(),
+    };
+
+    // 盲区 #3 防护：硬内存上限触发主动清理
+    const heapMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+    if (heapMB > HEAP_HARD_LIMIT_MB) {
+      const before = getAllSessions().reduce((s, p) => s + p.seenMessageIds.size, 0);
+      const r = cleanupSeenMessageIds();
+      const after = getAllSessions().reduce((s, p) => s + p.seenMessageIds.size, 0);
+      log(`🚨 [hard memory] heap=${heapMB}MB > ${HEAP_HARD_LIMIT_MB}MB, 主动清理 seenMessageIds: ${before}→${after} (evictedTtl=${r.evictedTtl} evictedLru=${r.evictedLru})`);
     }
     return stats;
   });

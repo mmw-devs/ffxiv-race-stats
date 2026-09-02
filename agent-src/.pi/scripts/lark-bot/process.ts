@@ -40,6 +40,30 @@ import {
   SESSION_MAX_AGE_DAYS,
 } from "./config.js";
 
+/** 累计某目录下所有文件大小（递归），用于心跳报告磁盘占用。 */
+function dirSizeBytes(dir: string): { files: number; bytes: number } {
+  let files = 0;
+  let bytes = 0;
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const p = join(dir, e.name);
+      try {
+        const st = statSync(p);
+        if (e.isDirectory()) {
+          const sub = dirSizeBytes(p);
+          files += sub.files;
+          bytes += sub.bytes;
+        } else {
+          files++;
+          bytes += st.size;
+        }
+      } catch {}
+    }
+  } catch {}
+  return { files, bytes };
+}
+
 // ═══════════════ 日志轮转（被 logger 单向调用） ═══════════════
 
 export function rotateLogIfNeeded(): void {
@@ -102,6 +126,12 @@ export function appendCrashLog(kind: "uncaughtException" | "unhandledRejection",
  * 作用：长跑场景下（数天不重启），运维侧需要「确认进程是否真的活着」的简单手段。
  * 比「最近一次日志距今多久」更可靠——因为心跳即使在零消息时也会输出。
  *
+ * 报告的指标：
+ *   - uptime / heap / rss（内存）
+ *   - logSize（/tmp/lark-bot.log 当前大小，MB）
+ *   - sessionDirSize（.pi/sessions/ 文件数 + 总大小）
+ *   - getStats() 返回的业务状态（由 main.ts 注入）
+ *
  * getStats 由调用方注入，避免 process.ts 反向依赖 interactive 模块。
  */
 export function startHeartbeat(getStats: () => Record<string, unknown>): NodeJS.Timeout {
@@ -109,14 +139,23 @@ export function startHeartbeat(getStats: () => Record<string, unknown>): NodeJS.
     const mem = process.memoryUsage();
     const heapMB = Math.round(mem.heapUsed / 1024 / 1024);
     const rssMB = Math.round(mem.rss / 1024 / 1024);
+
+    // 磁盘占用：日志文件 + session 目录（盲区 #2 修复）
+    let logSizeMB = 0;
+    try {
+      if (existsSync(LOG_FILE)) logSizeMB = Math.round(statSync(LOG_FILE).size / 1024 / 1024);
+    } catch {}
+    const sessionDir = join(PROJECT_DIR, ".pi", "sessions");
+    const sessionsUsage = dirSizeBytes(sessionDir);
+
     const stats = getStats();
-    const line = `💓 heartbeat uptime=${Math.round(process.uptime())}s heap=${heapMB}MB rss=${rssMB}MB ${JSON.stringify(stats)}`;
+    const line = `💓 heartbeat uptime=${Math.round(process.uptime())}s heap=${heapMB}MB rss=${rssMB}MB log=${logSizeMB}MB sessions=${sessionsUsage.files}f/${Math.round(sessionsUsage.bytes / 1024 / 1024)}MB ${JSON.stringify(stats)}`;
     try {
       appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${line}\n`);
     } catch {}
     // 内存压力告警：超过阈值时输出醒目日志（不主动重启，避免状态丢失）
     if (heapMB > HEAP_PRESSURE_MB) {
-      const warn = `⚠️ [memory pressure] heap=${heapMB}MB 超过阈值 ${HEAP_PRESSURE_MB}MB`;
+      const warn = `⚠️ [memory pressure] heap=${heapMB}MB 超过软阈值 ${HEAP_PRESSURE_MB}MB`;
       try { appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${warn}\n`); } catch {}
     }
   }, HEARTBEAT_INTERVAL_MS);

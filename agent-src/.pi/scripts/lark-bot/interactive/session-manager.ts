@@ -14,12 +14,16 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   EMOJI_ERROR,
   IS_WIN,
+  LOG_FILE,
   PI_BIN,
+  PI_RESTART_HISTORY_FILE,
+  PI_RESTART_MAX,
+  PI_RESTART_WINDOW_MS,
   PROJECT_DIR,
 } from "../config.js";
 import type { PiSession } from "../shared/types.js";
@@ -31,6 +35,71 @@ import { completeActiveTask, finishTaskWithError, promoteNext } from "./task-sta
 
 const sessions = new Map<string, PiSession>();
 let eventSeq = 0;
+
+// ═══════════════ pi 重启风暴防护（盲区 #1） ═══════════════
+
+/**
+ * 跟踪每个 sessionKey 的 pi 重启时间戳。
+ * 防止 pi 二进制本身有 bug 导致无限重启循环，lark-bot 看着「活着」实际啥也不干。
+ *
+ * 与 L5 checkRestartStorm 的区别：
+ *   - checkRestartStorm：lark-bot 进程级重启（supervisor 拉起），重启文件跨进程
+ *   - 这里：单次 lark-bot 运行内的 pi 子进程重启，in-memory + 跨进程持久化（重启后清零）
+ *
+ * 重启时记录到 PI_RESTART_HISTORY_FILE 供运维侧事后排查。
+ */
+interface PiRestartState {
+  timestamps: number[];
+  permanentlyDead: boolean;
+  deathReason: string;
+}
+const piRestartState = new Map<string, PiRestartState>();
+
+function recordPiRestart(sessionKey: string): PiRestartState {
+  const now = Date.now();
+  const windowStart = now - PI_RESTART_WINDOW_MS;
+  let state = piRestartState.get(sessionKey);
+  if (!state) {
+    state = { timestamps: [], permanentlyDead: false, deathReason: "" };
+    piRestartState.set(sessionKey, state);
+  }
+  // 过滤窗口外的旧记录
+  state.timestamps = state.timestamps.filter(ts => ts >= windowStart);
+  state.timestamps.push(now);
+
+  // 持久化：每次记录都同步落盘（运维侧重启 lark-bot 后可排查）
+  try {
+    const line = `[${new Date(now).toISOString()}] ${sessionKey} restart #${state.timestamps.length}\n`;
+    appendFileSync(PI_RESTART_HISTORY_FILE, line);
+  } catch {}
+
+  // 达到阈值：标记永久死亡
+  if (state.timestamps.length >= PI_RESTART_MAX) {
+    state.permanentlyDead = true;
+    state.deathReason = `PI_RESTART_MAX=${PI_RESTART_MAX} reached in ${PI_RESTART_WINDOW_MS}ms`;
+    const msg = `🛑 [${sessionKey}] pi 重启风暴：${PI_RESTART_WINDOW_MS / 1000}s 内 ${state.timestamps.length} 次 > ${PI_RESTART_MAX}, 停止重试。原因：${state.deathReason}。请人工检查 pi 二进制与 stdin 协议。`;
+    log(msg);
+    try {
+      appendFileSync(LOG_FILE, `[${new Date(now).toISOString()}] ${msg}\n`);
+    } catch {}
+  }
+  return state;
+}
+
+export function isPiSessionPermanentlyDead(sessionKey: string): boolean {
+  return piRestartState.get(sessionKey)?.permanentlyDead === true;
+}
+
+export function getPiRestartStats(): Array<{ sessionKey: string; recent: number; dead: boolean; reason: string }> {
+  const now = Date.now();
+  const windowStart = now - PI_RESTART_WINDOW_MS;
+  return Array.from(piRestartState.entries()).map(([key, s]) => ({
+    sessionKey: key,
+    recent: s.timestamps.filter(ts => ts >= windowStart).length,
+    dead: s.permanentlyDead,
+    reason: s.deathReason,
+  }));
+}
 
 // ═══════════════ 公共查询接口 ═══════════════
 
@@ -80,6 +149,12 @@ export function cleanupSeenMessageIds(): { evictedTtl: number; evictedLru: numbe
 // ═══════════════ pi RPC 启动 / 重启 ═══════════════
 
 function startPi(sessionKey: string): void {
+  // 盲区 #1 防护：pi 重启风暴时拒绝任何 spawn 调用
+  if (isPiSessionPermanentlyDead(sessionKey)) {
+    log(`🛑 [pi:${sessionKey.slice(-12)}] 已永久死亡（重启风暴），拒绝启动`);
+    return;
+  }
+
   const existing = sessions.get(sessionKey);
 
   // 已在运行：跳过
@@ -121,6 +196,12 @@ function startPi(sessionKey: string): void {
     pi.ready = false;
     // 与 exit handler 保持一致：保留 session，5s 后重启让 startPi 复用现有 pi
     pi.proc = null;
+    // 盲区 #1 防护：spawn 失败也计入重启次数
+    const restartState = recordPiRestart(sessionKey);
+    if (restartState.permanentlyDead) {
+      log(`🛑 [pi:${sessionKey.slice(-12)}] 重启风暴已触发，不再重试`);
+      return;
+    }
     setTimeout(() => startPi(sessionKey), 5000);
   });
 
@@ -164,8 +245,14 @@ function startPi(sessionKey: string): void {
     pi.proc = null;
 
     // 4. waitingTasks 保留（不删 sessions），让 get_state 就绪后补偿 promoteNext
-    log(`💾 保留 waitingTasks=${pi.waitingTasks.length}, seenMessageIds=${pi.seenMessageIds.size}，5s 后重启`);
+    log(`💾 保留 waitingTasks=${pi.waitingTasks.length}, seenMessageIds=${pi.seenMessageIds.size}`);
 
+    // 盲区 #1 防护：退出也计入重启次数，达到阈值则永久死亡
+    const restartState = recordPiRestart(sessionKey);
+    if (restartState.permanentlyDead) {
+      log(`🛑 [pi:${sessionKey.slice(-12)}] 重启风暴已触发，不再重试`);
+      return;
+    }
     setTimeout(() => startPi(sessionKey), 5000);
   });
 

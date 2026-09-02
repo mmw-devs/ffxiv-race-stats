@@ -79,6 +79,20 @@ export const HEARTBEAT_INTERVAL_MS = 60_000;
 // 内存压力阈值（MB）：超过则输出告警日志（不主动重启，避免状态丢失）。
 export const HEAP_PRESSURE_MB = 500;
 
+// 硬内存上限（MB）：超过则主动清理 seenMessageIds 等可释放资源，避免 OOM。
+// 高于 HEAP_PRESSURE_MB 是"软告警"，这里是"硬动作"阈值。
+export const HEAP_HARD_LIMIT_MB = 800;
+
+// ═══════════════ 健壮性（pi 子进程重启风暴） ═══════════════
+
+// pi 子进程持续崩溃的检测窗口与阈值：在窗口内超过阈值则停止重试。
+// 与 L5 RESTART_STORM_MAX 的区别：
+//   - RESTART_STORM_MAX 限制的是 lark-bot 进程级重启（由 supervisor 拉起）
+//   - PI_RESTART_MAX 限制的是单次 lark-bot 运行内的 pi 子进程重启
+export const PI_RESTART_WINDOW_MS = 5 * 60 * 1000;
+export const PI_RESTART_MAX = 10;
+export const PI_RESTART_HISTORY_FILE = join(tmpdir(), "lark-bot.pi-restart-history");
+
 // ═══════════════ 健壮性（L1 Protocol 熔断器） ═══════════════
 
 // 飞书 API 连续失败 N 次则熔断 M 秒，避免雪崩（耗尽配额 / 网络持续抖动）。
