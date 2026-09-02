@@ -93,6 +93,20 @@ export const PI_RESTART_WINDOW_MS = 5 * 60 * 1000;
 export const PI_RESTART_MAX = 10;
 export const PI_RESTART_HISTORY_FILE = join(tmpdir(), "lark-bot.pi-restart-history");
 
+// ═══════════════ 多 session 管理（commit 4：per-p2p session） ═══════════════
+
+// 空闲 session 淘汰阈值：无活动超过此时长则销毁（释放 pi 子进程 + 内存）
+// 下次该 chat_id 来消息时按懒启动重建
+export const IDLE_SESSION_TIMEOUT_MS = 60 * 60 * 1000;
+
+// session 数量上限：超过则按 LRU 淘汰最久未活动的
+// 防止单 lark-bot 进程被滥发 chat_id 拖入资源耗尽
+export const MAX_SESSIONS = 10;
+
+// 空闲扫描周期（5 分钟）：周期性检查并淘汰空闲 session
+// 周期设短可更早回收，但增加心跳日志噪音
+export const SESSION_EVICTION_INTERVAL_MS = 5 * 60 * 1000;
+
 // ═══════════════ 健壮性（L1 Protocol 熔断器） ═══════════════
 
 // 飞书 API 连续失败 N 次则熔断 M 秒，避免雪崩（耗尽配额 / 网络持续抖动）。

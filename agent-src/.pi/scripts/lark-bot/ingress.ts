@@ -27,9 +27,8 @@ import { addReaction, sendReply, stripMention } from "./protocol/feishu.js";
 import { enqueueTask, startImmediate } from "./interactive/task-state-machine.js";
 import {
   cleanupSeenMessageIds,
-  getPiSession,
+  ensureSession,
   hasSeen,
-  isSessionReady,
   markSeen,
   nextPromptId,
 } from "./interactive/session-manager.js";
@@ -85,7 +84,7 @@ function formatPrompt(event: LarkEvent): string {
  *   3. 创建 PendingTask，初始表情 WAVE
  *   4. 分流：activeTask 空 → 立即 startTask；否则 → push 等待队列
  */
-export function handleLarkEvent(event: LarkEvent): void {
+export async function handleLarkEvent(event: LarkEvent): Promise<void> {
   // R3 L2 Ingress：per-event try/catch + 输入校验 + 反压
   // 设计目的：单条坏事件不能拖垮整个 lark-bot 进程；恶意或异常高频消息不能占用队列
   try {
@@ -97,13 +96,12 @@ export function handleLarkEvent(event: LarkEvent): void {
     if (!shouldHandle(event)) return;
 
     const key = sessionKey(event);
-    if (!isSessionReady(key)) {
-      sendReply(event.message_id, "Bot 启动中，请稍后再试...");
-      return;
-    }
 
-    const pi = getPiSession(key);
-    if (!pi) return; // 不可能走到这里（isSessionReady 已检查）
+    // commit 4：ensureSession 懒启动 pi 子进程
+    //   - session 已存在 → 直接返回（同步快路径）
+    //   - session 不存在 → spawn mutex 串行化，spawn 后返回新 PiSession
+    // 注意：pi.ready 可能仍是 false（刚 spawn 完），任务直接入队，get_state 响应后自动 promoteNext
+    const pi = await ensureSession(key, event.chat_id);
 
     // 2. 统一去重（单次运行内）
     if (hasSeen(pi, event.message_id)) {
@@ -134,14 +132,18 @@ export function handleLarkEvent(event: LarkEvent): void {
 
     // 5. WAVE
     task.reactionId = addReaction(event.message_id, EMOJI_READ);
-    log(`📩 [${key.slice(-12)}] 入队 msgId=${event.message_id.slice(-8)} promptId=${task.promptId} queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} content="${event.content.slice(0, 40)}"`);
+    log(`📩 [${key.slice(-12)}] 入队 msgId=${event.message_id.slice(-8)} promptId=${task.promptId} queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} ready=${pi.ready} content="${event.content.slice(0, 40)}"`);
 
     // 6. 分流
-    if (pi.activeTask === null) {
+    if (pi.activeTask === null && pi.ready) {
       startImmediate(pi, task);
+    } else if (!pi.ready) {
+      // 刚 spawn 完，pi 还没报告 ready：入队等 get_state 触发 promoteNext
+      enqueueTask(pi, task);
+      log(`⏳ [${task.promptId}] WAITING (spawn not ready) depth=${pi.waitingTasks.length}`);
     } else {
       enqueueTask(pi, task);
-      log(`⏳ [${task.promptId}] WAITING 分支 msgId=${task.msgId.slice(-8)} depth=${pi.waitingTasks.length}`);
+      log(`⏳ [${task.promptId}] WAITING 分支 depth=${pi.waitingTasks.length}`);
     }
   } catch (e: any) {
     // R3 L2 Ingress 凭底：任何未捕获异常只记日志，不传播

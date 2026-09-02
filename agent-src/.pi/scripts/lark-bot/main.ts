@@ -28,10 +28,12 @@ import {
   startWatchdog,
   writePidFile,
 } from "./process.js";
-import { HEAP_HARD_LIMIT_MB } from "./config.js";
+import { HEAP_HARD_LIMIT_MB, SESSION_EVICTION_INTERVAL_MS } from "./config.js";
 import { log } from "./shared/logger.js";
 import {
   cleanupSeenMessageIds,
+  enforceSessionLimit,
+  evictIdleSessions,
   getAllSessions,
   getPiRestartStats,
   startAllPi,
@@ -72,14 +74,23 @@ function main(): void {
   writePidFile(process.pid);
   log("════════ lark-bot 启动 ════════");
 
-  // 仅启动 p2p session
+  // commit 4：startAllPi 为空操作（per-p2p session 懒启动）
   startAllPi();
-  // WS 事件流：群聊事件由 ingress 丢弃
-  startLarkEvents((event) => handleLarkEvent(event));
+  // WS 事件流：群聊事件由 ingress 丢弃；handleLarkEvent 是 async，fire-and-forget
+  startLarkEvents((event) => { void handleLarkEvent(event); });
 
   // session 文件清理（保留，每 24h 一次）
   setTimeout(() => cleanupOldSessions(), 60 * 1000);
   setInterval(cleanupOldSessions, 24 * 60 * 60 * 1000);
+
+  // commit 4：周期性 session 淘汰（空闲超时 + 数量上限）
+  setInterval(() => {
+    const idle = evictIdleSessions();
+    const lru = enforceSessionLimit();
+    if (idle.evicted > 0 || lru.evicted > 0) {
+      log(`🧹 [session 淘汰] idle=${idle.evicted} lru=${lru.evicted} 当前 sessions=${getAllSessions().length}`);
+    }
+  }, SESSION_EVICTION_INTERVAL_MS);
 
   // R1 L5：心跳定时器。getStats 由 main.ts 注入避免 process.ts 反向依赖 session-manager
   startHeartbeat(() => {

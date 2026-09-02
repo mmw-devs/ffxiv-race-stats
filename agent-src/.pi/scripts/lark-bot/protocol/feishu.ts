@@ -229,9 +229,15 @@ export function startLarkEvents(onEvent: (event: LarkEvent) => void): ChildProce
         continue;
       }
       // onEvent 是 ingress.handleLarkEvent，其内部已 try/catch（R3 L2）
-      // 此处不再重复包装，避免吞掉异常细节
+      // commit 4 后 handleLarkEvent 是 async（需要 await ensureSession 懒启动）
+      // 此处既兜底同步抛异常，也捕获 Promise 拒绝
       try {
-        onEvent(parsed);
+        const ret = onEvent(parsed);
+        if (ret && typeof (ret as any).then === "function") {
+          (ret as Promise<void>).catch((e: any) => {
+            log(`💥 [startLarkEvents] onEvent async 异常: ${e?.message?.slice(0, 200)}`);
+          });
+        }
       } catch (e: any) {
         // 兜底：onEvent 抛异常时记日志但不传播
         log(`💥 [startLarkEvents] onEvent 抛异常: ${e?.message?.slice(0, 200)}`);

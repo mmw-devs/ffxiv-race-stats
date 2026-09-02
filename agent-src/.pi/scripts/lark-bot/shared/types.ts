@@ -36,10 +36,16 @@ export interface PendingResultFetch {
 }
 
 /**
- * pi 子进程会话结构。当前架构下只会有一个 p2p session，
- * 但 sessions Map 仍保留以支持未来 broadcast 旁路接入。
+ * pi 子进程会话结构。当前架构下每 p2p chat 一个独立 session。
+ * 各 session 的 state 完全独立（activeTask / waitingTasks / dedup / pi process）。
  */
 export interface PiSession {
+  /** 唯一标识（与 sessions Map 的 key 相同） */
+  key: string;
+  /** 关联的飞书 chat_id（p2p 会话专用；未来 broadcast 复用） */
+  chatId: string;
+  /** 最后一次活动时间戳（ms），用于空闲淘汰 */
+  lastActivityAt: number;
   proc: ChildProcess | null;   // 注意：重启期会临时为 null
   ready: boolean;
   /** 当前正在处理的任务（同一会话同一时间最多 1 个） */
