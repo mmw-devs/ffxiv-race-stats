@@ -32,6 +32,7 @@ export const CLI = join(
 
 export const PID_FILE = join(tmpdir(), "lark-bot.pid");
 export const LOG_FILE = join(tmpdir(), "lark-bot.log");
+export const TASK_JOURNAL_FILE = join(tmpdir(), "lark-bot-tasks.jsonl");
 
 export const LOG_MAX_BYTES = 50 * 1024 * 1024;
 export const LOG_KEEP_BACKUPS = 5;

@@ -39,6 +39,7 @@ import {
 } from "../config.js";
 import type { PiSession } from "../shared/types.js";
 import { log } from "../shared/logger.js";
+import { emitTaskJournal } from "../shared/logger.js";
 import { switchReaction } from "../protocol/feishu.js";
 import { completeActiveTask, finishTaskWithError, promoteNext } from "./task-state-machine.js";
 
@@ -358,6 +359,17 @@ function spawnPiProcess(sessionKey: string): void {
       try { switchReaction(task, EMOJI_ERROR); } catch (e: any) {
         log(`exit 时切换 ERROR 表情失败: ${e?.message?.slice(0, 80)}`);
       }
+      // Task journal: aborted（pi 进程意外退出）
+      const durationMs = Date.now() - new Date(task.createTime).getTime();
+      emitTaskJournal({
+        eventTime: new Date().toISOString(),
+        promptId: task.promptId,
+        operator: task.operator,
+        operatorName: task.operatorName,
+        outcome: "aborted",
+        durationMs,
+        reason: `pi_exit_code_${code ?? "unknown"}`,
+      });
       pi.activeTask = null;
     }
 

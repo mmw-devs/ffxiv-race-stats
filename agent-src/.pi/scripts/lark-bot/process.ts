@@ -31,6 +31,7 @@ import {
   LOG_KEEP_BACKUPS,
   PID_FILE,
   PROJECT_DIR,
+  TASK_JOURNAL_FILE,
   RESTART_HISTORY_FILE,
   RESTART_STORM_COOLDOWN_MS,
   RESTART_STORM_MAX,
@@ -78,6 +79,38 @@ export function rotateLogIfNeeded(): void {
       try { if (existsSync(src)) renameSync(src, dst); } catch {}
     }
     try { renameSync(LOG_FILE, `${LOG_FILE}.1`); } catch {}
+  } catch {}
+}
+
+// ═══════════════ Task Journal 轮转与追加 ═══════════════
+
+/**
+ * Task journal 轮转：与 LOG_FILE 同样策略（LOG_MAX_BYTES / LOG_KEEP_BACKUPS）。
+ * 复用同一容量上限与备份数，保证运维侧心智一致。
+ */
+export function rotateTaskJournalIfNeeded(): void {
+  try {
+    if (!existsSync(TASK_JOURNAL_FILE)) return;
+    const stats = statSync(TASK_JOURNAL_FILE);
+    if (stats.size < LOG_MAX_BYTES) return;
+    try { unlinkSync(`${TASK_JOURNAL_FILE}.${LOG_KEEP_BACKUPS}`); } catch {}
+    for (let i = LOG_KEEP_BACKUPS - 1; i >= 1; i--) {
+      const src = `${TASK_JOURNAL_FILE}.${i}`;
+      const dst = `${TASK_JOURNAL_FILE}.${i + 1}`;
+      try { if (existsSync(src)) renameSync(src, dst); } catch {}
+    }
+    try { renameSync(TASK_JOURNAL_FILE, `${TASK_JOURNAL_FILE}.1`); } catch {}
+  } catch {}
+}
+
+/**
+ * 追加一条 TaskJournalEntry 到 TASK_JOURNAL_FILE（JSONL 格式，每行一个 JSON 对象）。
+ * 写入失败仅吞错，不影响主流程——与 rotateLogIfNeeded 同健壮性策略。
+ */
+export function appendTaskJournal(entry: import("./shared/types.js").TaskJournalEntry): void {
+  try {
+    rotateTaskJournalIfNeeded();
+    appendFileSync(TASK_JOURNAL_FILE, JSON.stringify(entry) + "\n");
   } catch {}
 }
 

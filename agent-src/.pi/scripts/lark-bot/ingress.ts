@@ -29,7 +29,7 @@
 
 import { CLI, EMOJI_ERROR, EMOJI_READ, MAX_QUEUE_DEPTH, PROJECT_DIR, REQUIRED_EVENT_FIELDS } from "./config.js";
 import type { LarkEvent, PendingTask } from "./shared/types.js";
-import { log } from "./shared/logger.js";
+import { emitTaskJournal, log } from "./shared/logger.js";
 import { addReaction, sendReply, stripMention } from "./protocol/feishu.js";
 import { enqueueTask, startImmediate } from "./interactive/task-state-machine.js";
 import {
@@ -123,7 +123,10 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
       log(`⚠️ [ingress] 事件字段校验失败，已丢弃: type=${(event as any)?.type} chat_type=${(event as any)?.chat_type}`);
       return;
     }
-    if (!shouldHandle(event)) return;
+    if (!shouldHandle(event)) {
+      // 群聊 / 非文本消息不入队，不需要记 journal
+      return;
+    }
 
     const key = sessionKey(event);
 
@@ -141,6 +144,14 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
       log(`⚠️ [${key.slice(-12)}] 身份解析失败: senderId=${event.sender_id.slice(-12)}`);
       addReaction(event.message_id, EMOJI_ERROR);
       sendReply(event.message_id, "无法验证运营身份，操作已拒绝。请联系管理员登记飞书 user_id。");
+      emitTaskJournal({
+        eventTime: new Date().toISOString(),
+        promptId: "n/a",
+        operator: "unknown",
+        operatorName: null,
+        outcome: "aborted",
+        reason: "auth_failed",
+      });
       return;
     }
 
@@ -157,6 +168,14 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
       log(`⚠️ [${key.slice(-12)}] 队列已满 (depth=${pi.waitingTasks.length}), 拒绝 msgId=${event.message_id.slice(-8)}`);
       addReaction(event.message_id, EMOJI_ERROR);
       sendReply(event.message_id, "⚠️ Bot 队列已满，请稍后再试");
+      emitTaskJournal({
+        eventTime: new Date().toISOString(),
+        promptId: "n/a",
+        operator: operatorCtx.operator,
+        operatorName: operatorCtx.name,
+        outcome: "aborted",
+        reason: "queue_full",
+      });
       return;
     }
 
@@ -176,6 +195,15 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
     // 6. WAVE
     task.reactionId = addReaction(event.message_id, EMOJI_READ);
     log(`📩 [${key.slice(-12)}] 入队 msgId=${event.message_id.slice(-8)} promptId=${task.promptId} operator=${operatorCtx.operator} (${operatorCtx.name ?? "-"}) queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} ready=${pi.ready}`);
+
+    // 7. Task journal: started
+    emitTaskJournal({
+      eventTime: new Date().toISOString(),
+      promptId: task.promptId,
+      operator: task.operator,
+      operatorName: task.operatorName,
+      outcome: "started",
+    });
 
     // 7. 分流
     if (pi.activeTask === null && pi.ready) {

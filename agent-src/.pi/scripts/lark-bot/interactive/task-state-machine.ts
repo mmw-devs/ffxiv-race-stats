@@ -26,6 +26,7 @@ import {
 } from "../config.js";
 import type { PiSession, PendingTask } from "../shared/types.js";
 import { log } from "../shared/logger.js";
+import { emitTaskJournal } from "../shared/logger.js";
 import { sendReply, sendReplyGetId, switchReaction } from "../protocol/feishu.js";
 
 // ═══════════════ 任务异常结束 ═══════════════
@@ -44,6 +45,17 @@ export function finishTaskWithError(pi: PiSession, task: PendingTask, reason: st
   } catch (e: any) {
     log(`回复 ERROR 失败: ${e?.message?.slice(0, 80)}`);
   }
+  // Task journal: aborted（含 durationMs）
+  const durationMs = Date.now() - new Date(task.createTime).getTime();
+  emitTaskJournal({
+    eventTime: new Date().toISOString(),
+    promptId: task.promptId,
+    operator: task.operator,
+    operatorName: task.operatorName,
+    outcome: "aborted",
+    durationMs,
+    reason,
+  });
   if (pi.activeTask?.promptId === task.promptId) {
     pi.activeTask = null;
     pi.finishing = false; // 防御性：避免异常路径下 finishing 残留
@@ -85,6 +97,16 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
     log(`⛔ [${task.promptId}] ERROR: activeTask 超过最大存活时间 (${Math.round(ageMs / 1000)}s > ${TASK_MAX_AGE_MS / 1000}s), 强制收尾`);
     switchReaction(task, EMOJI_ERROR);
     try { sendReply(task.msgId, `❌ 处理超时（超过 ${TASK_MAX_AGE_MS / 1000}s），请重试`); } catch {}
+    // Task journal: aborted（activeTask 超时）
+    emitTaskJournal({
+      eventTime: new Date().toISOString(),
+      promptId: task.promptId,
+      operator: task.operator,
+      operatorName: task.operatorName,
+      outcome: "aborted",
+      durationMs: ageMs,
+      reason: "activeTask_timeout",
+    });
     pi.activeTask = null;
     pi.finishing = false;
     promoteNext(pi);
@@ -116,6 +138,17 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
     try { sendReply(task.msgId, `❌ 处理失败：${reason}`); } catch (e: any) {
       log(`回复 ERROR 失败: ${e?.message?.slice(0, 80)}`);
     }
+    // Task journal: aborted（agent 超时未返回文本）
+    const durationMs = Date.now() - new Date(task.createTime).getTime();
+    emitTaskJournal({
+      eventTime: new Date().toISOString(),
+      promptId: task.promptId,
+      operator: task.operator,
+      operatorName: task.operatorName,
+      outcome: "aborted",
+      durationMs,
+      reason,
+    });
   } else {
     log(`📝 [${task.promptId}] 收到 agent 文本 msgId=${task.msgId.slice(-8)} len=${text.length}`);
     // 发送飞书回复（sendReplyGetId 内置超时，结果不明确走 ERROR + 日志，不重发）
@@ -123,10 +156,31 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
     if (result.ok && result.replyId) {
       log(`✅ [${task.promptId}] DONE msgId=${task.msgId.slice(-8)} replyId=${result.replyId.slice(-8)} text.len=${text.length} content="${text.slice(0, 50)}"`);
       switchReaction(task, EMOJI_DONE);
+      // Task journal: merged（业务流完成）
+      const durationMs = Date.now() - new Date(task.createTime).getTime();
+      emitTaskJournal({
+        eventTime: new Date().toISOString(),
+        promptId: task.promptId,
+        operator: task.operator,
+        operatorName: task.operatorName,
+        outcome: "merged",
+        durationMs,
+      });
     } else {
       const reason = result.timedOut ? `回复超时（${REPLY_SEND_TIMEOUT_MS}ms）` : (result.error || "未知错误");
       log(`⛔ [${task.promptId}] ERROR msgId=${task.msgId.slice(-8)} timedOut=${result.timedOut ?? false} reason=${reason}`);
       switchReaction(task, EMOJI_ERROR);
+      // Task journal: aborted（reply 失败）
+      const durationMs = Date.now() - new Date(task.createTime).getTime();
+      emitTaskJournal({
+        eventTime: new Date().toISOString(),
+        promptId: task.promptId,
+        operator: task.operator,
+        operatorName: task.operatorName,
+        outcome: "aborted",
+        durationMs,
+        reason: `reply_${reason}`,
+      });
     }
   }
 
@@ -180,6 +234,16 @@ export function promoteNext(pi: PiSession): void {
       log(`⏰ [${next.promptId}] 任务超时丢弃: ${Math.round(ageMs / 1000)}s > ${TASK_MAX_AGE_MS / 1000}s, msgId=${next.msgId.slice(-8)}`);
       switchReaction(next, EMOJI_ERROR);
       try { sendReply(next.msgId, `❌ 任务排队超时（超过 ${TASK_MAX_AGE_MS / 1000}s），已丢弃。请重新发送。`); } catch {}
+      // Task journal: aborted（队列内超时）
+      emitTaskJournal({
+        eventTime: new Date().toISOString(),
+        promptId: next.promptId,
+        operator: next.operator,
+        operatorName: next.operatorName,
+        outcome: "aborted",
+        durationMs: ageMs,
+        reason: "queue_timeout",
+      });
       continue; // 检查下一个
     }
     startTask(pi, next);

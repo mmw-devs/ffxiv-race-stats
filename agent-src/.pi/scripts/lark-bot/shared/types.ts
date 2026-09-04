@@ -90,3 +90,26 @@ export interface SendReplyResult {
   error?: string;
   timedOut?: boolean;
 }
+
+/**
+ * Task journal outcome：业务流在生命周期内的三种收尾状态。
+ *   - started：业务流开始（入队时记录）
+ *   - merged：业务流完成（reply成功发出，等同于本次业务生效）
+ *   - aborted：业务流终止（超时/失败/身份拒绝/反压丢弃等）
+ */
+export type TaskOutcome = "started" | "merged" | "aborted";
+
+/**
+ * 结构化任务日志条目（追加到 /tmp/lark-bot-tasks.jsonl）。
+ * 每次任务生命周期产生两条记录（started + merged/aborted）。
+ * durationMs 仅在 merged/aborted 时填充。
+ */
+export interface TaskJournalEntry {
+  eventTime: string;          // ISO 8601 UTC
+  promptId: string;           // f-<seq>-<msgId后8位>
+  operator: string;           // 飞书 user_id（PR #138 注入）
+  operatorName: string | null; // OPERATOR_REGISTRY 展示名
+  outcome: TaskOutcome;
+  durationMs?: number;        // outcome=merged/aborted 时填
+  reason?: string;            // outcome=aborted 时填原因
+}
