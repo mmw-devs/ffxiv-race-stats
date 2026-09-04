@@ -1,7 +1,7 @@
 ---
 name: content-pr
 description: >
-  通用 content PR 提交流程。当其他运营 Skill 修改 data.json 后，调用此 Skill 完成分支创建、推送、PR 创建和合并。
+  通用 content PR 提交流程。当 lark-bot 解析完 Operator 身份后，调用此 Skill 完成分支创建、推送、PR 创建和合并。
   触发词：提交 PR、合并、merge。
 ---
 
@@ -9,7 +9,7 @@ description: >
 
 ## 概述
 
-此 Skill 是所有运营侧 data.json 变更的统一提交通道。三个业务 Skill（update-team、add-news、add-broadcaster）修改 data.json 后，统一通过此 Skill 完成 GitHub 操作。
+此 Skill 是所有运营侧 data.json 变更的统一提交通道。Agent 收到 lark-bot 注入的 operator（飞书 user_id）后，通过此 Skill 完成 GitHub 操作。
 
 ## 工作流
 
@@ -23,10 +23,8 @@ description: >
 
      ````json
      {
-       "operator": "<操作人标识>",
+       "operator": "<lark-bot 注入的飞书 user_id>",
        "timestamp": "<ISO 8601 UTC>",
-       "action": "<updateTeam|addNews|addBroadcaster|...>",
-       "target": "<目标ID>",
        "changes": [
          { "field": "<字段路径>", "from": <旧值>, "to": <新值> }
        ]
@@ -34,12 +32,23 @@ description: >
      ````
      ```
    - 日志块使用 4 反引号包围（```` ``` ````），`json` 语言标记
-   - `operator` 使用当前操作人的标识（飞书账号或用户名）
+   - `operator` **必须原样使用 lark-bot 注入的 `operator=<user_id>`**，不得由 Agent 推断
    - `timestamp` 使用 ISO 8601 UTC 格式
    - `changes` 数组每项包含 `field`（点分隔路径）、`from`（旧值）、`to`（新值）
    - 如果一次 commit 修改多个字段，在 `changes` 数组中列出所有变更
-   - 调用业务 Skill 时，由业务 Skill 负责收集 changes 信息并传递给 content-pr
 3. Push 到 GitHub，`gh pr create --base main`（以 `race-ops-bot[bot]` 身份）
+
+#### operator 强制约束
+
+- `operator` 必须使用 lark-bot 在任务上下文注入的飞书 `user_id`（稳定身份）
+- 禁止使用以下值：
+  - 展示名（如 `赤墓`、`weunimix`）
+  - 昵称 / 飞书 `sender_id` 后缀
+  - GitHub 用户名
+  - `race-ops-bot`
+  - 空字符串 / `unknown`
+- lark-bot 未提供 operator 上下文（值为 `unknown` / 缺失）时：**不得 commit，不得创建 PR**
+- CI 校验：`scripts/validate-op-log.js` 会拒绝未在 `OPERATOR_REGISTRY` 内的 user_id
 
 ### 2. ⚠️ 汇报并硬停止（必须执行，不可跳过）
 

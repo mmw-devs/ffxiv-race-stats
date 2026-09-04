@@ -22,6 +22,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
+  getOperatorName,
+  isOperatorAllowed,
   parseLogFromMessage,
   validateLogStructure,
   validateOperatorPermission,
@@ -230,22 +232,24 @@ export function main(): number {
       continue;
     }
 
-    // 权限校验：高风险操作（删除/改元信息）权限不足时硬阻断，中低风险 warn
+    // 权限校验：PR #2 起仅校验 operator 是否在 OPERATOR_REGISTRY
+    // 无风险分级、无 action 校验；未授权硬阻断（fail-closed）
+    if (!isOperatorAllowed(log.operator)) {
+      fail(state, `commit ${commit.hash.slice(0, 7)} 权限: ${log.operator} 不在 Operator 注册表中`);
+      continue;
+    }
+    // 兼容旧调用（validateOperatorPermission 仅做 operator 检查，与 isOperatorAllowed 等价）
     const permResult = validateOperatorPermission(log);
     if (!permResult.valid) {
-      const levelLabel = { high: "高风险", medium: "中风险", low: "低风险" }[permResult.riskLevel ?? "low"];
       for (const err of permResult.errors) {
-        if (permResult.riskLevel === "high") {
-          fail(state, `commit ${commit.hash.slice(0, 7)} 权限(${levelLabel}): ${err}`);
-        } else {
-          warn(state, `commit ${commit.hash.slice(0, 7)} 权限(${levelLabel}): ${err}`);
-        }
+        fail(state, `commit ${commit.hash.slice(0, 7)} 权限: ${err}`);
       }
-      // 高风险操作不继续记录日志（无法进入一致性比对）
-      if (permResult.riskLevel === "high") continue;
+      continue;
     }
 
-    ok(`  operator: ${log.operator}, action: ${log.action}, target: ${log.target}, changes: ${log.changes.length} 项`);
+    // 展示 operator 时附带注册表中的展示名（便于审计排查）
+    const operatorName = getOperatorName(log.operator);
+    ok(`  operator: ${log.operator} (${operatorName ?? "-"}), changes: ${log.changes.length} 项`);
     allLogs.push({ commitHash: commit.hash.slice(0, 7), log });
   }
 

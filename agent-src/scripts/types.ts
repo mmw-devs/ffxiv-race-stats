@@ -6,8 +6,9 @@
  * 本文件仅承载脚本间的中间数据结构。
  *
  * 演进：
- *   - PR #1（scripts TS 化）阶段：保留完整 5 字段（与 .js 等价）
- *   - PR #2（op-log-schema 字段精简）阶段：将 LogEntry 改为 3 字段
+ *   - PR #1（scripts TS 化）：保留完整 5 字段（与 .js 等价）
+ *   - PR #2（op-log-schema 字段精简）：LogEntry 改为 3 字段（operator/timestamp/changes）
+ *     业务 skill 全部移除导致 action 类型 不再适用；target 仅适用于部分操作 → 删除。
  */
 
 /**
@@ -21,15 +22,20 @@ export interface ChangeEntry {
   to: unknown;
 }
 
-/** 操作风险等级 */
-export type RiskLevel = "high" | "medium" | "low";
+/** Operator 注册表：key 是稳定飞书 user_id，value 是展示元数据。 */
+export interface OperatorRegistryEntry {
+  name: string;
+}
 
-/** 结构化操作日志（commit message 中嵌入的 JSON 块）。 */
+export type OperatorRegistry = Record<string, OperatorRegistryEntry>;
+
+/**
+ * 结构化操作日志（commit message 中嵌入的 JSON 块）。
+ * PR #2 起仅保留 operator/timestamp/changes 三字段。
+ */
 export interface LogEntry {
   operator: string;
   timestamp: string;
-  action: string;
-  target: string;
   changes: ChangeEntry[];
 }
 
@@ -44,8 +50,6 @@ export interface DeepDiffResult {
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
-  /** 仅 validateOperatorPermission 填充；validateLogStructure 为 undefined。 */
-  riskLevel?: RiskLevel;
 }
 
 /** vitest 用 fixture 描述（仅测试模块内部使用）。 */
