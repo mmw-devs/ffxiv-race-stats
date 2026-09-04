@@ -1,90 +1,64 @@
 /**
  * op-log-schema.ts — 结构化操作日志模块 (Issue #50)
  *
- * 定义日志格式、操作人白名单、权限矩阵，提供生成/校验/解析功能。
+ * 定义日志格式、Operator 注册表，提供生成/校验/解析功能。
  * 零运行时依赖：仅使用 Node.js 内置模块。
  *
  * 演进：
- *   - PR #1（scripts TS 化）：保持与 .js 完全等价的 API，仅模块系统从 CJS 改 ESM + 添加 TS 类型
- *   - PR #2（字段精简）：删 OPERATOR_ALLOWLIST 改 OPERATOR_REGISTRY、删 ACTION_TYPES / ACTION_RISK_LEVELS / target
+ *   - PR #1（scripts TS 化）：保持与 .js 完全等价的 API
+ *   - PR #2（字段精简）：
+ *     · 业务 skill 全部移除 → 删除 ACTION_TYPES / ACTION_RISK_LEVELS / target 字段
+ *     · Operator 白名单改为 OPERATOR_REGISTRY（user_id → {name} 形式）
+ *     · operator 由 lark-bot 在任务上下文注入，不依赖具体 action
  */
 
-import type { ChangeEntry, LogEntry, RiskLevel, ValidationResult } from "./types.js";
+import type { ChangeEntry, LogEntry, OperatorRegistry, ValidationResult } from "./types.js";
 
 // ══════════════════════════════════════════════════════════════
 // 常量
 // ══════════════════════════════════════════════════════════════
 
-/** 允许的操作人列表（飞书账号/用户名）。PR #2 改为 OPERATOR_REGISTRY（user_id → {name}）。 */
-export const OPERATOR_ALLOWLIST: string[] = ["weunimix"];
-
-/** 允许的操作类型。PR #2 将删除（业务 skill 已全部移除）。 */
-export const ACTION_TYPES: string[] = [
-  "updateTeam",
-  "addNews",
-  "addBroadcaster",
-  "updateBroadcaster",
-  "deleteBroadcaster",
-  "updateMeta",
-];
-
 /**
- * 操作风险等级
- * high   — 不可逆或影响面大，权限不足时 CI 硬阻断
- * medium — 核心运营操作，权限不足时 warn 不阻断
- * low    — 新增内容（可再修改），权限不足时 warn 不阻断
+ * Operator 注册表：key 是稳定飞书 user_id，value 是展示名。
+ * 任何写入 data.json 的 commit 必须使用注册表内的 user_id 作为 operator。
  *
- * PR #2 将删除（操作类型不再存在）。
+ * PR #2 起运营者身份来源：
+ *   - lark-bot 在 ingress 解析 sender_id → user_id
+ *   - 仅注册表内的 user_id 通过 fail-closed
+ *   - 注册表新增 Operator 需走 ops 仓库 PR 流程（避免 lark-bot 引入未授权身份）
  */
-export const ACTION_RISK_LEVELS: Record<string, RiskLevel> = {
-  deleteBroadcaster: "high",
-  updateMeta: "high",
-  updateTeam: "medium",
-  updateBroadcaster: "medium",
-  addNews: "low",
-  addBroadcaster: "low",
+export const OPERATOR_REGISTRY: OperatorRegistry = {
+  "38a32652": { name: "weunimix" },
+  "311a2ea5": { name: "赤墓" },
 };
 
 // ══════════════════════════════════════════════════════════════
 // 权限校验
 // ══════════════════════════════════════════════════════════════
 
-/** 校验 operator 是否在白名单。PR #2 将改为 `operator in OPERATOR_REGISTRY`。 */
+/** 校验 operator 是否在注册表内。 */
 export function isOperatorAllowed(operator: string): boolean {
-  return OPERATOR_ALLOWLIST.includes(operator);
+  return Object.prototype.hasOwnProperty.call(OPERATOR_REGISTRY, operator);
 }
 
-/** 校验 action 是否在允许列表。PR #2 将删除（action 字段不再存在）。 */
-export function isActionAllowed(action: string): boolean {
-  return ACTION_TYPES.includes(action);
-}
-
-/**
- * 获取操作的风险等级。PR #2 将删除。
- * @param action 操作类型
- * @returns 风险等级；未知 action 默认为 low
- */
-export function getActionRiskLevel(action: string): RiskLevel {
-  return ACTION_RISK_LEVELS[action] ?? "low";
+/** 取 operator 对应的展示名；未注册则返回 null。 */
+export function getOperatorName(operator: string): string | null {
+  return OPERATOR_REGISTRY[operator]?.name ?? null;
 }
 
 /**
- * 校验操作人是否有权限执行指定操作类型
- * 返回值包含风险等级，供 CI 根据等级决定阻断/warn
+ * 校验 operator 是否有权限。
+ * PR #2 起：仅校验 operator 在注册表，无 action / 风险分级。
  * @param log 日志对象
  */
 export function validateOperatorPermission(log: LogEntry): ValidationResult {
   const errors: string[] = [];
   if (!isOperatorAllowed(log.operator)) {
-    errors.push(`操作人 "${log.operator}" 不在白名单中`);
-  }
-  if (!isActionAllowed(log.action)) {
-    errors.push(`操作类型 "${log.action}" 不在允许列表中`);
+    errors.push(`操作人 "${log.operator}" 不在注册表中`);
   }
   return {
     valid: errors.length === 0,
     errors,
-    riskLevel: getActionRiskLevel(log.action),
   };
 }
 
@@ -94,23 +68,16 @@ export function validateOperatorPermission(log: LogEntry): ValidationResult {
 
 /**
  * 生成操作日志对象（自动填充 UTC 时间戳）。
- * PR #2 签名将改为 generateLog(operator, changes)，删除 action/target 参数。
- * @param operator 操作人
- * @param action 操作类型
- * @param target 操作目标
+ * PR #2 签名：generateLog(operator, changes)
+ *   - operator：飞书 user_id（由 lark-bot 注入，原样使用，不得推断）
+ *   - changes：字段级变更清单
+ * @param operator 操作人飞书 user_id
  * @param changes 变更记录
  */
-export function generateLog(
-  operator: string,
-  action: string,
-  target: string,
-  changes: ChangeEntry[],
-): LogEntry {
+export function generateLog(operator: string, changes: ChangeEntry[]): LogEntry {
   return {
     operator,
     timestamp: new Date().toISOString(),
-    action,
-    target,
     changes,
   };
 }
@@ -137,14 +104,8 @@ export function formatCommitMessage(shortDesc: string, log: LogEntry): string {
 // 日志结构校验
 // ══════════════════════════════════════════════════════════════
 
-/** 日志必填字段。PR #2 将删除 action / target。 */
-const REQUIRED_LOG_FIELDS: (keyof LogEntry)[] = [
-  "operator",
-  "timestamp",
-  "action",
-  "target",
-  "changes",
-];
+/** 日志必填字段（PR #2：3 字段）。 */
+const REQUIRED_LOG_FIELDS: (keyof LogEntry)[] = ["operator", "timestamp", "changes"];
 
 /**
  * 校验日志对象结构完整性。
@@ -175,12 +136,6 @@ export function validateLogStructure(log: unknown): ValidationResult {
   }
   if (typeof logObj.timestamp !== "string") {
     errors.push("timestamp 必须是字符串");
-  }
-  if (typeof logObj.action !== "string") {
-    errors.push("action 必须是字符串");
-  }
-  if (typeof logObj.target !== "string") {
-    errors.push("target 必须是字符串");
   }
   if (!Array.isArray(logObj.changes)) {
     errors.push("changes 必须是数组");
