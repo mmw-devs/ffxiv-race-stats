@@ -41,13 +41,14 @@ import {
 } from "./interactive/session-manager.js";
 import { handleLarkEvent } from "./ingress.js";
 import { startLarkEvents } from "./protocol/feishu.js";
+import { pathToFileURL } from "node:url";
 
 // 触发 ingress 模块的副作用（注册 60s 周期清理）
 import "./ingress.js";
 
 // ═══════════════ 启动 ═══════════════
 
-function main(): void {
+export function main(): void {
   // R1 L5：uncaughtException / unhandledRejection 必须在 PID 校验前安装
   // 防止启动期崩溃时无 handler
   installCrashHandlers((kind, err) => {
@@ -147,4 +148,14 @@ function cleanup(): void {
   process.exit(0);
 }
 
-main();
+// ═══════════════ CLI 入口守卫：仅在直接调用本脚本时执行 main()
+// vitest 等工具 import 本模块不会触发 main()（避免写 PID / 启动 session / 装 crash handler 等副作用）
+// ═══════════════
+
+const isDirectRun =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  main();
+}
