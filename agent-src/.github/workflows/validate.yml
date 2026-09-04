@@ -65,3 +65,9 @@ jobs:
           git fetch origin "${{ github.base_ref }}"
           npx tsx scripts/validate-op-log.ts "origin/${{ github.base_ref }}"
           echo "::endgroup::"
+
+      - name: Check lark-bot module dependency (no circular import)
+        run: |
+          echo "::group::lark-bot 模块依赖检查（禁止循环 import）"
+          npx depcruise --config ../.dependency-cruiser.cjs ../agent-src/.pi/scripts/lark-bot/
+          echo "::endgroup::"
