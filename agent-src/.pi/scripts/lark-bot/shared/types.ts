@@ -17,6 +17,10 @@ import type { ChildProcess } from "node:child_process";
  * 单条私聊消息在 lark-bot 侧的完整生命周期对象。
  *   - 创建时机：飞书 p2p 事件入队
  *   - 状态流转：waitingTasks → activeTask → 完成（DONE/ERROR）
+ *
+ * PR #3 起新增字段：
+ *   - operator / operatorName：由 identity-resolver 注入的稳定飞书 user_id
+ *     用于 commit message 的 OP_LOG.operator（原样使用，不得推断）
  */
 export interface PendingTask {
   promptId: string;          // f-<seq>-<msgId后8位>
@@ -26,6 +30,8 @@ export interface PendingTask {
   chatId: string;            // 飞书 chat_id（p2p 固定值）
   createTime: string;        // 飞书原始时间
   attemptCount: number;      // prompt 投递尝试次数（success:false 时递增重试）
+  operator: string;          // 飞书 user_id（lark-bot 解析后注入）
+  operatorName: string | null; // OPERATOR_REGISTRY 中的展示名
 }
 
 /** 单飞取回复文本的等待句柄（completeActiveTask 期间只有一个） */

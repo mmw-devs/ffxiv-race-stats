@@ -46,6 +46,14 @@ export const IS_WIN = process.platform === "win32";
 export const BOT_OPEN_ID = process.env.LARK_BOT_OPEN_ID || "ou_f284b18bf12c193bf5a942a273c5cbf0";
 export const BOT_NAME = process.env.LARK_BOT_NAME || "FFXIV 竞速";
 
+// ═══════════════ 身份解析（PR #3） ═══════════════
+
+/** identity provider 固定为 feishu-contact（迁移至 identity-resolver.ts） */
+export const IDENTITY_PROVIDER = "feishu-contact" as const;
+
+/** canonicalClaim 固定为 user_id（飞书稳定标识） */
+export const IDENTITY_CANONICAL_CLAIM = "user_id" as const;
+
 // ═══════════════ 表情协议 ═══════════════
 
 export const EMOJI_READ = "WAVE";

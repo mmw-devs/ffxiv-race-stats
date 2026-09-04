@@ -2,7 +2,7 @@
  * ingress.ts — L2 Ingress 层
  *
  * SSOT 视角：
- *   - 飞书事件 → 类型化 PendingTask（已完成 chat_type 过滤 + dedup）
+ *   - 飞书事件 → 类型化 PendingTask（已完成 chat_type 过滤 + dedup + 身份解析）
  *   - 当前架构下只接收 p2p 事件（群聊事件直接丢弃）
  *   - 不持有 session 状态；通过调用 session-manager / task-state-machine API 完成入队
  *
@@ -16,11 +16,18 @@
  * 本模块保留：
  *   - dedup（seenMessageIds，防止 WS 重连重复投递）
  *   - 类型守卫（仅 chat_type=p2p + message_type=text）
+ *   - Operator 身份解析（fail-closed，未授权不入队）
  *   - PendingTask 装配
  *   - 入队分流（activeTask 空 → 立即 start；否则 push waitingTasks）
+ *
+ * PR #3 演进：
+ *   - 在 `ensureSession` 后、`markSeen` 前调用 `resolveOperator`
+ *   - 解析失败 → ERROR 表情 + "无法验证运营身份" 拒绝消息 + 不入队
+ *   - 解析成功 → OperatorContext 注入 PendingTask.operator / operatorName
+ *   - formatPrompt 头部改为 `[私聊 | operator=<user_id> | name=<展示名>]`
  */
 
-import { EMOJI_ERROR, EMOJI_READ, MAX_QUEUE_DEPTH, REQUIRED_EVENT_FIELDS } from "./config.js";
+import { CLI, EMOJI_ERROR, EMOJI_READ, MAX_QUEUE_DEPTH, PROJECT_DIR, REQUIRED_EVENT_FIELDS } from "./config.js";
 import type { LarkEvent, PendingTask } from "./shared/types.js";
 import { log } from "./shared/logger.js";
 import { addReaction, sendReply, stripMention } from "./protocol/feishu.js";
@@ -33,6 +40,19 @@ import {
   nextPromptId,
 } from "./interactive/session-manager.js";
 import { sessionKey } from "./routing.js";
+import { createIdentityResolver, type IdentityResolver, type OperatorContext } from "./identity-resolver.js";
+
+// ═══════════════ 身份解析器（单例） ═══════════════
+
+/**
+ * 全局 identity resolver 单例。
+ * 进程启动期构造一次，运行时缓存命中避免 lark-cli 重复调用。
+ */
+const identityResolver: IdentityResolver = createIdentityResolver({
+  projectDir: PROJECT_DIR,
+  cliPath: CLI,
+  log,
+});
 
 // ═══════════════ 输入校验（R3 L2 Ingress） ═══════════════
 
@@ -70,9 +90,18 @@ function shouldHandle(event: LarkEvent): boolean {
   return true;
 }
 
-function formatPrompt(event: LarkEvent): string {
-  const sender = event.sender_id.slice(-8);
-  return `[私聊 | 用户 ${sender}]\n${stripMention(event.content)}`;
+/**
+ * 构造发给 pi 的 prompt 头部。
+ * PR #3 起头部包含 operator=<user_id> + name=<展示名>，便于 pi 在 commit message
+ * 中原样使用（不得由 Agent 推断 operator）。
+ */
+function formatPrompt(event: LarkEvent, operator: OperatorContext): string {
+  return `[私聊 | operator=${operator.operator} | claim=${operator.claim} | name=${operator.name ?? "-"}]\n${stripMention(event.content)}`;
+}
+
+/** 暴露 identity resolver（测试用） */
+export function getIdentityResolver(): IdentityResolver {
+  return identityResolver;
 }
 
 // ═══════════════ 飞书事件统一入口（仅 WS，不再有轮询） ═══════════════
@@ -80,9 +109,10 @@ function formatPrompt(event: LarkEvent): string {
 /**
  * 飞书事件入口（仅 WS）。轮询兜底已剔除。
  *   1. shouldHandle 类型守卫（chat_type=p2p && message_type=text）
- *   2. seenMessageIds 单次运行内去重（防 WS 重连重复）
- *   3. 创建 PendingTask，初始表情 WAVE
- *   4. 分流：activeTask 空 → 立即 startTask；否则 → push 等待队列
+ *   2. 身份解析（fail-closed，未授权不入队）
+ *   3. seenMessageIds 单次运行内去重（防 WS 重连重复）
+ *   4. 创建 PendingTask，初始表情 WAVE
+ *   5. 分流：activeTask 空 → 立即 startTask；否则 → push 等待队列
  */
 export async function handleLarkEvent(event: LarkEvent): Promise<void> {
   // R3 L2 Ingress：per-event try/catch + 输入校验 + 反压
@@ -103,14 +133,25 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
     // 注意：pi.ready 可能仍是 false（刚 spawn 完），任务直接入队，get_state 响应后自动 promoteNext
     const pi = await ensureSession(key, event.chat_id);
 
-    // 2. 统一去重（单次运行内）
+    // 2. Operator 身份解析（fail-closed）
+    //    未授权或解析失败 → ERROR 表情 + 拒绝消息 + 不入队
+    //    解析成功后注入到 PendingTask.operator / operatorName 字段
+    const operatorCtx = await identityResolver.resolveOperator(event.sender_id);
+    if (!operatorCtx) {
+      log(`⚠️ [${key.slice(-12)}] 身份解析失败: senderId=${event.sender_id.slice(-12)}`);
+      addReaction(event.message_id, EMOJI_ERROR);
+      sendReply(event.message_id, "无法验证运营身份，操作已拒绝。请联系管理员登记飞书 user_id。");
+      return;
+    }
+
+    // 3. 统一去重（单次运行内）
     if (hasSeen(pi, event.message_id)) {
       log(`⏭ [${key.slice(-12)}] 重复消息跳过: msgId=${event.message_id.slice(-8)}`);
       return;
     }
     markSeen(pi, event.message_id);
 
-    // 3. 反压：队列满则拒绝，避免内存累积拖垮 lark-bot
+    // 4. 反压：队列满则拒绝，避免内存累积拖垮 lark-bot
     //    注意：仅对"入队等待"分支生效；activeTask 仍可立即启动（新事件时旧的已处理完）
     if (pi.waitingTasks.length >= MAX_QUEUE_DEPTH) {
       log(`⚠️ [${key.slice(-12)}] 队列已满 (depth=${pi.waitingTasks.length}), 拒绝 msgId=${event.message_id.slice(-8)}`);
@@ -119,22 +160,24 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
       return;
     }
 
-    // 4. 创建 task
+    // 5. 创建 task（operator 注入到字段）
     const task: PendingTask = {
       promptId: nextPromptId(event.message_id),
       msgId: event.message_id,
-      prompt: formatPrompt(event),
+      prompt: formatPrompt(event, operatorCtx),
       reactionId: null,
       chatId: event.chat_id,
       createTime: event.create_time,
       attemptCount: 0,
+      operator: operatorCtx.operator,
+      operatorName: operatorCtx.name,
     };
 
-    // 5. WAVE
+    // 6. WAVE
     task.reactionId = addReaction(event.message_id, EMOJI_READ);
-    log(`📩 [${key.slice(-12)}] 入队 msgId=${event.message_id.slice(-8)} promptId=${task.promptId} queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} ready=${pi.ready} content="${event.content.slice(0, 40)}"`);
+    log(`📩 [${key.slice(-12)}] 入队 msgId=${event.message_id.slice(-8)} promptId=${task.promptId} operator=${operatorCtx.operator} (${operatorCtx.name ?? "-"}) queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} ready=${pi.ready}`);
 
-    // 6. 分流
+    // 7. 分流
     if (pi.activeTask === null && pi.ready) {
       startImmediate(pi, task);
     } else if (!pi.ready) {
