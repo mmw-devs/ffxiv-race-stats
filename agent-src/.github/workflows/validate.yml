@@ -22,7 +22,7 @@ jobs:
 
       - name: Validate data.json
         id: validate
-        run: node scripts/validate-data.js
+        run: npx tsx scripts/validate-data.ts
 
       - name: Ensure data.json untouched (dev PR)
         if: ${{ !startsWith(github.head_ref, 'content/') }}
@@ -63,5 +63,5 @@ jobs:
         run: |
           echo "::group::操作日志校验"
           git fetch origin "${{ github.base_ref }}"
-          node scripts/validate-op-log.js "origin/${{ github.base_ref }}"
+          npx tsx scripts/validate-op-log.ts "origin/${{ github.base_ref }}"
           echo "::endgroup::"

@@ -1,13 +1,11 @@
-// vitest.config.mjs — agent-src 校验脚本单元测试配置
-// 独立于根目录 vitest（根目录用于 scripts/sync/ 测试）
-import { defineConfig } from 'vitest/config'
+// agent-src/vitest.config.mjs
+// vitest 配置：覆盖 scripts/ 和 .pi/scripts/，使用 node 环境（脚本侧）
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    root: '.',
-    include: ['scripts/__tests__/**/*.test.js'],
-    environment: 'node',
-    globals: false,
-    testTimeout: 10000,
+    include: ["scripts/__tests__/**/*.test.ts", ".pi/scripts/**/__tests__/**/*.test.ts"],
+    environment: "node",
+    testTimeout: 15000,
   },
-})
+});
