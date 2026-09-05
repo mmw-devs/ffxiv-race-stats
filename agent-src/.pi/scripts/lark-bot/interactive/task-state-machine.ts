@@ -14,6 +14,11 @@
  * 「群聊=广播」重构后移除的功能：
  *   - seedMessages 已删除（thread 激活机制随群聊 session 一并剔除）
  *   - replyInThread 参数已删除（p2p 不存在 thread 回复）
+ *
+ * 「方向 B：业务流状态机」演进：
+ *   - emitTaskJournal 调用从 outcome 字段迁移到 state 字段
+ *   - durationMs 统一通过 taskDurationMs(task) 辅助函数计算（消除 6 处重复）
+ *   - 新增 handleTaskLog(task, payload)：处理 agent 通过 pi RPC 上报的 task_log 事件
  */
 
 import {
@@ -24,9 +29,8 @@ import {
   TASK_MAX_AGE_MS,
   TEXT_FETCH_TIMEOUT_MS,
 } from "../config.js";
-import type { PiSession, PendingTask } from "../shared/types.js";
-import { log } from "../shared/logger.js";
-import { emitTaskJournal } from "../shared/logger.js";
+import type { PiSession, PendingTask, TaskLogEvent } from "../shared/types.js";
+import { log, emitTaskJournal, taskDurationMs } from "../shared/logger.js";
 import { sendReply, sendReplyGetId, switchReaction } from "../protocol/feishu.js";
 
 // ═══════════════ 任务异常结束 ═══════════════
@@ -45,15 +49,14 @@ export function finishTaskWithError(pi: PiSession, task: PendingTask, reason: st
   } catch (e: any) {
     log(`回复 ERROR 失败: ${e?.message?.slice(0, 80)}`);
   }
-  // Task journal: aborted（含 durationMs）
-  const durationMs = Date.now() - new Date(task.createTime).getTime();
+  // Task journal: terminated（含 durationMs）
   emitTaskJournal({
     eventTime: new Date().toISOString(),
     promptId: task.promptId,
     operator: task.operator,
     operatorName: task.operatorName,
-    outcome: "aborted",
-    durationMs,
+    state: "terminated",
+    durationMs: taskDurationMs(task),
     reason,
   });
   if (pi.activeTask?.promptId === task.promptId) {
@@ -92,18 +95,18 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
   }
   // R4 L4b：检查 activeTask 是否已超时（例：pi 卡住很久才发 agent_settled）
   // 超过 TASK_MAX_AGE_MS 直接 ERROR 收尾，不等 prompt 响应
-  const ageMs = Date.now() - new Date(task.createTime).getTime();
+  const ageMs = taskDurationMs(task);
   if (Number.isFinite(ageMs) && ageMs > TASK_MAX_AGE_MS) {
     log(`⛔ [${task.promptId}] ERROR: activeTask 超过最大存活时间 (${Math.round(ageMs / 1000)}s > ${TASK_MAX_AGE_MS / 1000}s), 强制收尾`);
     switchReaction(task, EMOJI_ERROR);
     try { sendReply(task.msgId, `❌ 处理超时（超过 ${TASK_MAX_AGE_MS / 1000}s），请重试`); } catch {}
-    // Task journal: aborted（activeTask 超时）
+    // Task journal: terminated（activeTask 超时）
     emitTaskJournal({
       eventTime: new Date().toISOString(),
       promptId: task.promptId,
       operator: task.operator,
       operatorName: task.operatorName,
-      outcome: "aborted",
+      state: "terminated",
       durationMs: ageMs,
       reason: "activeTask_timeout",
     });
@@ -138,15 +141,14 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
     try { sendReply(task.msgId, `❌ 处理失败：${reason}`); } catch (e: any) {
       log(`回复 ERROR 失败: ${e?.message?.slice(0, 80)}`);
     }
-    // Task journal: aborted（agent 超时未返回文本）
-    const durationMs = Date.now() - new Date(task.createTime).getTime();
+    // Task journal: terminated（agent 超时未返回文本）
     emitTaskJournal({
       eventTime: new Date().toISOString(),
       promptId: task.promptId,
       operator: task.operator,
       operatorName: task.operatorName,
-      outcome: "aborted",
-      durationMs,
+      state: "terminated",
+      durationMs: taskDurationMs(task),
       reason,
     });
   } else {
@@ -156,29 +158,27 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
     if (result.ok && result.replyId) {
       log(`✅ [${task.promptId}] DONE msgId=${task.msgId.slice(-8)} replyId=${result.replyId.slice(-8)} text.len=${text.length} content="${text.slice(0, 50)}"`);
       switchReaction(task, EMOJI_DONE);
-      // Task journal: merged（业务流完成）
-      const durationMs = Date.now() - new Date(task.createTime).getTime();
+      // Task journal: in_review（agent 工作周期完成，等 CI 审核）
       emitTaskJournal({
         eventTime: new Date().toISOString(),
         promptId: task.promptId,
         operator: task.operator,
         operatorName: task.operatorName,
-        outcome: "merged",
-        durationMs,
+        state: "in_review",
+        durationMs: taskDurationMs(task),
       });
     } else {
       const reason = result.timedOut ? `回复超时（${REPLY_SEND_TIMEOUT_MS}ms）` : (result.error || "未知错误");
       log(`⛔ [${task.promptId}] ERROR msgId=${task.msgId.slice(-8)} timedOut=${result.timedOut ?? false} reason=${reason}`);
       switchReaction(task, EMOJI_ERROR);
-      // Task journal: aborted（reply 失败）
-      const durationMs = Date.now() - new Date(task.createTime).getTime();
+      // Task journal: terminated（reply 失败）
       emitTaskJournal({
         eventTime: new Date().toISOString(),
         promptId: task.promptId,
         operator: task.operator,
         operatorName: task.operatorName,
-        outcome: "aborted",
-        durationMs,
+        state: "terminated",
+        durationMs: taskDurationMs(task),
         reason: `reply_${reason}`,
       });
     }
@@ -229,18 +229,18 @@ export function promoteNext(pi: PiSession): void {
   // 反复 shift 直到拿到未超时任务或队列空
   while (pi.waitingTasks.length > 0) {
     const next = pi.waitingTasks.shift()!;
-    const ageMs = Date.now() - new Date(next.createTime).getTime();
+    const ageMs = taskDurationMs(next);
     if (Number.isFinite(ageMs) && ageMs > TASK_MAX_AGE_MS) {
       log(`⏰ [${next.promptId}] 任务超时丢弃: ${Math.round(ageMs / 1000)}s > ${TASK_MAX_AGE_MS / 1000}s, msgId=${next.msgId.slice(-8)}`);
       switchReaction(next, EMOJI_ERROR);
       try { sendReply(next.msgId, `❌ 任务排队超时（超过 ${TASK_MAX_AGE_MS / 1000}s），已丢弃。请重新发送。`); } catch {}
-      // Task journal: aborted（队列内超时）
+      // Task journal: terminated（队列内超时）
       emitTaskJournal({
         eventTime: new Date().toISOString(),
         promptId: next.promptId,
         operator: next.operator,
         operatorName: next.operatorName,
-        outcome: "aborted",
+        state: "terminated",
         durationMs: ageMs,
         reason: "queue_timeout",
       });
@@ -266,4 +266,55 @@ export function enqueueTask(pi: PiSession, task: PendingTask): void {
  */
 export function startImmediate(pi: PiSession, task: PendingTask): void {
   startTask(pi, task);
+}
+
+// ═══════════════════ task_log 事件处理（agent → lark-bot 通道） ═══════════════════
+
+/**
+ * 处理 agent 通过 pi RPC 通道上报的 task_log 事件。
+ *
+ * 行为：
+ *   - 用 promptId 在当前 pi session 找 task（含 waitingTasks / activeTask）
+ *   - 比对 subject 与 task.currentSubject：相同则丢弃（去重）
+ *   - 不同则更新 currentSubject 并写一条 journal（state=in_progress）
+ *
+ * 容错：
+ *   - promptId 找不到对应 task → 记日志丢弃，不影响主流程
+ *
+ * 设计动机：
+ *   - task_log 是 agent 域通道，lark-bot 只接收并落盘
+ *   - 用 promptId 定位而非 pi.activeTask：解决"task_log 比 task 完成晚到"的竞态
+ */
+export function handleTaskLog(pi: PiSession, event: TaskLogEvent): void {
+  const { promptId, subject } = event;
+
+  // 1. 在 waitingTasks / activeTask 中找 task
+  let task: PendingTask | null = null;
+  if (pi.activeTask?.promptId === promptId) {
+    task = pi.activeTask;
+  } else {
+    task = pi.waitingTasks.find((t) => t.promptId === promptId) ?? null;
+  }
+  if (!task) {
+    log(`⚠ [task_log] promptId=${promptId} 找不到对应 task，已丢弃`);
+    return;
+  }
+
+  // 2. 去重：subject 未变则不写
+  if (task.currentSubject === subject) {
+    log(`⏭ [task_log] promptId=${promptId} subject 未变，已丢弃`);
+    return;
+  }
+
+  // 3. 更新 currentSubject + 写日志
+  task.currentSubject = subject;
+  emitTaskJournal({
+    eventTime: new Date().toISOString(),
+    promptId: task.promptId,
+    operator: task.operator,
+    operatorName: task.operatorName,
+    state: "in_progress",
+    subject,
+  });
+  log(`📋 [task_log] promptId=${promptId} subject="${subject}"`);
 }

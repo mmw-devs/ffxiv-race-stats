@@ -9,6 +9,12 @@
  *   - PendingTask 移除 source（无 ws/poll 双源）
  *   - sendReply 移除 replyInThread（无 thread）
  *   - seedMessages 已废弃（thread 激活机制随群聊 session 一并剔除）
+ *
+ * 「方向 B：业务流状态机」演进：
+ *   - + TaskState（5 值）：业务流在生命周期内的状态
+ *   - TaskJournalEntry.outcome → state + subject
+ *   - + PendingTask.currentSubject：去重最近一次上报主题
+ *   - + TaskLogEvent：agent → lark-bot 的 task_log 事件类型
  */
 
 import type { ChildProcess } from "node:child_process";
@@ -17,10 +23,14 @@ import type { ChildProcess } from "node:child_process";
  * 单条私聊消息在 lark-bot 侧的完整生命周期对象。
  *   - 创建时机：飞书 p2p 事件入队
  *   - 状态流转：waitingTasks → activeTask → 完成（DONE/ERROR）
+ *   - 状态字段语义：state 在 TaskJournalEntry 上记录，task 内部不重复存
  *
  * PR #3 起新增字段：
  *   - operator / operatorName：由 identity-resolver 注入的稳定飞书 user_id
  *     用于 commit message 的 OP_LOG.operator（原样使用，不得推断）
+ *
+ * 「方向 B」起新增字段：
+ *   - currentSubject：最近一次 task_log 上报的 subject（用于去重）
  */
 export interface PendingTask {
   promptId: string;          // f-<seq>-<msgId后8位>
@@ -32,6 +42,7 @@ export interface PendingTask {
   attemptCount: number;      // prompt 投递尝试次数（success:false 时递增重试）
   operator: string;          // 飞书 user_id（lark-bot 解析后注入）
   operatorName: string | null; // OPERATOR_REGISTRY 中的展示名
+  currentSubject?: string;   // 最近一次 task_log 上报的 subject（用于去重）
 }
 
 /** 单飞取回复文本的等待句柄（completeActiveTask 期间只有一个） */
@@ -92,24 +103,46 @@ export interface SendReplyResult {
 }
 
 /**
- * Task journal outcome：业务流在生命周期内的三种收尾状态。
- *   - started：业务流开始（入队时记录）
- *   - merged：业务流完成（reply成功发出，等同于本次业务生效）
- *   - aborted：业务流终止（超时/失败/身份拒绝/反压丢弃等）
+ * Task journal state：业务流在生命周期内的状态。
+ *   - pre_business：过程1，消息收到、p2p 对象未识别
+ *   - in_progress：过程2+3，agent 工作（多轮指正 / 执行 / 生成 commit）
+ *   - in_review：过程4，CI 审核中
+ *   - post_review：过程5，等用户拍板合并 / 合并完成
+ *   - terminated：终态，任意环节失败或用户主动取消
  */
-export type TaskOutcome = "started" | "merged" | "aborted";
+export type TaskState =
+  | "pre_business"
+  | "in_progress"
+  | "in_review"
+  | "post_review"
+  | "terminated";
 
 /**
  * 结构化任务日志条目（追加到 /tmp/lark-bot-tasks.jsonl）。
- * 每次任务生命周期产生两条记录（started + merged/aborted）。
- * durationMs 仅在 merged/aborted 时填充。
+ * 每次状态跃迁或 agent 上报 subject 时产生一条记录。
+ * durationMs 在终止类条目（state=in_review/post_review/terminated）填充。
  */
 export interface TaskJournalEntry {
   eventTime: string;          // ISO 8601 UTC
   promptId: string;           // f-<seq>-<msgId后8位>
   operator: string;           // 飞书 user_id（PR #138 注入）
   operatorName: string | null; // OPERATOR_REGISTRY 展示名
-  outcome: TaskOutcome;
-  durationMs?: number;        // outcome=merged/aborted 时填
-  reason?: string;            // outcome=aborted 时填原因
+  state: TaskState;           // 当前任务状态
+  subject?: string;           // agent 通过 task_log 事件上报的业务主题
+  durationMs?: number;        // 终止类条目填充
+  reason?: string;            // state=terminated 时填原因
+}
+
+/**
+ * agent → lark-bot 的 task_log 事件类型（pi RPC 通道）。
+ * agent 在理解任务主题后向 stdout 输出，lark-bot 收到后写日志。
+ *
+ * 字段约束：
+ *   - promptId：必填，用于 lark-bot 定位 task（即使 activeTask 已清空）
+ *   - subject：必填，自由文本业务主题
+ */
+export interface TaskLogEvent {
+  type: "task_log";
+  promptId: string;
+  subject: string;
 }
