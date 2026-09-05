@@ -104,23 +104,52 @@ export interface SendReplyResult {
 
 /**
  * Task journal state：业务流在生命周期内的状态。
+ *
+ * 演进说明：
+ *   - pre_business / post_review 已声明但本期未 emit（详见各自 JSDoc）
+ *   - in_review 已 rename 为 awaiting_review（语义与 CI 通道 PR前的实现对齐）
+ *
  *   - pre_business：过程1，消息收到、p2p 对象未识别
- *   - in_progress：过程2+3，agent 工作（多轮指正 / 执行 / 生成 commit）
- *   - in_review：过程4，CI 审核中
- *   - post_review：过程5，等用户拍板合并 / 合并完成
+ *   - in_progress：过程2，agent 工作（多轮指正 / 执行 / 生成 commit）
+ *   - awaiting_review：过程3，agent 工作周期完成、等下游环节
+ *   - post_review：过程4，等用户拍板合并 / 合并完成
  *   - terminated：终态，任意环节失败或用户主动取消
  */
 export type TaskState =
   | "pre_business"
   | "in_progress"
-  | "in_review"
+  | "awaiting_review"
   | "post_review"
   | "terminated";
 
 /**
+ * 过程1，消息收到、p2p 对象未识别。
+ *
+ * 接线状态：**本期未 emit**。后续如需观测"消息到识别"延迟，
+ * 可在 `ingress.handleLarkEvent` 校验前加 emit 点（注意：此时 promptId
+ * 还未生成，需用 msgId 占位）。
+ */
+
+/**
+ * awaiting_review：过程3，agent 工作周期完成、等下游环节（CI 审核 + 用户拍板合并）。
+ *
+ * 实际触发点：`completeActiveTask` 的 DONE 分支（agent 文本已发到飞书）。
+ * 与"过程3 CI 审核中"语义有差距——CI 通道不在 lark-bot 进程内，
+ * lark-bot 当前无法感知 CI 状态。完整 CI 通道接入后，本状态名沿用。
+ */
+
+/**
+ * post_review：过程4，等用户拍板合并 / 合并完成。
+ *
+ * 接线状态：**本期未 emit**。合并实际由 ops 仓库 CI + GitHub PR UI 承担，
+ * lark-bot 不订阅 webhook。后续如需观测"等待合并 → 合并完成"周期，
+ * 需引入 webhook 通道。
+ */
+
+/**
  * 结构化任务日志条目（追加到 /tmp/lark-bot-tasks.jsonl）。
  * 每次状态跃迁或 agent 上报 subject 时产生一条记录。
- * durationMs 在终止类条目（state=in_review/post_review/terminated）填充。
+ * durationMs 在终止类条目（state=awaiting_review/post_review/terminated）填充。
  */
 export interface TaskJournalEntry {
   eventTime: string;          // ISO 8601 UTC

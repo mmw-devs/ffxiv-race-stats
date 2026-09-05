@@ -95,9 +95,9 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
   }
   // R4 L4b：检查 activeTask 是否已超时（例：pi 卡住很久才发 agent_settled）
   // 超过 TASK_MAX_AGE_MS 直接 ERROR 收尾，不等 prompt 响应
-  const ageMs = taskDurationMs(task);
-  if (Number.isFinite(ageMs) && ageMs > TASK_MAX_AGE_MS) {
-    log(`⛔ [${task.promptId}] ERROR: activeTask 超过最大存活时间 (${Math.round(ageMs / 1000)}s > ${TASK_MAX_AGE_MS / 1000}s), 强制收尾`);
+  const durationMs = taskDurationMs(task);
+  if (Number.isFinite(durationMs) && durationMs > TASK_MAX_AGE_MS) {
+    log(`⛔ [${task.promptId}] ERROR: activeTask 超过最大存活时间 (${Math.round(durationMs / 1000)}s > ${TASK_MAX_AGE_MS / 1000}s), 强制收尾`);
     switchReaction(task, EMOJI_ERROR);
     try { sendReply(task.msgId, `❌ 处理超时（超过 ${TASK_MAX_AGE_MS / 1000}s），请重试`); } catch {}
     // Task journal: terminated（activeTask 超时）
@@ -107,7 +107,7 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
       operator: task.operator,
       operatorName: task.operatorName,
       state: "terminated",
-      durationMs: ageMs,
+      durationMs,
       reason: "activeTask_timeout",
     });
     pi.activeTask = null;
@@ -158,13 +158,13 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
     if (result.ok && result.replyId) {
       log(`✅ [${task.promptId}] DONE msgId=${task.msgId.slice(-8)} replyId=${result.replyId.slice(-8)} text.len=${text.length} content="${text.slice(0, 50)}"`);
       switchReaction(task, EMOJI_DONE);
-      // Task journal: in_review（agent 工作周期完成，等 CI 审核）
+      // Task journal: awaiting_review（agent 工作周期完成，等下游环节）
       emitTaskJournal({
         eventTime: new Date().toISOString(),
         promptId: task.promptId,
         operator: task.operator,
         operatorName: task.operatorName,
-        state: "in_review",
+        state: "awaiting_review",
         durationMs: taskDurationMs(task),
       });
     } else {
@@ -229,9 +229,9 @@ export function promoteNext(pi: PiSession): void {
   // 反复 shift 直到拿到未超时任务或队列空
   while (pi.waitingTasks.length > 0) {
     const next = pi.waitingTasks.shift()!;
-    const ageMs = taskDurationMs(next);
-    if (Number.isFinite(ageMs) && ageMs > TASK_MAX_AGE_MS) {
-      log(`⏰ [${next.promptId}] 任务超时丢弃: ${Math.round(ageMs / 1000)}s > ${TASK_MAX_AGE_MS / 1000}s, msgId=${next.msgId.slice(-8)}`);
+    const durationMs = taskDurationMs(next);
+    if (Number.isFinite(durationMs) && durationMs > TASK_MAX_AGE_MS) {
+      log(`⏰ [${next.promptId}] 任务超时丢弃: ${Math.round(durationMs / 1000)}s > ${TASK_MAX_AGE_MS / 1000}s, msgId=${next.msgId.slice(-8)}`);
       switchReaction(next, EMOJI_ERROR);
       try { sendReply(next.msgId, `❌ 任务排队超时（超过 ${TASK_MAX_AGE_MS / 1000}s），已丢弃。请重新发送。`); } catch {}
       // Task journal: terminated（队列内超时）
@@ -241,7 +241,7 @@ export function promoteNext(pi: PiSession): void {
         operator: next.operator,
         operatorName: next.operatorName,
         state: "terminated",
-        durationMs: ageMs,
+        durationMs,
         reason: "queue_timeout",
       });
       continue; // 检查下一个

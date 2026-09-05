@@ -30,9 +30,8 @@ export function log(msg: string): void {
 
 /**
  * 计算 task 自创建以来的存活毫秒数。
- * 原本散落在 task-state-machine.ts 的 6 处复制粘贴（finishTaskWithError /
- * completeActiveTask 多种终止路径 / promoteNext 队列超时），
- * 抽出后统一调用此函数，避免变量名不统一（durationMs / ageMs）。
+ * 原本散落在 task-state-machine.ts（6 处）与 session-manager.ts（1 处）的 7 处
+ * 复制粘贴，抽出后统一调用此函数，避免变量名不统一（durationMs / ageMs）。
  */
 export function taskDurationMs(task: PendingTask): number {
   return Date.now() - new Date(task.createTime).getTime();

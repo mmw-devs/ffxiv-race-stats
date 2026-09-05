@@ -49,19 +49,19 @@ describe("emitTaskJournal — 写入 TASK_JOURNAL_FILE", () => {
     });
   });
 
-  it("追加一行 JSON（state=in_review 含 durationMs）", () => {
+  it("追加一行 JSON（state=awaiting_review 含 durationMs）", () => {
     emitTaskJournal({
       eventTime: "2026-09-04T10:00:05.000Z",
       promptId: "f-1-aaaaaaaa",
       operator: "38a32652",
       operatorName: "weunimix",
-      state: "in_review",
+      state: "awaiting_review",
       durationMs: 5000,
     });
     const lines = readFileSync(TASK_JOURNAL_FILE, "utf-8").split("\n").filter(Boolean);
     expect(lines.length).toBeGreaterThanOrEqual(2);
     const last = JSON.parse(lines[lines.length - 1]!);
-    expect(last.state).toBe("in_review");
+    expect(last.state).toBe("awaiting_review");
     expect(last.durationMs).toBe(5000);
   });
 
@@ -96,7 +96,7 @@ describe("emitTaskJournal — 写入 TASK_JOURNAL_FILE", () => {
       promptId: "f-3-cccccccc",
       operator: "38a32652",
       operatorName: "weunimix",
-      state: "in_review",
+      state: "awaiting_review",
       durationMs: 5000,
     });
     const afterLines = readFileSync(TASK_JOURNAL_FILE, "utf-8").split("\n").filter(Boolean).length;
