@@ -25,6 +25,11 @@
  *   - 解析失败 → ERROR 表情 + "无法验证运营身份" 拒绝消息 + 不入队
  *   - 解析成功 → OperatorContext 注入 PendingTask.operator / operatorName
  *   - formatPrompt 头部改为 `[私聊 | operator=<user_id> | name=<展示名>]`
+ *
+ * 「方向 B：业务流状态机」演进：
+ *   - formatPrompt 增加 promptId 参数 + [协议] 指令行（触发 lark-bot-protocol skill 加载）
+ *   - emitTaskJournal 调用从 outcome 字段迁移到 state 字段
+ *   - auth_failed / queue_full / task_created 三处全部用 state 语义
  */
 
 import { CLI, EMOJI_ERROR, EMOJI_READ, MAX_QUEUE_DEPTH, PROJECT_DIR, REQUIRED_EVENT_FIELDS } from "./config.js";
@@ -94,9 +99,17 @@ function shouldHandle(event: LarkEvent): boolean {
  * 构造发给 pi 的 prompt 头部。
  * PR #3 起头部包含 operator=<user_id> + name=<展示名>，便于 pi 在 commit message
  * 中原样使用（不得由 Agent 推断 operator）。
+ *
+ * 「方向 B」起额外包含：
+ *   - promptId：agent 通过 task_log 事件上报主题时必须携带，lark-bot 据此定位 task
+ *   - [协议] 指令行：明示 agent 加载 lark-bot-protocol skill（description 之外的备份）
  */
-function formatPrompt(event: LarkEvent, operator: OperatorContext): string {
-  return `[私聊 | operator=${operator.operator} | claim=${operator.claim} | name=${operator.name ?? "-"}]\n${stripMention(event.content)}`;
+function formatPrompt(event: LarkEvent, operator: OperatorContext, promptId: string): string {
+  return [
+    `[私聊 | promptId=${promptId} | operator=${operator.operator} | claim=${operator.claim} | name=${operator.name ?? "-"}]`,
+    `[协议] 处理本任务时必须加载 lark-bot-protocol skill 并遵循其 task_log 协议。`,
+    `${stripMention(event.content)}`,
+  ].join("\n");
 }
 
 /** 暴露 identity resolver（测试用） */
@@ -149,7 +162,7 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
         promptId: "n/a",
         operator: "unknown",
         operatorName: null,
-        outcome: "aborted",
+        state: "terminated",
         reason: "auth_failed",
       });
       return;
@@ -173,17 +186,18 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
         promptId: "n/a",
         operator: operatorCtx.operator,
         operatorName: operatorCtx.name,
-        outcome: "aborted",
+        state: "terminated",
         reason: "queue_full",
       });
       return;
     }
 
     // 5. 创建 task（operator 注入到字段）
+    const taskPromptId = nextPromptId(event.message_id);
     const task: PendingTask = {
-      promptId: nextPromptId(event.message_id),
+      promptId: taskPromptId,
       msgId: event.message_id,
-      prompt: formatPrompt(event, operatorCtx),
+      prompt: formatPrompt(event, operatorCtx, taskPromptId),
       reactionId: null,
       chatId: event.chat_id,
       createTime: event.create_time,
@@ -196,13 +210,13 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
     task.reactionId = addReaction(event.message_id, EMOJI_READ);
     log(`📩 [${key.slice(-12)}] 入队 msgId=${event.message_id.slice(-8)} promptId=${task.promptId} operator=${operatorCtx.operator} (${operatorCtx.name ?? "-"}) queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} ready=${pi.ready}`);
 
-    // 7. Task journal: started
+    // 7. Task journal: in_progress（任务创建并入队 / 立即启动）
     emitTaskJournal({
       eventTime: new Date().toISOString(),
       promptId: task.promptId,
       operator: task.operator,
       operatorName: task.operatorName,
-      outcome: "started",
+      state: "in_progress",
     });
 
     // 7. 分流

@@ -28,13 +28,13 @@ describe("emitTaskJournal — 写入 TASK_JOURNAL_FILE", () => {
     if (existsSync(TASK_JOURNAL_FILE)) rmSync(TASK_JOURNAL_FILE);
   });
 
-  it("追加一行 JSON（started outcome）", () => {
+  it("追加一行 JSON（state=in_progress）", () => {
     emitTaskJournal({
       eventTime: "2026-09-04T10:00:00.000Z",
       promptId: "f-1-aaaaaaaa",
       operator: "38a32652",
       operatorName: "weunimix",
-      outcome: "started",
+      state: "in_progress",
     });
     const content = readFileSync(TASK_JOURNAL_FILE, "utf-8");
     const lines = content.split("\n").filter(Boolean);
@@ -45,39 +45,39 @@ describe("emitTaskJournal — 写入 TASK_JOURNAL_FILE", () => {
       promptId: "f-1-aaaaaaaa",
       operator: "38a32652",
       operatorName: "weunimix",
-      outcome: "started",
+      state: "in_progress",
     });
   });
 
-  it("追加一行 JSON（merged outcome 含 durationMs）", () => {
+  it("追加一行 JSON（state=in_review 含 durationMs）", () => {
     emitTaskJournal({
       eventTime: "2026-09-04T10:00:05.000Z",
       promptId: "f-1-aaaaaaaa",
       operator: "38a32652",
       operatorName: "weunimix",
-      outcome: "merged",
+      state: "in_review",
       durationMs: 5000,
     });
     const lines = readFileSync(TASK_JOURNAL_FILE, "utf-8").split("\n").filter(Boolean);
     expect(lines.length).toBeGreaterThanOrEqual(2);
     const last = JSON.parse(lines[lines.length - 1]!);
-    expect(last.outcome).toBe("merged");
+    expect(last.state).toBe("in_review");
     expect(last.durationMs).toBe(5000);
   });
 
-  it("追加一行 JSON（aborted outcome 含 reason）", () => {
+  it("追加一行 JSON（state=terminated 含 reason）", () => {
     emitTaskJournal({
       eventTime: "2026-09-04T10:00:10.000Z",
       promptId: "f-2-bbbbbbbb",
       operator: "311a2ea5",
       operatorName: "赤墓",
-      outcome: "aborted",
+      state: "terminated",
       durationMs: 30000,
       reason: "queue_timeout",
     });
     const lines = readFileSync(TASK_JOURNAL_FILE, "utf-8").split("\n").filter(Boolean);
     const last = JSON.parse(lines[lines.length - 1]!);
-    expect(last.outcome).toBe("aborted");
+    expect(last.state).toBe("terminated");
     expect(last.reason).toBe("queue_timeout");
     expect(last.operatorName).toBe("赤墓");
   });
@@ -89,14 +89,14 @@ describe("emitTaskJournal — 写入 TASK_JOURNAL_FILE", () => {
       promptId: "f-3-cccccccc",
       operator: "38a32652",
       operatorName: "weunimix",
-      outcome: "started",
+      state: "in_progress",
     });
     emitTaskJournal({
       eventTime: "2026-09-04T10:01:05.000Z",
       promptId: "f-3-cccccccc",
       operator: "38a32652",
       operatorName: "weunimix",
-      outcome: "merged",
+      state: "in_review",
       durationMs: 5000,
     });
     const afterLines = readFileSync(TASK_JOURNAL_FILE, "utf-8").split("\n").filter(Boolean).length;
@@ -127,7 +127,7 @@ describe("log — 文本日志仍可用", () => {
         promptId: "f-test",
         operator: "38a32652",
         operatorName: "weunimix",
-        outcome: "started",
+        state: "in_progress",
       }),
     ).not.toThrow();
   });

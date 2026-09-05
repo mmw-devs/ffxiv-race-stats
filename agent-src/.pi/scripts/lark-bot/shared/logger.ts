@@ -15,7 +15,7 @@ import { appendFileSync } from "node:fs";
 
 import { LOG_FILE, TASK_JOURNAL_FILE } from "../config.js";
 import { rotateLogIfNeeded, rotateTaskJournalIfNeeded } from "../process.js";
-import type { TaskJournalEntry } from "./types.js";
+import type { PendingTask, TaskJournalEntry } from "./types.js";
 
 export function log(msg: string): void {
   // 完整 ISO 8601（带日期）便于跨天、跨服务排查
@@ -26,6 +26,16 @@ export function log(msg: string): void {
     rotateLogIfNeeded();
     appendFileSync(LOG_FILE, line + "\n");
   } catch {}
+}
+
+/**
+ * 计算 task 自创建以来的存活毫秒数。
+ * 原本散落在 task-state-machine.ts 的 6 处复制粘贴（finishTaskWithError /
+ * completeActiveTask 多种终止路径 / promoteNext 队列超时），
+ * 抽出后统一调用此函数，避免变量名不统一（durationMs / ageMs）。
+ */
+export function taskDurationMs(task: PendingTask): number {
+  return Date.now() - new Date(task.createTime).getTime();
 }
 
 /**

@@ -18,6 +18,11 @@
  *   - 每 session 独立 lastActivityAt，空闲 IDLE_SESSION_TIMEOUT_MS 后被淘汰
  *   - sessions.size 上限 MAX_SESSIONS，超出按 LRU 淘汰最久未活动
  *   - pi 重启风暴防护（盲区 #1）天然 per-session 化（每个 key 独立计数）
+ *
+ * 「方向 B：业务流状态机」演进：
+ *   - pi exit handler 的 emitTaskJournal 改用 state="terminated"
+ *   - durationMs 改用 taskDurationMs(task) 辅助函数
+ *   - pi RPC 分发加 `task_log` 事件分支，转发到 handleTaskLog
  */
 
 import { spawn } from "node:child_process";
@@ -37,11 +42,11 @@ import {
   SEEN_MAX_SIZE,
   SEEN_TTL_MS,
 } from "../config.js";
-import type { PiSession } from "../shared/types.js";
+import type { PiSession, TaskLogEvent } from "../shared/types.js";
 import { log } from "../shared/logger.js";
-import { emitTaskJournal } from "../shared/logger.js";
+import { emitTaskJournal, taskDurationMs } from "../shared/logger.js";
 import { switchReaction } from "../protocol/feishu.js";
-import { completeActiveTask, finishTaskWithError, promoteNext } from "./task-state-machine.js";
+import { completeActiveTask, finishTaskWithError, handleTaskLog, promoteNext } from "./task-state-machine.js";
 
 // ═══════════════ 全局状态 ═══════════════
 
@@ -359,15 +364,14 @@ function spawnPiProcess(sessionKey: string): void {
       try { switchReaction(task, EMOJI_ERROR); } catch (e: any) {
         log(`exit 时切换 ERROR 表情失败: ${e?.message?.slice(0, 80)}`);
       }
-      // Task journal: aborted（pi 进程意外退出）
-      const durationMs = Date.now() - new Date(task.createTime).getTime();
+      // Task journal: terminated（pi 进程意外退出）
       emitTaskJournal({
         eventTime: new Date().toISOString(),
         promptId: task.promptId,
         operator: task.operator,
         operatorName: task.operatorName,
-        outcome: "aborted",
-        durationMs,
+        state: "terminated",
+        durationMs: taskDurationMs(task),
         reason: `pi_exit_code_${code ?? "unknown"}`,
       });
       pi.activeTask = null;
@@ -481,6 +485,11 @@ function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void
         }
         log(`🏁 agent_settled promptId=${task.promptId} msgId=${task.msgId.slice(-8)}，开始 completeActiveTask`);
         completeActiveTask(pi).catch((e) => log(`💥 completeActiveTask 异常: promptId=${task.promptId} err=${e?.message?.slice(0, 200)}`));
+        break;
+      }
+      case "task_log": {
+        // agent → lark-bot 的 task_log 上报：定位 task、写日志、去重
+        handleTaskLog(pi, event as unknown as TaskLogEvent);
         break;
       }
     }
