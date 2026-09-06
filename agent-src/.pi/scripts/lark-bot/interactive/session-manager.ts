@@ -23,6 +23,14 @@
  *   - pi exit handler 的 emitTaskJournal 改用 state="terminated"
  *   - durationMs 改用 taskDurationMs(task) 辅助函数
  *   - pi RPC 分发加 `task_log` 事件分支，转发到 handleTaskLog
+ *
+ * 私聊侧 MVP 起演进：
+ *   - 新增 sessionsByKind 全局计数 + countByKind/tryReserveSlot/releaseSlot API
+ *   - PiSession 新增 kind / createdAt / authDeadline / authRoundsUsed 字段
+ *     （类型在 shared/types.ts）
+ *   - createPiSession 默认 kind="p2p-temp"
+ *   - 60s 周期清理器增加 cleanupAuthDeadlines 分支
+ *   - 新增 closeSession 公共 API（封装六步清理逻辑，供 ingress 调用）
  */
 
 import { spawn } from "node:child_process";
@@ -33,16 +41,20 @@ import {
   IDLE_SESSION_TIMEOUT_MS,
   IS_WIN,
   LOG_FILE,
+  MAX_P2P_BUSINESS_SLOTS,
+  MAX_P2P_TEMP_SLOTS,
   MAX_SESSIONS,
   PI_BIN,
   PI_RESTART_HISTORY_FILE,
   PI_RESTART_MAX,
   PI_RESTART_WINDOW_MS,
+  P2P_AUTH_TIMEOUT_MS,
+  P2P_IDLE_TIMEOUT_MS,
   PROJECT_DIR,
   SEEN_MAX_SIZE,
   SEEN_TTL_MS,
 } from "../config.js";
-import type { PiSession, TaskLogEvent } from "../shared/types.js";
+import type { PiSession, PiSessionKind, TaskLogEvent } from "../shared/types.js";
 import { log } from "../shared/logger.js";
 import { emitTaskJournal, taskDurationMs } from "../shared/logger.js";
 import { switchReaction } from "../protocol/feishu.js";
@@ -51,6 +63,14 @@ import { completeActiveTask, finishTaskWithError, handleTaskLog, promoteNext } f
 // ═══════════════ 全局状态 ═══════════════
 
 const sessions = new Map<string, PiSession>();
+
+// 私聊侧 MVP：按会话类型分类计数（p2p-temp / p2p-business）
+// 用 sessions.size 不够——需要按 kind 分类判断「业务配额满」
+const sessionsByKind = new Map<PiSessionKind, number>([
+  ["p2p-temp", 0],
+  ["p2p-business", 0],
+]);
+
 let eventSeq = 0;
 
 // ═══════════════ spawn mutex（commit 4 缓解 N2：懒启动竞态） ═══════════════
@@ -122,10 +142,11 @@ export async function ensureSession(sessionKey: string, chatId: string): Promise
 function createPiSession(key: string, chatId: string): PiSession {
   const sessionDir = join(PROJECT_DIR, ".pi", "sessions", `bot-${key.replace(/:/g, "-")}`);
   mkdirSync(sessionDir, { recursive: true });
+  const now = Date.now();
   return {
     key,
     chatId,
-    lastActivityAt: Date.now(),
+    lastActivityAt: now,
     proc: null,
     ready: false,
     activeTask: null,
@@ -133,6 +154,11 @@ function createPiSession(key: string, chatId: string): PiSession {
     seenMessageIds: new Map(),
     finishing: false,
     pendingResultFetch: null,
+    // 私聊侧 MVP：新会话默认临时私聊，通过群组鉴权后升级
+    kind: "p2p-temp",
+    createdAt: now,
+    authDeadline: now + P2P_AUTH_TIMEOUT_MS,
+    authRoundsUsed: 0,
   };
 }
 
@@ -207,6 +233,83 @@ export function getAllSessions(): PiSession[] {
   } as PiSession & { idleMs: number }));
 }
 
+// ═══════════════ 私聊侧 MVP：按 kind 分类计数 ═══════════════
+
+/** 取指定 kind 的当前 session 数（入口配额检查 / 心跳报告用） */
+export function countByKind(kind: PiSessionKind): number {
+  return sessionsByKind.get(kind) ?? 0;
+}
+
+/**
+ * 尝试占用一个 kind 槽位。
+ * 配额已满返回 false（调用方应拒绝创建 session）。
+ */
+export function tryReserveSlot(kind: PiSessionKind): boolean {
+  const limit = kind === "p2p-temp" ? MAX_P2P_TEMP_SLOTS : MAX_P2P_BUSINESS_SLOTS;
+  const current = sessionsByKind.get(kind) ?? 0;
+  if (current >= limit) return false;
+  sessionsByKind.set(kind, current + 1);
+  return true;
+}
+
+/** 释放一个 kind 槽位（关闭 session 时调用） */
+export function releaseSlot(kind: PiSessionKind): void {
+  const current = sessionsByKind.get(kind) ?? 0;
+  if (current <= 0) {
+    // 防御性：理论上 release 不会多于 reserve
+    sessionsByKind.set(kind, 0);
+    return;
+  }
+  sessionsByKind.set(kind, current - 1);
+}
+
+/**
+ * 私聊侧 MVP：清理两类超期 session
+ *   - 临时私聊超过 authDeadline → 关闭（用户没在窗口内完成鉴权）
+ *   - 业务私聊 lastActivityAt 超过 P2P_IDLE_TIMEOUT_MS 且无活跃任务 → 关闭
+ *
+ * 返回：各类清理数量（用于周期日志）
+ */
+export function cleanupAuthDeadlines(): { expiredTemp: number; idleBusiness: number } {
+  const now = Date.now();
+  let expiredTemp = 0;
+  let idleBusiness = 0;
+  for (const [key, pi] of sessions.entries()) {
+    if (pi.activeTask || pi.waitingTasks.length > 0) continue; // 跳过有任务的
+    if (pi.kind === "p2p-temp" && now >= pi.authDeadline) {
+      evictSession(key, `临时私聊鉴权窗口超时 (${Math.round((now - pi.createdAt) / 1000)}s)`);
+      expiredTemp++;
+    } else if (pi.kind === "p2p-business" && now - pi.lastActivityAt >= P2P_IDLE_TIMEOUT_MS) {
+      evictSession(key, `业务私聊空闲 ${Math.round((now - pi.lastActivityAt) / 1000 / 86400)} 天`);
+      idleBusiness++;
+    }
+  }
+  return { expiredTemp, idleBusiness };
+}
+
+/**
+ * 私聊侧 MVP：关闭 session（统一清理入口，供 ingress 调用）
+ *   1. 清空活跃任务 / 等待队列 / pendingResultFetch（防 promoteNext 误启动）
+ *   2. 杀掉 pi 子进程
+ *   3. 从 sessions Map 删除
+ *   4. 全局计数 releaseSlot
+ *
+ * journal / 表情 / 回复 由调用方在 closeSession 前后自行处理
+ * （因为这些是飞书协议层动作，session-manager 不依赖飞书协议层）。
+ */
+export function closeSession(key: string, reason: string): PiSession | null {
+  const pi = sessions.get(key);
+  if (!pi) return null;
+  pi.activeTask = null;
+  pi.waitingTasks = [];
+  pi.pendingResultFetch = null;
+  try { pi.proc?.kill(); } catch {}
+  sessions.delete(key);
+  releaseSlot(pi.kind);
+  log(`🔒 [${key.slice(-12)}] session 关闭: ${reason} kind=${pi.kind}`);
+  return pi;
+}
+
 /** 杀掉所有 session 的 pi 子进程（cleanup 时调用） */
 export function killAllSessions(): void {
   for (const s of sessions.values()) {
@@ -248,9 +351,11 @@ export function cleanupSeenMessageIds(): { evictedTtl: number; evictedLru: numbe
 function evictSession(key: string, reason: string): void {
   const pi = sessions.get(key);
   if (!pi) return;
-  log(`🗑️ [${key.slice(-12)}] session 淘汰: ${reason}`);
+  log(`🗑️ [${key.slice(-12)}] session 淘汰: ${reason} kind=${pi.kind}`);
   try { pi.proc?.kill(); } catch {}
   sessions.delete(key);
+  // 私聊侧 MVP：释放对应 kind 槽位
+  releaseSlot(pi.kind);
 }
 
 /**

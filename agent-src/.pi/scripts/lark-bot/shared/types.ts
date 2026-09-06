@@ -31,6 +31,10 @@ import type { ChildProcess } from "node:child_process";
  *
  * 「方向 B」起新增字段：
  *   - currentSubject：最近一次 task_log 上报的 subject（用于去重）
+ *
+ * 私聊侧 MVP 起新增字段：
+ *   - kind / createdAt / authDeadline / authRoundsUsed：私聊侧 MVP 临时私聊 →
+ *     业务私聊会话生命周期所需（参见 lark-bot-p2p-business-design.md）
  */
 export interface PendingTask {
   promptId: string;          // f-<seq>-<msgId后8位>
@@ -75,7 +79,21 @@ export interface PiSession {
   finishing: boolean;
   /** 单飞取文本的等待句柄（completeActiveTask 期间最多 1 个） */
   pendingResultFetch: PendingResultFetch | null;
+
+  /* ─────── 私聊侧 MVP 演进字段 ─────── */
+
+  /** 会话类型：临时私聊（鉴权中） / 业务私聊（已鉴权） */
+  kind: "p2p-temp" | "p2p-business";
+  /** 会话创建时间戳（ms），用于鉴权窗口判断 */
+  createdAt: number;
+  /** 鉴权窗口到期时间戳（= createdAt + P2P_AUTH_TIMEOUT_MS） */
+  authDeadline: number;
+  /** 用户消息计数（鉴权窗口内上限 P2P_AUTH_MAX_ROUNDS） */
+  authRoundsUsed: number;
 }
+
+/** PiSession.kind 字面量类型（供 session-manager / ingress 引用） */
+export type PiSessionKind = "p2p-temp" | "p2p-business";
 
 /**
  * 飞书 p2p 事件类型（lark-cli event consume NDJSON 解析后的形状）。
