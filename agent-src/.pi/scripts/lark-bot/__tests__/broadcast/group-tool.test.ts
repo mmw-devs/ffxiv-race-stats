@@ -145,14 +145,17 @@ describe("getGroupInfo — fail-closed", () => {
 // ══════════════════════════════════════════════════════════════
 
 describe("listGroupMembers — 正常路径", () => {
-  it("返回 user 类型成员的 open_id 列表", async () => {
+  it("返回 user 类型成员的 open_id 列表（lark-cli 1.0.87+ users[]/bots[] 格式）", async () => {
     mockedExecFileSync.mockReturnValueOnce(
       JSON.stringify({
+        ok: true,
         data: {
-          items: [
-            { member_id: VALID_USER_OPEN_ID, type: "user" },
-            { member_id: "ou_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", type: "user" },
-            { member_id: "cli_xxx", type: "bot" }, // 应被过滤
+          users: [
+            { member_id: VALID_USER_OPEN_ID },
+            { member_id: "ou_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+          ],
+          bots: [
+            { member_id: "cli_xxx" }, // 应被忽略（auth 只校验人）
           ],
         },
       }),
@@ -163,7 +166,7 @@ describe("listGroupMembers — 正常路径", () => {
   });
 
   it("空成员列表 → 返回 []", async () => {
-    mockedExecFileSync.mockReturnValueOnce(JSON.stringify({ data: { items: [] } }));
+    mockedExecFileSync.mockReturnValueOnce(JSON.stringify({ ok: true, data: { users: [], bots: [] } }));
     const tool = makeTool();
     const members = await tool.listGroupMembers(VALID_CHAT_ID);
     expect(members).toEqual([]);
@@ -180,8 +183,8 @@ describe("listGroupMembers — fail-closed", () => {
     expect(members).toBeNull();
   });
 
-  it("响应缺 items → 返回 null", async () => {
-    mockedExecFileSync.mockReturnValueOnce(JSON.stringify({ data: {} }));
+  it("响应 ok:false → 返回 null", async () => {
+    mockedExecFileSync.mockReturnValueOnce(JSON.stringify({ ok: false, error: { type: "validation", message: "bad chat_id" } }));
     const tool = makeTool();
     const members = await tool.listGroupMembers(VALID_CHAT_ID);
     expect(members).toBeNull();

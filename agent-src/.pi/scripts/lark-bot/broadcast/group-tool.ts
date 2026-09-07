@@ -126,14 +126,21 @@ export function createGroupTool(opts: GroupToolOptions): GroupTool {
       ["im", "+chat-members-list", "--chat-id", chatId, "--as", "bot", "--format", "json"],
       (out) => {
         try {
+          // lark-cli 1.0.87+ 响应格式：data.users[] + data.bots[]（分离用户与机器人）
+          // 之前 1.0.69 格式 data.items[]（混合）已废弃
           const obj = JSON.parse(out) as {
-            data?: { items?: Array<{ member_id?: string; type?: string }> };
+            ok?: boolean;
+            data?: {
+              users?: Array<{ member_id?: string }>;
+              bots?: Array<{ member_id?: string }>;
+            };
           };
-          const items = obj.data?.items;
-          if (!Array.isArray(items)) return null;
-          return items
-            .filter((it) => it.type === "user" && typeof it.member_id === "string")
-            .map((it) => it.member_id as string);
+          if (obj.ok === false) return null;
+          const users = obj.data?.users ?? [];
+          // 仅返回用户成员的 open_id（机器人不参与业务鉴权）
+          return users
+            .filter((u) => typeof u.member_id === "string")
+            .map((u) => u.member_id as string);
         } catch {
           return null;
         }
