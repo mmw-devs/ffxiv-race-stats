@@ -17,8 +17,6 @@ import {
   releaseAuthorizedSlot,
   tryReserveAuthorizedSlot,
 } from "../../interactive/session-manager.js";
-import { installStdinControl } from "../../process.js";
-import type { ExtensionControlMessage } from "../../shared/types.js";
 
 // ══════════════════════════════════════════════════════════════
 // 测试基础设施
@@ -223,75 +221,58 @@ describe("多 session 混合", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// Extension stdin IPC close_session（PI Agent 主动关闭会话）
+// PI Agent close_session 事件（语义层主动关闭会话）
 // ══════════════════════════════════════════════════════════════
 
-describe("Extension stdin IPC close_session", () => {
+describe("close_session 事件（PI Agent stdout NDJSON）", () => {
   /**
-   * 触发 stdin IPC close_session 消息：
-   * 通过 process.stdin.emit('data', ...) 模拟 PI Agent 向 lark-bot stdin 发控制消息。
-   * installStdinControl 会处理这条消息。
+   * 触发 close_session 事件：
+   * 通过 fake proc.stdout emit NDJSON 模拟 PI Agent 输出事件。
+   * handlePiEvent 从 stdout 读 NDJSON → 解析 → switch 路由。
    */
-  beforeEach(() => {
-    installStdinControl({
-      shutdown: () => {},
-      closeSession: (reason?: string) => {
-        for (const pi of getAllSessions()) {
-          if (pi.authorized) {
-            closeSession(pi.key, `agent_close_session: ${reason ?? "unspecified"}`);
-          } else {
-            closeSession(pi.key, `agent_close_session_unauthed: ${reason ?? "unspecified"}`);
-          }
-        }
-      },
-    });
-  });
-
-  function emitStdinControl(msg: ExtensionControlMessage): void {
-    (process.stdin as any).emit("data", Buffer.from(JSON.stringify(msg) + "\n"));
+  function emitCloseSession(key: string, reason?: string): void {
+    const pi = getAllSessions().find(s => s.key === key);
+    if (!pi) throw new Error(`session not found: ${key}`);
+    const event = reason ? { type: "close_session", reason } : { type: "close_session" };
+    (pi.proc as any)?.stdout?.emit("data", Buffer.from(JSON.stringify(event) + "\n"));
   }
 
-  it("已鉴权会话收到 stdin close_session → 关闭 + 释放槽位", async () => {
+  it("已鉴权会话收到 close_session → 关闭 + 释放槽位", async () => {
     const pi = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
     pi.authorized = true;
     expect(countAuthorized()).toBe(1);
 
-    emitStdinControl({ type: "close_session", reason: "user_said_done" });
+    emitCloseSession("session-key-A", "user_said_done");
 
+    // close_session 后会话销毁、槽位释放
     expect(countAuthorized()).toBe(0);
     expect(getAllSessions().find(s => s.key === "session-key-A")).toBeUndefined();
     expect(pi.proc?.kill).toHaveBeenCalled();
   });
 
-  it("未鉴权会话收到 stdin close_session → 关闭但不释放 authorized 槽位", async () => {
+  it("未鉴权会话收到 close_session → 关闭但不释放 authorized 槽位", async () => {
     await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
     expect(countAuthorized()).toBe(1);
 
-    emitStdinControl({ type: "close_session" });
+    emitCloseSession("session-key-A");
 
-    expect(countAuthorized()).toBe(1);
+    expect(countAuthorized()).toBe(1); // 未鉴权会话不占 authorized 计数
     expect(getAllSessions().find(s => s.key === "session-key-A")).toBeUndefined();
   });
 
-  it("close_session reason 字段可选", async () => {
+  it("close_session 不依赖 reason 字段（可选）", async () => {
     await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
-    emitStdinControl({ type: "close_session" });
+    emitCloseSession("session-key-A"); // 不传 reason
     expect(getAllSessions().find(s => s.key === "session-key-A")).toBeUndefined();
   });
 
-  it("shutdown 控制消息仅走 shutdown handler（不关闭 session）", async () => {
-    await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
-    const before = getAllSessions().length;
-    let shutdownCalled = false;
+  it("close_session 后下次 ensureSession 创建全新 session（authorized=false）", async () => {
+    const pi1 = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    pi1.authorized = true;
+    emitCloseSession("session-key-A");
 
-    // 重新安装 control handler 以跟踪 shutdown 调用
-    installStdinControl({
-      shutdown: () => { shutdownCalled = true; },
-      closeSession: () => {},
-    });
-
-    emitStdinControl({ type: "shutdown" });
-    expect(shutdownCalled).toBe(true);
-    expect(getAllSessions().length).toBe(before); // session 未关闭
+    const pi2 = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    expect(pi2.authorized).toBe(false);
+    expect(pi1).not.toBe(pi2);
   });
 });
