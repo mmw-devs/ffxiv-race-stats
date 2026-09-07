@@ -336,19 +336,44 @@ export function installSignalHandlers(handler: () => void): void {
   process.on("SIGTERM", handler);
 }
 
-// ═══════════════ Extension stdin IPC shutdown ═══════════════
+// ═══════════════ Extension stdin IPC control ═══════════════
 
 /**
- * Extension 通过 stdin pipe 发送 {"type":"shutdown"}，触发优雅退出。
+ * Extension 通过 stdin pipe 发送控制消息 JSON，lark-bot 路由到对应 handler。
  * 解决 Windows 下 subprocess.kill("SIGTERM") = TerminateProcess（硬杀）
  * 导致 cleanup() 和 process.on("exit") 都不执行、PID_FILE 残留的问题。
+ *
+ * 支持的控制消息类型（EventKey → handler 映射）：
+ *   - "shutdown"      → 优雅退出 lark-bot 进程（handler 走 cleanup + process.exit）
+ *   - "close_session" → 销毁当前 PI Agent session 对应的 lark-bot 会话
+ *                      （handler 走 closeSession，不退出进程）
+ *
+ * 消息协议：{ "type": "shutdown" | "close_session", "reason"?: string }
+ *
+ * 调用方（PI Agent extension）格式：
+ *   botProc.stdin.write('{"type":"close_session","reason":"user_said_done"}\n')
  */
-export function installStdinShutdown(handler: () => void): void {
+export interface ExtensionControlMessage {
+  type: "shutdown" | "close_session";
+  reason?: string;
+}
+
+export function installStdinControl(handlers: {
+  shutdown: () => void;
+  closeSession: (reason?: string) => void;
+}): void {
   process.stdin.on("data", (d: Buffer) => {
     try {
-      if (JSON.parse(d.toString("utf-8")).type === "shutdown") handler();
+      const msg = JSON.parse(d.toString("utf-8")) as ExtensionControlMessage;
+      if (msg.type === "shutdown") handlers.shutdown();
+      else if (msg.type === "close_session") handlers.closeSession(msg.reason);
     } catch {}
   });
+}
+
+/** @deprecated 使用 installStdinControl 代替。保留仅为向后兼容。 */
+export function installStdinShutdown(handler: () => void): void {
+  installStdinControl({ shutdown: handler, closeSession: () => {} });
 }
 
 // ═══════════════ session 文件清理 ═══════════════
