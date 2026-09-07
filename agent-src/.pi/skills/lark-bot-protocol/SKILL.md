@@ -37,3 +37,36 @@ compatibility: 依赖 lark-bot 私聊接入；要求 prompt header 含 promptId�
 - ✅ `更新 t1 bossHP 15.0 → 12.5`
 - ✅ `添加新队伍 BACKSTAGE`
 - ❌ `更新数据`（太抽象）
+
+## 2. 关闭会话（close_session 协议）
+
+### 2.1 适用场景
+
+当用户明确表示“结束”、“done”、“再见”等意图，要求关闭本次会话时。
+
+### 2.2 格式
+
+回复用户结束语后，向 stdout 输出（一行 JSON）：
+
+```json
+{"type":"close_session","reason":"user_said_done"}
+```
+
+`reason` 可选：业务上下文说明（如 "user_said_done" / "task_completed"）。
+
+### 2.3 lark-bot 收到后的动作
+
+- 销毁当前 session（`closeSession`）
+- 若 `authorized=true`，释放已鉴权会话槽位
+- 杀 pi 子进程
+- emit task journal（state=terminated）
+
+### 2.4 示例
+
+用户发“结束任务” → Agent 回复业务确认语 → Agent stdout 输出：
+
+```json
+{"type":"close_session","reason":"user_said_done"}
+```
+
+lark-bot 收到后关闭 session，**不发额外回复**（Agent 已回复业务确认）。
