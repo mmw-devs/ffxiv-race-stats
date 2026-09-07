@@ -154,6 +154,29 @@ export const P2P_AUTH_MAX_ROUNDS = 2;
 // 业务私聊空闲超时（ms）：3 天无活跃则由 60s 清理器关闭
 export const P2P_IDLE_TIMEOUT_MS = 3 * 24 * 60 * 60 * 1000;
 
+// ═══════════════ 群组鉴权（事件驱动 / 零轮询） ═══════════════
+
+// 启动期冷启动调用超时
+export const BOOT_GROUP_LIST_TIMEOUT_MS = 5_000;
+export const BOOT_GROUP_MEMBERS_TIMEOUT_MS = 5_000;
+
+// 启动后鉴权路径仅走内存，零飞书 API 调用（im.chats.* / im.+chat-members-list）。
+// 唯一保留的实时 API：bot 加入新群时补一次 description（im.chat.member.bot.added_v1 触发）
+export const NEW_CHAT_GET_INFO_TIMEOUT_MS = 3_000;
+
+// lark-cli EventKey 订阅清单（事件驱动缓存的输入源）
+// 必须与飞书开放平台"事件订阅"后台勾选一致；缺失时事件不会推送
+export const AUTH_EVENT_KEYS = [
+  "im.message.receive_v1",            // 私聊消息接收（业务消息主路径）
+  "im.chat.member.bot.added_v1",      // bot 被加入群 → 内存加 chat_id，调 +chat-get 补 description
+  "im.chat.member.bot.deleted_v1",    // bot 被移出群 → 内存删除 chat_id
+  "im.chat.member.user.added_v1",     // 用户加入群 → 内存加入 openId
+  "im.chat.member.user.deleted_v1",   // 用户离开群 → 内存删除 openId
+  "im.chat.member.user.withdrawn_v1", // 邀请撤回 → 忽略（不影响已通过成员）
+  "im.chat.updated_v1",               // 群信息变更 → payload 含 description → 直接更新内存
+  "im.chat.disbanded_v1",             // 群解散 → 内存删除 chat_id
+] as const;
+
 // LarkEvent 必要字段白名单：缺失或类型错误的事件直接丢弃。
 // 注意：当前架构下 chat_type 只可能是 "p2p"，作为字段校验的一部分。
 export const REQUIRED_EVENT_FIELDS = [

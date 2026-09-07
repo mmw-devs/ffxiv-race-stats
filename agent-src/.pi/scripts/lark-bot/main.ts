@@ -28,7 +28,7 @@ import {
   startWatchdog,
   writePidFile,
 } from "./process.js";
-import { HEAP_HARD_LIMIT_MB, SESSION_EVICTION_INTERVAL_MS } from "./config.js";
+import { AUTH_EVENT_KEYS, HEAP_HARD_LIMIT_MB, SESSION_EVICTION_INTERVAL_MS } from "./config.js";
 import { log } from "./shared/logger.js";
 import {
   cleanupSeenMessageIds,
@@ -39,7 +39,7 @@ import {
   startAllPi,
   killAllSessions,
 } from "./interactive/session-manager.js";
-import { handleLarkEvent } from "./ingress.js";
+import { authModule, handleLarkEvent } from "./ingress.js";
 import { startLarkEvents } from "./protocol/feishu.js";
 import { pathToFileURL } from "node:url";
 
@@ -48,7 +48,7 @@ import "./ingress.js";
 
 // ═══════════════ 启动 ═══════════════
 
-export function main(): void {
+export async function main(): Promise<void> {
   // R1 L5：uncaughtException / unhandledRejection 必须在 PID 校验前安装
   // 防止启动期崩溃时无 handler
   installCrashHandlers((kind, err) => {
@@ -77,8 +77,71 @@ export function main(): void {
 
   // commit 4：startAllPi 为空操作（per-p2p session 懒启动）
   startAllPi();
-  // WS 事件流：群聊事件由 ingress 丢弃；handleLarkEvent 是 async，fire-and-forget
-  startLarkEvents((event) => { void handleLarkEvent(event); });
+  // 群组鉴权冷启动（启动期一次性 API 调用，失败 → fail-fast）
+  // authModule 单例来自 ingress.ts，构造期不调 API
+  await authModule.initBoot();
+
+  // 事件驱动鉴权缓存（零轮询）
+  // 启动 8 个 EventKey 订阅（按 AUTH_EVENT_KEYS）：
+  //   - im.message.receive_v1            → handleLarkEvent（私聊消息处理）
+  //   - im.chat.member.bot.added_v1      → authModule.onChatAdded（补 description + members）
+  //   - im.chat.member.bot.deleted_v1    → authModule.onChatDeleted（删内存）
+  //   - im.chat.member.user.added_v1     → authModule.onUserAdded
+  //   - im.chat.member.user.deleted_v1   → authModule.onUserDeleted
+  //   - im.chat.member.user.withdrawn_v1 → noop（不影响已通过成员）
+  //   - im.chat.updated_v1               → authModule.onChatUpdated（payload 含 description）
+  //   - im.chat.disbanded_v1             → authModule.onChatDisbanded
+  for (const eventKey of AUTH_EVENT_KEYS) {
+    switch (eventKey) {
+      case "im.message.receive_v1":
+        startLarkEvents(eventKey, (event) => { void handleLarkEvent(event as any); });
+        break;
+      case "im.chat.member.bot.added_v1":
+        startLarkEvents(eventKey, (event) => {
+          const payload = (event as any)?.event ?? event;
+          void authModule.onChatAdded(payload);
+        });
+        break;
+      case "im.chat.member.bot.deleted_v1":
+        startLarkEvents(eventKey, (event) => {
+          const payload = (event as any)?.event ?? event;
+          const chatId = payload?.chat_id;
+          if (typeof chatId === "string") authModule.onChatDeleted(chatId);
+        });
+        break;
+      case "im.chat.member.user.added_v1":
+        startLarkEvents(eventKey, (event) => {
+          const payload = (event as any)?.event ?? event;
+          authModule.onUserAdded(payload);
+        });
+        break;
+      case "im.chat.member.user.deleted_v1":
+        startLarkEvents(eventKey, (event) => {
+          const payload = (event as any)?.event ?? event;
+          authModule.onUserDeleted(payload);
+        });
+        break;
+      case "im.chat.member.user.withdrawn_v1":
+        // 邀请撤回不影响已通过成员，noop
+        startLarkEvents(eventKey, () => {});
+        break;
+      case "im.chat.updated_v1":
+        startLarkEvents(eventKey, (event) => {
+          const payload = (event as any)?.event ?? event;
+          authModule.onChatUpdated(payload);
+        });
+        break;
+      case "im.chat.disbanded_v1":
+        startLarkEvents(eventKey, (event) => {
+          const payload = (event as any)?.event ?? event;
+          const chatId = payload?.chat_id;
+          if (typeof chatId === "string") authModule.onChatDisbanded(chatId);
+        });
+        break;
+      default:
+        log(`⚠️ [main] 未处理 EventKey: ${eventKey}`);
+    }
+  }
 
   // session 文件清理（保留，每 24h 一次）
   setTimeout(() => cleanupOldSessions(), 60 * 1000);
