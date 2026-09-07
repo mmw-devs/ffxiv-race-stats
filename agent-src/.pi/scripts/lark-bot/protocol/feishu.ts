@@ -23,7 +23,6 @@ import {
   CIRCUIT_BREAKER_COOLDOWN_MS,
   CIRCUIT_BREAKER_THRESHOLD,
   CLI,
-  EMOJI_READ,
   REPLY_SEND_TIMEOUT_MS,
 } from "../config.js";
 import type { LarkEvent, PendingTask, SendReplyResult } from "../shared/types.js";
@@ -209,7 +208,7 @@ export function stripMention(content: string): string {
  *
  * 设计：当前架构下只关心 im.message.receive_v1；群聊事件由 onEvent 回调方丢弃。
  */
-export function startLarkEvents(onEvent: (event: LarkEvent) => void): ChildProcess {
+export function startLarkEvents(onEvent: (event: LarkEvent) => void | Promise<void>): ChildProcess {
   log("启动 lark-cli event consume ...");
   const child = spawn(CLI, ["event", "consume", "im.message.receive_v1", "--as", "bot"], { stdio: ["pipe", "pipe", "pipe"] });
 
