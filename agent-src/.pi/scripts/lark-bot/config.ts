@@ -8,25 +8,35 @@
  *   - THREAD_TTL_MS（thread 激活态不再需要）
  *   - EMOJI_WAITING（无排队概念，群聊不进入 active session）
  *
- * PROJECT_DIR 计算：lark-bot/ 目录下文件距 agent-src/ 项目根共 4 层
- *   config.ts → lark-bot/ → scripts/ → .pi/ → agent-src/
+ * PROJECT_DIR：使用 process.cwd()（项目根）。
+ *   不再用 __dirname + N 层相对路径推导，避免目录嵌套层数变化时
+ *   ".. 次数没同步减一"类硬编码 bug（B5 防御性重构）。
+ *   调用方约定：在仓库根目录下启动 lark-bot（main.ts 注释亦同）。
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { join } from "node:path";
 
 // ═══════════════ 项目根与外部依赖 ═══════════════
 
-export const PROJECT_DIR = join(__dirname, "..", "..", "..", "..");
+export const PROJECT_DIR = process.cwd();
 export const CLI = join(
   PROJECT_DIR,
   ".pi/npm/node_modules/@larksuite/cli/bin/lark-cli",
 );
+
+// 启动期 sanity check：cwd 必须在仓库根（否则 spawn CLI / settings / sessions 全部错位）
+// 检查 dev 与 ops 两侧仓库结构（sync 后 ops 仓库没有 agent-src/，dev 仓库有）
+const _looksLikeOpsRepoRoot = existsSync(join(PROJECT_DIR, ".pi/scripts/lark-bot/config.ts"));
+const _looksLikeDevRepoRoot = existsSync(join(PROJECT_DIR, "agent-src/.pi/scripts/lark-bot/config.ts"));
+if (!_looksLikeOpsRepoRoot && !_looksLikeDevRepoRoot) {
+  throw new Error(
+    `PROJECT_DIR sanity check failed: ${PROJECT_DIR}\n` +
+    `  expected cwd to be either dev repo root (with agent-src/) or ops repo root.\n` +
+    `  fix: cd into the repository root before launching lark-bot.`,
+  );
+}
 
 // ═══════════════ 进程与日志 ═══════════════
 
