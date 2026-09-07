@@ -127,6 +127,23 @@ export const CIRCUIT_BREAKER_COOLDOWN_MS = 30_000;
 // waitingTasks 队列深度上限：超过则拒绝新消息并发 ERROR 表情。
 export const MAX_QUEUE_DEPTH = 100;
 
+// ═══════════════ 私聊侧 MVP（会话分类配额） ═══════════════
+
+// 私聊会话分类配额（与 MAX_SESSIONS 解耦：MAX_SESSIONS 是 per-process 上限，
+// MAX_P2P_TEMP_SLOTS + MAX_P2P_BUSINESS_SLOTS 是按会话类型分类配额）
+// 业务私聊配额 = MAX_P2P_SESSIONS - MAX_P2P_TEMP_SLOTS（隐含 = 9）
+export const MAX_P2P_TEMP_SLOTS = 1;
+export const MAX_P2P_BUSINESS_SLOTS = 9;
+
+// 鉴权窗口：临时私聊最长存活时间（ms）
+export const P2P_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
+
+// 鉴权窗口：临时私聊最多接收用户消息数（agent 上限）
+export const P2P_AUTH_MAX_ROUNDS = 2;
+
+// 业务私聊空闲超时（ms）：3 天无活跃则由 60s 清理器关闭
+export const P2P_IDLE_TIMEOUT_MS = 3 * 24 * 60 * 60 * 1000;
+
 // LarkEvent 必要字段白名单：缺失或类型错误的事件直接丢弃。
 // 注意：当前架构下 chat_type 只可能是 "p2p"，作为字段校验的一部分。
 export const REQUIRED_EVENT_FIELDS = [
