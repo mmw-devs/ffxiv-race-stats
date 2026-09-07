@@ -14,6 +14,7 @@ import {
   countAuthorized,
   ensureSession,
   getAllSessions,
+  getPiSession,
   releaseAuthorizedSlot,
   tryReserveAuthorizedSlot,
 } from "../../interactive/session-manager.js";
@@ -82,6 +83,7 @@ afterEach(() => {
 
 const VALID_CHAT_ID_A = "oc_aaaaaaaa0000000000000000000aaaaa";
 const VALID_CHAT_ID_B = "oc_bbbbbbbb0000000000000000000bbbbb";
+const VALID_CHAT_ID_C = "oc_cccccccc0000000000000000000ccccc";
 
 // ══════════════════════════════════════════════════════════════
 // closeSession — 槽位释放一致性
@@ -274,5 +276,73 @@ describe("close_session 事件（PI Agent stdout NDJSON）", () => {
     const pi2 = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
     expect(pi2.authorized).toBe(false);
     expect(pi1).not.toBe(pi2);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// 兜底解析：PI Agent 把 close_session JSON 当回复内容输出
+// ══════════════════════════════════════════════════════════════
+
+describe("PI Agent 文本中 close_session JSON 兜底解析", () => {
+  /**
+   * 模拟 PI Agent 业务处理返回文本（get_last_assistant_text）
+   * 通过 fake proc.stdout emit response 事件
+   */
+  function emitAgentText(key: string, text: string): void {
+    // 必须用 getPiSession 拿原 pi 引用（getAllSessions 返回 shallow copy，写字段无效）
+    const pi = getPiSession(key);
+    if (!pi) throw new Error(`session not found: ${key}`);
+    if (!pi.pendingResultFetch) {
+      // 初始化 pendingResultFetch（业务处理完成态）
+      pi.pendingResultFetch = {
+        task: {} as any,
+        expectedId: "result-test",
+        resolve: () => {},
+      };
+    }
+    pi.finishing = true;
+    const response = {
+      type: "response",
+      command: "get_last_assistant_text",
+      id: "result-test",
+      success: true,
+      data: { text },
+    };
+    (pi.proc as any)?.stdout?.emit("data", Buffer.from(JSON.stringify(response) + "\n"));
+  }
+
+  it("纯 JSON 文本含 close_session → 兜底关闭", async () => {
+    const pi = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    pi.authorized = true;
+    expect(countAuthorized()).toBe(1);
+
+    emitAgentText("session-key-A", `任务已完成。\n\n{"type":"close_session","reason":"user_said_done"}\n`);
+
+    expect(countAuthorized()).toBe(0);
+    expect(getAllSessions().find(s => s.key === "session-key-A")).toBeUndefined();
+  });
+
+  it("markdown 代码块含 close_session JSON → 兜底关闭", async () => {
+    const pi = await ensureSessionWithAuthSlot("session-key-B", VALID_CHAT_ID_B);
+    pi.authorized = true;
+
+    emitAgentText(
+      "session-key-B",
+      `好的，任务结束。\n\n\`\`\`json\n{"type":"close_session","reason":"user_said_done"}\n\`\`\``,
+    );
+
+    expect(countAuthorized()).toBe(0);
+    expect(getAllSessions().find(s => s.key === "session-key-B")).toBeUndefined();
+  });
+
+  it("业务文本中不包含 close_session JSON → 不触发关闭", async () => {
+    const pi = await ensureSessionWithAuthSlot("session-key-C", VALID_CHAT_ID_C);
+    pi.authorized = true;
+    expect(countAuthorized()).toBe(1);
+
+    emitAgentText("session-key-C", "这是正常业务回复，不含关闭指令。");
+
+    expect(countAuthorized()).toBe(1);
+    expect(getAllSessions().find(s => s.key === "session-key-C")).toBeDefined();
   });
 });

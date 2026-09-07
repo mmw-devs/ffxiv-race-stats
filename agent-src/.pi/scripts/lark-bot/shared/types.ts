@@ -89,6 +89,14 @@ export interface PiSession {
 
   /** 是否已通过群组鉴权（true=可处理业务，false=待鉴权） */
   authorized: boolean;
+  /** 鉴权通过的群组 chat_id（仅 authorized=true 时存在）—— close 时用于广播 */
+  authedGroupId?: string;
+  /** 鉴权通过的群组名称（同上） */
+  authedGroupName?: string;
+  /** 用户的飞书 open_id（消息处理时记录，close 时用于广播） */
+  openId?: string;
+  /** 鉴权通过的广播消息 message_id（用于 close 时引用回复会话开启消息） */
+  matchedBroadcastMessageId?: string;
 }
 
 /**

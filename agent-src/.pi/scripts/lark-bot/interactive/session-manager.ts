@@ -246,6 +246,91 @@ export function getAllSessions(): PiSession[] {
 // ═══════════════ 会话关闭 ═══════════════
 
 /**
+ * PI Agent 请求关闭 session 的统一处理逻辑。
+ * 被两条路径调用：
+ *   1. handlePiEvent case "close_session" —— PI Agent 真 emit NDJSON
+ *   2. handlePiEvent get_last_assistant_text 文本解析 —— PI Agent 把 JSON 当回复内容输出
+ */
+function closeSessionFromAgent(sessionKey: string, reason: string | undefined): void {
+  const pi = sessions.get(sessionKey);
+  if (!pi) return;
+  const r = reason ?? "unspecified";
+  log(`🔒 [${sessionKey.slice(-12)}] PI Agent 请求关闭会话: reason=${r}`);
+  cleanupSessionForClose(pi, `agent_close_session: ${r}`);
+}
+
+/** 通用关闭清理逻辑（被 closeSessionFromAgent / closeSessionFromUserIntent 复用） */
+function cleanupSessionForClose(pi: PiSession, reason: string): void {
+  // 防御性：清空活跃任务与等待队列（避免 promoteNext 误启动）
+  pi.activeTask = null;
+  pi.waitingTasks = [];
+  pi.pendingResultFetch = null;
+  sessions.delete(pi.key);
+  if (pi.authorized) releaseAuthorizedSlot();
+  try { pi.proc?.kill(); } catch {}
+  emitTaskJournal({
+    eventTime: new Date().toISOString(),
+    promptId: "n/a",
+    operator: "unknown",
+    operatorName: null,
+    state: "terminated",
+    reason,
+  });
+  // 广播会话结束到对应群组（异步，fire-and-forget）
+  if (pi.authedGroupId && pi.authedGroupName && pi.openId && closeBroadcastHandler) {
+    const ctx: CloseBroadcastContext = {
+      reason,
+      groupId: pi.authedGroupId,
+      groupName: pi.authedGroupName,
+      openId: pi.openId,
+      replyToMessageId: pi.matchedBroadcastMessageId,
+    };
+    closeBroadcastHandler(pi, ctx).catch((e) => {
+      log(`⚠️ [broadcast] close_session 广播失败: ${(e as Error)?.message?.slice(0, 200)}`);
+    });
+  }
+}
+
+/** 从 PI Agent 文本中解析 close_session JSON（兜底）。返回 reason 或 undefined */
+function parseCloseSessionFromText(text: string): string | undefined {
+  // 匹配 {"type":"close_session", ...} 跨多行
+  const match = text.match(/\{[\s\S]*?"type"\s*:\s*"close_session"[\s\S]*?\}/);
+  if (!match) return undefined;
+  try {
+    const obj = JSON.parse(match[0]);
+    if (obj?.type === "close_session") return obj.reason ?? "unspecified";
+  } catch {}
+  return undefined;
+}
+
+/** 外部注册的 close_session 广播 handler。注册后，closeSessionFromAgent 内部调用 */
+type CloseBroadcastContext = {
+  reason: string;
+  groupId: string;
+  groupName: string;
+  openId: string;
+  replyToMessageId?: string;
+};
+type CloseBroadcastHandler = (pi: PiSession, ctx: CloseBroadcastContext) => Promise<void>;
+let closeBroadcastHandler: CloseBroadcastHandler | null = null;
+
+/** 注册 close_session 广播 handler（main.ts 启动时调用，接收 (pi, ctx) 上下文） */
+export function setCloseBroadcastHandler(fn: CloseBroadcastHandler | null): void {
+  closeBroadcastHandler = fn;
+}
+
+/** 用户自然语言关闭会话（lark-bot ingress.ts 检测"结束"/"done"等语义时调用）。
+ * 复用 closeSessionFromAgent 的清理逻辑，但 reason 标为 user_natural_language，
+ * 广播 handler 也会被触发（与 PI Agent close_session 路径一致）。 */
+export function closeSessionFromUserIntent(sessionKey: string, reason: string = "user_natural_language"): void {
+  const pi = sessions.get(sessionKey);
+  if (!pi) return;
+  log(`🔒 [${sessionKey.slice(-12)}] 用户自然语言关闭会话: reason=${reason}`);
+  // 复用 closeSessionFromAgent 的清理逻辑
+  closeSessionFromAgent(sessionKey, reason);
+}
+
+/**
  * 关闭 session（统一清理入口，供 ingress 调用）
  *   1. 清空活跃任务 / 等待队列 / pendingResultFetch（防 promoteNext 误启动）
  *   2. 杀掉 pi 子进程
@@ -524,6 +609,14 @@ function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void
             if (id === undefined || id === fetch.expectedId) {
               log(`📥 [${fetch.task.promptId}] 收到 get_last_assistant_text id=${id ?? "(无)"} text.len=${text?.length ?? 0}`);
               fetch.resolve(text);
+              // 兜底：PI Agent 经常把 close_session JSON 当回复内容输出（不 emit NDJSON）→ 解析文本触发关闭
+              if (text) {
+                const reason = parseCloseSessionFromText(text);
+                if (reason !== undefined) {
+                  log(`🔍 [${fetch.task.promptId}] 文本中检测到 close_session，触发关闭 (reason=${reason})`);
+                  closeSessionFromAgent(sessionKey, reason);
+                }
+              }
             } else {
               log(`⚠ get_last_assistant_text id 不匹配: 期望=${fetch.expectedId} 收到=${id}`);
             }
@@ -558,22 +651,7 @@ function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void
         // PI Agent 识别“结束任务”语义后输出此事件
         // lark-bot 不做语义识别——语义识别在 PI Agent 层
         const reason = (event as any).reason ?? "unspecified";
-        log(`🔒 [${sessionKey.slice(-12)}] PI Agent 请求关闭会话: reason=${reason}`);
-        // 防御性：清空活跃任务与等待队列（避免 promoteNext 误启动）
-        pi.activeTask = null;
-        pi.waitingTasks = [];
-        pi.pendingResultFetch = null;
-        sessions.delete(sessionKey);
-        if (pi.authorized) releaseAuthorizedSlot();
-        try { pi.proc?.kill(); } catch {}
-        emitTaskJournal({
-          eventTime: new Date().toISOString(),
-          promptId: "n/a",
-          operator: "unknown",
-          operatorName: null,
-          state: "terminated",
-          reason: `agent_close_session: ${reason}`,
-        });
+        closeSessionFromAgent(sessionKey, reason);
         break;
       }
     }

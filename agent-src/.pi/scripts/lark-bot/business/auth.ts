@@ -253,10 +253,24 @@ export function createAuthModule(opts: AuthModuleOptions): AuthModule {
     }
 
     // 4. 成员资格校验
-    const memberSet = members.get(matchedGroup.chatId);
+    let memberSet = members.get(matchedGroup.chatId);
     if (!memberSet) {
-      log(`⚠️ [auth] 成员列表缺失: group=${matchedGroup.chatId}（事件尚未推送）`);
-      return { status: "auth_module_error", reason: "members cache missing" };
+      // Cache 缺失（冷启动拉取失败 / 未收到 im.chat.member.* 事件）——主动重试一次
+      log(`⚠️ [auth] 成员列表缺失: group=${matchedGroup.chatId}，主动重试拉取`);
+      try {
+        const m = await groupTool.listGroupMembers(matchedGroup.chatId);
+        if (m && m.length > 0) {
+          memberSet = new Set(m);
+          members.set(matchedGroup.chatId, memberSet);
+          log(`✓ [auth] 重试拉取成功: group=${matchedGroup.chatId} members=${memberSet.size}`);
+        } else {
+          log(`⚠️ [auth] 重试拉取仍为空: group=${matchedGroup.chatId}`);
+          return { status: "auth_module_error", reason: "members cache missing (retry failed)" };
+        }
+      } catch (e) {
+        log(`⚠️ [auth] 重试拉取异常: group=${matchedGroup.chatId} err=${(e as Error).message?.slice(0, 200)}`);
+        return { status: "auth_module_error", reason: "members cache missing (retry error)" };
+      }
     }
 
     if (memberSet.has(openId)) {

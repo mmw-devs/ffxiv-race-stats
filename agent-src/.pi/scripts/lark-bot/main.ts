@@ -36,10 +36,11 @@ import {
   evictIdleSessions,
   getAllSessions,
   getPiRestartStats,
+  setCloseBroadcastHandler,
   startAllPi,
   killAllSessions,
 } from "./interactive/session-manager.js";
-import { authModule, handleLarkEvent } from "./ingress.js";
+import { authModule, broadcastModule, handleLarkEvent } from "./ingress.js";
 import { startLarkEvents } from "./protocol/feishu.js";
 import { pathToFileURL } from "node:url";
 
@@ -77,6 +78,17 @@ export async function main(): Promise<void> {
 
   // commit 4：startAllPi 为空操作（per-p2p session 懒启动）
   startAllPi();
+  // 注册 close_session 广播 handler（会话关闭时 broadcast 到对应群组，引用会话开启消息 + @用户）
+  setCloseBroadcastHandler(async (_pi, ctx) => {
+    await broadcastModule.announce({
+      openId: ctx.openId,
+      groupId: ctx.groupId,
+      groupName: ctx.groupName,
+      outcome: "ended",
+      mentionOpenId: ctx.openId,
+      replyToMessageId: ctx.replyToMessageId,
+    });
+  });
   // 群组鉴权冷启动（启动期一次性 API 调用，失败 → fail-fast）
   // authModule 单例来自 ingress.ts，构造期不调 API
   await authModule.initBoot();

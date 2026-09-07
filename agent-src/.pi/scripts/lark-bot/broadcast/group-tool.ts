@@ -36,6 +36,8 @@ export type GroupInfo = {
 export type SendResult = {
   ok: boolean;
   error?: string;
+  /** 发送成功后返回飞书 message_id（用于后续"引用回复"场景） */
+  messageId?: string;
 };
 
 /** GroupTool 接口（无缓存语义：调用即返回实时数据） */
@@ -53,7 +55,10 @@ export interface GroupTool {
   /**
    * 发送群组消息。失败返回 { ok: false, error }。
    */
-  sendGroupMessage(chatId: string, text: string): Promise<SendResult>;
+  sendGroupMessage(
+    chatId: string,
+    content: { text: string; mentionOpenId?: string; replyToMessageId?: string }
+  ): Promise<SendResult>;
 
   /**
    * 列出 lark-bot 所在全量群组。仅启动期冷启动使用一次。
@@ -126,13 +131,17 @@ export function createGroupTool(opts: GroupToolOptions): GroupTool {
       ["im", "+chat-members-list", "--chat-id", chatId, "--as", "bot", "--format", "json"],
       (out) => {
         try {
-          const obj = JSON.parse(out) as {
-            data?: { items?: Array<{ member_id?: string; type?: string }> };
+          // lark-cli stdout 可能有非 JSON 提示行（如 "[page 1] fetching..." "Found 6 user(s) and 1 bot(s)"），
+          // 从末尾找最后一个 '{' 作为 JSON 起点。
+          const jsonStart = out.indexOf("{");
+          if (jsonStart < 0) return null;
+          const obj = JSON.parse(out.slice(jsonStart)) as {
+            data?: { users?: Array<{ member_id?: string }>; bots?: unknown[] };
           };
-          const items = obj.data?.items;
-          if (!Array.isArray(items)) return null;
-          return items
-            .filter((it) => it.type === "user" && typeof it.member_id === "string")
+          const users = obj.data?.users;
+          if (!Array.isArray(users)) return null;
+          return users
+            .filter((it) => typeof it.member_id === "string")
             .map((it) => it.member_id as string);
         } catch {
           return null;
@@ -141,23 +150,52 @@ export function createGroupTool(opts: GroupToolOptions): GroupTool {
     );
   }
 
-  async function sendGroupMessage(chatId: string, text: string): Promise<SendResult> {
+  async function sendGroupMessage(
+    chatId: string,
+    content: { text: string; mentionOpenId?: string; replyToMessageId?: string }
+  ): Promise<SendResult> {
     if (!isValidChatId(chatId)) {
       return { ok: false, error: "invalid chat_id" };
     }
 
-    const args = [
+    // 构造飞书 rich_text content JSON（post type，zh_cn locale 格式）：
+    //   - mentionOpenId 有值时插入 <at user_id="..."> 元素（真正 at 提及）
+    //   - replyToMessageId 有值时插入顶层 root_id（飞书 im/v1/messages 引用回复）
+    const richTextElements: Array<Record<string, unknown>> = [
+      { tag: "text", text: content.text },
+    ];
+    if (content.mentionOpenId) {
+      richTextElements.push({ tag: "at", user_id: content.mentionOpenId });
+    }
+    const contentJson = {
+      zh_cn: {
+        title: "",
+        content: [richTextElements],  // 二维数组（一行）
+      },
+    };
+
+    // 复用回复路径：有 replyToMessageId 时走 `im +messages-reply --message-id <root>`（不需要 --chat-id，lark-cli 通过 message-id 自动定位父消息），
+    // 否则走 `im +messages-send`。两种路径 content JSON 格式一致。
+    const subCommand = content.replyToMessageId ? "+messages-reply" : "+messages-send";
+    const args: string[] = [
       "im",
-      "+messages-send",
-      "--chat-id",
-      chatId,
-      "--text",
-      text,
+      subCommand,
+      "--content",
+      JSON.stringify(contentJson),
+      "--msg-type",
+      "post",
       "--as",
       "bot",
       "--format",
       "json",
     ];
+    if (content.replyToMessageId) {
+      // +messages-reply：通过 message-id 自动定位父消息，不传 --chat-id
+      args.push("--message-id", content.replyToMessageId);
+    } else {
+      // +messages-send：需要 --chat-id 定位目标
+      args.push("--chat-id", chatId);
+    }
     try {
       const out = execFileSync(cliPath, args, {
         encoding: "utf-8",
@@ -167,7 +205,7 @@ export function createGroupTool(opts: GroupToolOptions): GroupTool {
       try {
         const obj = JSON.parse(out) as { data?: { message_id?: string } };
         if (typeof obj.data?.message_id === "string") {
-          return { ok: true };
+          return { ok: true, messageId: obj.data.message_id };
         }
         return { ok: false, error: "no message_id in response" };
       } catch {

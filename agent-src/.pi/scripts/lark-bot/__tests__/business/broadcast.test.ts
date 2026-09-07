@@ -49,7 +49,7 @@ describe("renderBroadcastText — 固定模板渲染", () => {
       groupName: "运营组",
       outcome: "matched",
     });
-    expect(text).toBe(`[业务私聊申请] ✅ 用户 ${VALID_OPEN_ID} 申请成功（群组：运营组）`);
+    expect(text).toBe(`🔔 [业务私聊] ✅ 用户 ${VALID_OPEN_ID} 申请成功（群组：运营组）`);
   });
 
   it("not_member → 失败模板（默认原因）", () => {
@@ -59,7 +59,7 @@ describe("renderBroadcastText — 固定模板渲染", () => {
       groupName: "运营组",
       outcome: "not_member",
     });
-    expect(text).toBe(`[业务私聊申请] ❌ 用户 ${VALID_OPEN_ID} 申请失败（群组：运营组）：不在成员列表`);
+    expect(text).toBe(`🔔 [业务私聊] ❌ 用户 ${VALID_OPEN_ID} 申请失败（群组：运营组）：不在成员列表`);
   });
 
   it("not_member → 失败模板（自定义原因）", () => {
@@ -70,7 +70,17 @@ describe("renderBroadcastText — 固定模板渲染", () => {
       outcome: "not_member",
       reason: "用户已离职",
     });
-    expect(text).toBe(`[业务私聊申请] ❌ 用户 ${VALID_OPEN_ID} 申请失败（群组：运营组）：用户已离职`);
+    expect(text).toBe(`🔔 [业务私聊] ❌ 用户 ${VALID_OPEN_ID} 申请失败（群组：运营组）：用户已离职`);
+  });
+
+  it("ended → 结束模板", () => {
+    const text = renderBroadcastText({
+      openId: VALID_OPEN_ID,
+      groupId: VALID_CHAT_ID,
+      groupName: "运营组",
+      outcome: "ended",
+    });
+    expect(text).toBe(`🔔 [业务私聊] 🏁 用户 ${VALID_OPEN_ID} 申请结束（群组：运营组）`);
   });
 });
 
@@ -93,7 +103,7 @@ describe("announce — 正常路径", () => {
     expect(tool.sendGroupMessage).toHaveBeenCalledTimes(1);
     expect(tool.sendGroupMessage).toHaveBeenCalledWith(
       VALID_CHAT_ID,
-      `[业务私聊申请] ✅ 用户 ${VALID_OPEN_ID} 申请成功（群组：运营组）`,
+      { text: `🔔 [业务私聊] ✅ 用户 ${VALID_OPEN_ID} 申请成功（群组：运营组）`, mentionOpenId: VALID_OPEN_ID, replyToMessageId: undefined },
     );
   });
 

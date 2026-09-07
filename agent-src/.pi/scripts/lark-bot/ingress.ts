@@ -45,14 +45,17 @@
  *   - 鉴权只在 pi.authorized === false 时触发，后续消息直接业务处理
  */
 
-import { CLI, EMOJI_DONE, EMOJI_ERROR, EMOJI_READ, MAX_QUEUE_DEPTH, REQUIRED_EVENT_FIELDS } from "./config.js";
+import { CLI, EMOJI_DONE, EMOJI_ERROR, EMOJI_READ, MAX_QUEUE_DEPTH, PROJECT_DIR, REQUIRED_EVENT_FIELDS } from "./config.js";
 import type { LarkEvent, PendingTask, PiSession } from "./shared/types.js";
 import { emitTaskJournal, log } from "./shared/logger.js";
 import { addReaction, sendReply, stripMention } from "./protocol/feishu.js";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { enqueueTask, startImmediate } from "./interactive/task-state-machine.js";
 import {
   cleanupSeenMessageIds,
   closeSession,
+  closeSessionFromUserIntent,
   ensureSession,
   hasSeen,
   markSeen,
@@ -93,8 +96,9 @@ export const authModule: AuthModule = createAuthModule({
  * 全局 broadcastModule 单例。
  * 进程启动期构造一次，依赖 groupTool 完成消息发送。
  * 触发场景：matched / not_member 时广播到对应群组（工作留痕）。
+ * 导出供 main.ts 注册到 session-manager 的 close_session 广播 handler。
  */
-const broadcastModule: BroadcastModule = createBroadcastModule({
+export const broadcastModule: BroadcastModule = createBroadcastModule({
   groupTool,
   log,
 });
@@ -147,14 +151,46 @@ function shouldHandle(event: LarkEvent): boolean {
  *   - [协议] 指令行：明示 agent 加载 lark-bot-protocol skill（description 之外的备份）
  */
 function formatPrompt(event: LarkEvent, pi: PiSession, promptId: string): string {
+  // 调试（PR#162 后未生效）：SKILL.md 全 inline 到 prompt，绕过 PI Agent 自动 skill 加载机制
+  // 如果这样 PI Agent 仍未 emit close_session → 确认 PI Agent 上游不支持
+  let skillContent = "(skill content unavailable)";
+  try {
+    const skillPath = join(PROJECT_DIR, ".pi/skills/lark-bot-protocol/SKILL.md");
+    if (existsSync(skillPath)) {
+      skillContent = readFileSync(skillPath, "utf-8");
+    }
+  } catch {}
   return [
     `[私聊 | promptId=${promptId} | authorized=${pi.authorized} | openId=${event.sender_id}]`,
-    `[协议] 处理本任务时必须加载 lark-bot-protocol skill 并遵循其 task_log 协议。`,
+    `[协议] 以下为 lark-bot-protocol skill 全文。处理本任务时必须严格遵守：`,
+    "```",
+    skillContent,
+    "```",
     `${stripMention(event.content)}`,
   ].join("\n");
 }
 
 
+
+/** 检测用户自然语言"结束"意图（中文/英文混合） */
+export function matchesCloseIntent(content: string): boolean {
+  const text = content.trim();
+  if (!text) return false;
+  const patterns = [
+    /^结束[。.!！~]*$/,
+    /^结束任务[。.!！~]*$/,
+    /^结束(会话|对话)[。.!！~]*$/,
+    /^完毕[。.!！~]*$/,
+    /^完成[。.!！~]*$/,
+    /^好的?[\s，,]*,?[\s，,]*?(任务|会话|对话)?[\s，,]*?(结束|完成|完毕)了?[\s，,。.!！~]*$/,
+    /^done[。.!！~]*$/i,
+    /^exit[。.!！~]*$/i,
+    /^quit[。.!！~]*$/i,
+    /^bye[。.!！~]*$/i,
+    /^再见/,
+  ];
+  return patterns.some((re) => re.test(text));
+}
 
 // ═══════════════ 飞书事件统一入口（仅 WS，不再有轮询） ═══════════════
 
@@ -244,14 +280,21 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
           return;
         }
         pi.authorized = true;
+        pi.authedGroupId = authResult.groupId;
+        pi.authedGroupName = authResult.groupName;
+        pi.openId = event.sender_id;
         log(`✅ [${key.slice(-12)}] 鉴权通过: group=${authResult.groupId} "${authResult.groupName}"`);
-        // 工作留痕：广播到对应群组
-        await broadcastModule.announce({
+        // 工作留痕：广播到对应群组（拿到 message_id 后记录，用于 close 时引用回复）
+        const broadcastResult = await broadcastModule.announce({
           openId: event.sender_id,
           groupId: authResult.groupId,
           groupName: authResult.groupName,
           outcome: "matched",
         });
+        if (broadcastResult.ok && broadcastResult.messageId) {
+          pi.matchedBroadcastMessageId = broadcastResult.messageId;
+          log(`📌 [${key.slice(-12)}] 记录 matched broadcast message_id=${broadcastResult.messageId.slice(-12)}`);
+        }
       } else if (authResult.status === "no_match") {
         log(`⚠ [${key.slice(-12)}] 鉴权失败: no_match desc="${content.slice(0, 30)}"`);
         addReaction(event.message_id, EMOJI_ERROR);
@@ -311,6 +354,19 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
       return;
     }
     markSeen(pi, event.message_id);
+
+    // 8a. 自然语言关闭检测（仅 authorized=true 时生效）——lark-bot 自己处理，不依赖 PI Agent 协议
+    {
+      const stripped = stripMention(event.content);
+      const closeMatched = matchesCloseIntent(stripped);
+      log(`🔍 [${key.slice(-12)}] close-intent check: raw="${event.content.slice(0, 50)}" stripped="${stripped.slice(0, 50)}" matched=${closeMatched} authorized=${pi.authorized}`);
+    }
+    if (pi.authorized && matchesCloseIntent(stripMention(event.content))) {
+      log(`🔒 [${key.slice(-12)}] 检测到自然语言关闭意图，触发 close_session: content="${stripMention(event.content).slice(0, 100)}"`);
+      closeSessionFromUserIntent(key, "user_natural_language");
+      sendReply(event.message_id, "好的，任务已结束 👋");
+      return;
+    }
 
     if (pi.waitingTasks.length >= MAX_QUEUE_DEPTH) {
       log(`⚠️ [${key.slice(-12)}] 队列已满 (depth=${pi.waitingTasks.length}), 拒绝 msgId=${event.message_id.slice(-8)}`);
