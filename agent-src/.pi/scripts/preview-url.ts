@@ -25,7 +25,7 @@
  * 不可预测，与 git commit hash 无关。始终使用分支别名格式。
  */
 
-function getPreviewUrl(branchName) {
+function getPreviewUrl(branchName: string) {
   const sanitized = branchName
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "-")

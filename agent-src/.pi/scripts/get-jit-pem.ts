@@ -19,7 +19,7 @@
  *   - 审计 issue 由开发者本人创建, 仓库管理员 review 所有 jit-audit issues
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
