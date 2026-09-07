@@ -22,17 +22,16 @@ import {
   cleanupOldSessions,
   installCrashHandlers,
   installSignalHandlers,
-  installStdinControl,
+  installStdinShutdown,
   onExitCleanup,
   startHeartbeat,
   startWatchdog,
   writePidFile,
 } from "./process.js";
 import { AUTH_EVENT_KEYS, HEAP_HARD_LIMIT_MB, SESSION_EVICTION_INTERVAL_MS } from "./config.js";
-import { emitTaskJournal, log } from "./shared/logger.js";
+import { log } from "./shared/logger.js";
 import {
   cleanupSeenMessageIds,
-  closeSession,
   enforceSessionLimit,
   evictIdleSessions,
   getAllSessions,
@@ -203,29 +202,7 @@ function installLarkBotLifecycle(): void {
 
   installSignalHandlers(cleanup);
   onExitCleanup(clearPidFile);
-  installStdinControl({
-    shutdown: cleanup,
-    closeSession: (reason) => {
-      // PI Agent 请求关闭当前 session 对应的 lark-bot 会话
-      // 遍历所有 session（per-p2p 架构下一般只有 1 个，但兜底遍历）
-      for (const pi of getAllSessions()) {
-        if (pi.authorized) {
-          closeSession(pi.key, `agent_close_session: ${reason ?? "unspecified"}`);
-          emitTaskJournal({
-            eventTime: new Date().toISOString(),
-            promptId: "n/a",
-            operator: "unknown",
-            operatorName: null,
-            state: "terminated",
-            reason: `agent_close_session: ${reason ?? "unspecified"}`,
-          });
-          log(`🔒 [${pi.key.slice(-12)}] PI Agent stdin close_session: ${reason ?? "unspecified"}`);
-        } else {
-          closeSession(pi.key, `agent_close_session_unauthed: ${reason ?? "unspecified"}`);
-        }
-      }
-    },
-  });
+  installStdinShutdown(cleanup);
 }
 
 function cleanup(): void {

@@ -555,11 +555,25 @@ function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void
         break;
       }
       case "close_session": {
-        // 注：原 PR#159 在此加的 close_session case 是死代码
-        // PI Agent 不会通过 stdout 输出此事件（PI Agent 是宿主进程）
-        // 正确路径是 PI Agent 通过 stdin pipe 发控制消息
-        // 真实处理在 process.ts:installStdinControl 中
-        log(`⚠ [${sessionKey.slice(-12)}] 收到 PI Agent stdout close_session 事件（应改走 stdin IPC）`);
+        // PI Agent 识别“结束任务”语义后输出此事件
+        // lark-bot 不做语义识别——语义识别在 PI Agent 层
+        const reason = (event as any).reason ?? "unspecified";
+        log(`🔒 [${sessionKey.slice(-12)}] PI Agent 请求关闭会话: reason=${reason}`);
+        // 防御性：清空活跃任务与等待队列（避免 promoteNext 误启动）
+        pi.activeTask = null;
+        pi.waitingTasks = [];
+        pi.pendingResultFetch = null;
+        sessions.delete(sessionKey);
+        if (pi.authorized) releaseAuthorizedSlot();
+        try { pi.proc?.kill(); } catch {}
+        emitTaskJournal({
+          eventTime: new Date().toISOString(),
+          promptId: "n/a",
+          operator: "unknown",
+          operatorName: null,
+          state: "terminated",
+          reason: `agent_close_session: ${reason}`,
+        });
         break;
       }
     }

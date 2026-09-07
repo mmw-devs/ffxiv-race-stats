@@ -191,25 +191,24 @@ export interface TaskLogEvent {
 }
 
 /**
- * Extension (PI Agent) → lark-bot 通过 stdin pipe 发送的控制消息类型。
+ * PI Agent → lark-bot stdout NDJSON close_session 事件。
  *
  * 语义：PI Agent 在业务处理中识别到用户表达“结束任务”意图时，
- * 通过 botProc.stdin.write('{"type":"close_session", "reason": "..."}')
- * 告诉 lark-bot 销毁当前 session。
+ * 在 stdout NDJSON 输出 `{"type": "close_session", "reason": "..."}`。
+ * lark-bot 的 handlePiEvent 收到后调用 closeSession 销毁 session。
  *
- * 为什么是 stdin pipe 不是 stdout NDJSON：
- *   - PI Agent 是宿主进程，lark-bot 是它的 extension 子进程
- *   - lark-bot 通过 spawn() 启动，stdin 由 PI Agent 持有
- *   - PI Agent 通过 stdin pipe 发控制消息（lark-bot 监听 stdin）
- *   - lark-bot 通过 stdout 推送飞书事件 NDJSON（PI Agent 不读 stdout）
+ * 为什么是 stdout NDJSON 不是 stdin pipe：
+ *   - lark-bot 是独立进程，PI Agent 是 lark-bot spawn 出的子进程
+ *   - stdin pipe 是 lark-bot → PI Agent 方向（喂 prompt），不是反向通信通道
+ *   - PI Agent → lark-bot 通信走 stdout NDJSON（与飞书事件流同一通道）
  *
  * 字段约束：
- *   - type：必填，"shutdown" | "close_session"
+ *   - type：必填，固定 "close_session"
  *   - reason：可选，业务语义原因，仅用于日志
  *
  * 协议文档：`docs/lark-bot-agent-protocol.md`（待补充）
  */
-export interface ExtensionControlMessage {
-  type: "shutdown" | "close_session";
+export interface CloseSessionEvent {
+  type: "close_session";
   reason?: string;
 }
