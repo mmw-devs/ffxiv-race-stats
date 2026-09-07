@@ -45,7 +45,7 @@
     "@larksuite/cli": "^1.0.72",
     "@lhci/cli": "^0.15.1",
     "@size-limit/preset-app": "^13.0.3",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.1",
     "@vue/eslint-config-typescript": "^14.9.0",
     "astro": "^7.2.9",
     "dependency-cruiser": "^16.10.0",
