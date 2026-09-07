@@ -219,3 +219,61 @@ describe("多 session 混合", () => {
     expect(countAuthorized()).toBe(10);
   });
 });
+
+// ══════════════════════════════════════════════════════════════
+// PI Agent close_session 事件（语义层主动关闭会话）
+// ══════════════════════════════════════════════════════════════
+
+describe("close_session 事件（PI Agent 主动关闭）", () => {
+  /**
+   * 触发 close_session 事件的辅助函数：
+   * 通过 fake proc.stdout emit NDJSON 模拟 PI Agent 输出事件。
+   * handlePiEvent 内部从 stdout 读 NDJSON → 解析 → switch 路由。
+   */
+  function emitCloseSession(key: string, reason?: string): void {
+    const pi = getAllSessions().find(s => s.key === key);
+    if (!pi) throw new Error(`session not found: ${key}`);
+    const event = reason ? { type: "close_session", reason } : { type: "close_session" };
+    // 通过 EventEmitter emit data 事件，让 session-manager 的 stdout listener 触发
+    (pi.proc as any)?.stdout?.emit("data", Buffer.from(JSON.stringify(event) + "\n"));
+  }
+
+  it("已鉴权会话收到 close_session → 关闭 + 释放槽位", async () => {
+    const pi = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    pi.authorized = true;
+    expect(countAuthorized()).toBe(1);
+
+    emitCloseSession("session-key-A", "user_said_done");
+
+    // close_session 后会话销毁、槽位释放
+    expect(countAuthorized()).toBe(0);
+    expect(getAllSessions().find(s => s.key === "session-key-A")).toBeUndefined();
+    expect(pi.proc?.kill).toHaveBeenCalled();
+  });
+
+  it("未鉴权会话收到 close_session → 关闭但不释放 authorized 槽位", async () => {
+    await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    expect(countAuthorized()).toBe(1);
+
+    emitCloseSession("session-key-A");
+
+    expect(countAuthorized()).toBe(1); // 未鉴权会话不占 authorized 计数
+    expect(getAllSessions().find(s => s.key === "session-key-A")).toBeUndefined();
+  });
+
+  it("close_session 不依赖 reason 字段（可选）", async () => {
+    await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    emitCloseSession("session-key-A"); // 不传 reason
+    expect(getAllSessions().find(s => s.key === "session-key-A")).toBeUndefined();
+  });
+
+  it("close_session 后下次 ensureSession 创建全新 session（authorized=false）", async () => {
+    const pi1 = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    pi1.authorized = true;
+    emitCloseSession("session-key-A");
+
+    const pi2 = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    expect(pi2.authorized).toBe(false);
+    expect(pi1).not.toBe(pi2);
+  });
+});
