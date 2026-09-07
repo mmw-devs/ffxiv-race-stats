@@ -75,7 +75,7 @@ export function getCircuitBreakerState(): { open: boolean; failures: number; ope
 
 // ═══════════════ 表情协议 ═══════════════
 
-function addReaction(msgId: string, emoji: string): string | null {
+export function addReaction(msgId: string, emoji: string): string | null {
   // 熔断期间快速失败，不浪费 lark-cli spawn
   if (Date.now() < circuitOpenUntil) return null;
   try {
