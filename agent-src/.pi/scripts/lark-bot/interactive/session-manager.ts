@@ -554,6 +554,28 @@ function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void
         handleTaskLog(pi, event as unknown as TaskLogEvent);
         break;
       }
+      case "close_session": {
+        // PI Agent 请求关闭会话（语义层指令，如“结束任务”）
+        // PI Agent 需在业务回复中说明意图；lark-bot 只负责销毁 session
+        const reason = (event as any).reason ?? "unspecified";
+        log(`🔒 [${sessionKey.slice(-12)}] PI Agent 请求关闭会话: reason=${reason}`);
+        // 防御性：清空活跃任务与等待队列（避免 promoteNext 误启动）
+        pi.activeTask = null;
+        pi.waitingTasks = [];
+        pi.pendingResultFetch = null;
+        sessions.delete(sessionKey);
+        if (pi.authorized) releaseAuthorizedSlot();
+        try { pi.proc?.kill(); } catch {}
+        emitTaskJournal({
+          eventTime: new Date().toISOString(),
+          promptId: "n/a",
+          operator: "unknown",
+          operatorName: null,
+          state: "terminated",
+          reason: `agent_close_session: ${reason}`,
+        });
+        break;
+      }
     }
   } catch (e: any) {
     log(`💥 [handlePiEvent] 异常: sessionKey=${sessionKey} event.type=${(event as any)?.type} err=${e?.message?.slice(0, 200)}`);

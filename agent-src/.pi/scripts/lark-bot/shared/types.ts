@@ -189,3 +189,24 @@ export interface TaskLogEvent {
   promptId: string;
   subject: string;
 }
+
+/**
+ * agent → lark-bot 的 close_session 事件类型（pi RPC 通道）。
+ *
+ * 语义：PI Agent 在业务处理中识别到用户表达“结束任务”意图时，主动 emit
+ * 告诉 lark-bot 销毁 session。lark-bot 不做语义识别——语义识别在 PI Agent 层。
+ *
+ * 使用场景：
+ *   - 用户在私聊中表达“结束任务”、“done”、“再见”等语义
+ *   - PI Agent 解读语义后，回复业务内容同时 emit close_session
+ *   - lark-bot 收到后关闭 session（不需发送额外回复）
+ *
+ * 字段约束：
+ *   - reason：可选，业务语义原因（如 "user_said_done"），仅用于日志
+ *
+ * 协议文档：`docs/lark-bot-agent-protocol.md`（待补充）
+ */
+export interface CloseSessionEvent {
+  type: "close_session";
+  reason?: string;
+}
