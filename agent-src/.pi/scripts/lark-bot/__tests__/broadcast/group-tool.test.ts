@@ -75,7 +75,7 @@ describe("chat_id 格式校验（listGroupMembers）", () => {
 describe("chat_id 格式校验（sendGroupMessage）", () => {
   it("非法 chat_id → 返回 ok=false，不调 lark-cli", async () => {
     const tool = makeTool();
-    const result = await tool.sendGroupMessage("invalid-chat-id", "hi");
+    const result = await tool.sendGroupMessage("invalid-chat-id", { text: "hi" });
     expect(result.ok).toBe(false);
     expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
@@ -145,15 +145,15 @@ describe("getGroupInfo — fail-closed", () => {
 // ══════════════════════════════════════════════════════════════
 
 describe("listGroupMembers — 正常路径", () => {
-  it("返回 user 类型成员的 open_id 列表", async () => {
+  it("返回 user 成员的 open_id 列表（users + bots 字段）", async () => {
     mockedExecFileSync.mockReturnValueOnce(
       JSON.stringify({
         data: {
-          items: [
-            { member_id: VALID_USER_OPEN_ID, type: "user" },
-            { member_id: "ou_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", type: "user" },
-            { member_id: "cli_xxx", type: "bot" }, // 应被过滤
+          users: [
+            { member_id: VALID_USER_OPEN_ID },
+            { member_id: "ou_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
           ],
+          bots: [{ member_id: "cli_xxx" }], // bots 不应出现在返回结果中
         },
       }),
     );
@@ -163,10 +163,25 @@ describe("listGroupMembers — 正常路径", () => {
   });
 
   it("空成员列表 → 返回 []", async () => {
-    mockedExecFileSync.mockReturnValueOnce(JSON.stringify({ data: { items: [] } }));
+    mockedExecFileSync.mockReturnValueOnce(JSON.stringify({ data: { users: [] } }));
     const tool = makeTool();
     const members = await tool.listGroupMembers(VALID_CHAT_ID);
     expect(members).toEqual([]);
+  });
+
+  it("stdout 含 lark-cli 进度行（[page 1] fetching... / Found N user(s)）→ 仍正确解析", async () => {
+    const pollutedStdout =
+      "[page 1] fetching...\nFound 6 user(s) and 1 bot(s)\n" +
+      JSON.stringify({
+        data: {
+          users: [{ member_id: VALID_USER_OPEN_ID }],
+          bots: [{ member_id: "cli_xxx" }],
+        },
+      });
+    mockedExecFileSync.mockReturnValueOnce(pollutedStdout);
+    const tool = makeTool();
+    const members = await tool.listGroupMembers(VALID_CHAT_ID);
+    expect(members).toEqual([VALID_USER_OPEN_ID]);
   });
 });
 
@@ -205,7 +220,7 @@ describe("sendGroupMessage — 正常路径", () => {
       JSON.stringify({ data: { message_id: "om_1234567890abcdef" } }),
     );
     const tool = makeTool();
-    const result = await tool.sendGroupMessage(VALID_CHAT_ID, "hello");
+    const result = await tool.sendGroupMessage(VALID_CHAT_ID, { text: "hello" });
     expect(result.ok).toBe(true);
   });
 });
@@ -216,7 +231,7 @@ describe("sendGroupMessage — 失败路径", () => {
       throw new Error("network error");
     });
     const tool = makeTool();
-    const result = await tool.sendGroupMessage(VALID_CHAT_ID, "hello");
+    const result = await tool.sendGroupMessage(VALID_CHAT_ID, { text: "hello" });
     expect(result.ok).toBe(false);
     expect(result.error).toBeTruthy();
   });
@@ -224,7 +239,7 @@ describe("sendGroupMessage — 失败路径", () => {
   it("响应缺 message_id → ok=false", async () => {
     mockedExecFileSync.mockReturnValueOnce(JSON.stringify({ data: {} }));
     const tool = makeTool();
-    const result = await tool.sendGroupMessage(VALID_CHAT_ID, "hello");
+    const result = await tool.sendGroupMessage(VALID_CHAT_ID, { text: "hello" });
     expect(result.ok).toBe(false);
     expect(result.error).toBe("no message_id in response");
   });
@@ -232,7 +247,7 @@ describe("sendGroupMessage — 失败路径", () => {
   it("响应 JSON 解析失败 → ok=false", async () => {
     mockedExecFileSync.mockReturnValueOnce("not json");
     const tool = makeTool();
-    const result = await tool.sendGroupMessage(VALID_CHAT_ID, "hello");
+    const result = await tool.sendGroupMessage(VALID_CHAT_ID, { text: "hello" });
     expect(result.ok).toBe(false);
   });
 });

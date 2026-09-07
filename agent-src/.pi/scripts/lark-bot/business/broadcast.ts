@@ -22,7 +22,7 @@ import type { GroupTool } from "../broadcast/group-tool.js";
 // ══════════════════════════════════════════════════════════════
 
 /** 鉴权结果的广播侧语义（与 AuthResult.status 对齐，但不含 no_match / auth_module_error） */
-export type BroadcastOutcome = "matched" | "not_member";
+export type BroadcastOutcome = "matched" | "not_member" | "ended";
 
 export type BroadcastEvent = {
   /** 申请人飞书 open_id */
@@ -35,6 +35,10 @@ export type BroadcastEvent = {
   outcome: BroadcastOutcome;
   /** 失败原因（仅 not_member 时填充；缺省为"不在成员列表"） */
   reason?: string;
+  /** @ 提及的用户 open_id（可选） */
+  mentionOpenId?: string;
+  /** 引用回复的消息 message_id（仅 ended outcome 用：引用会话开启的 matched 广播消息） */
+  replyToMessageId?: string;
 };
 
 export type BroadcastResult = {
@@ -46,8 +50,9 @@ export interface BroadcastModule {
   /**
    * 广播鉴权结果到指定群组。
    * 失败（groupTool.sendGroupMessage 返回 ok=false）返回 { ok: false, error }。
+   * 返回 message_id（群组发出的消息 id，可用于后续"引用回复"）。
    */
-  announce(event: BroadcastEvent): Promise<BroadcastResult>;
+  announce(event: BroadcastEvent): Promise<BroadcastResult & { messageId?: string }>;
 }
 
 /** 工厂选项 */
@@ -62,16 +67,21 @@ export interface BroadcastModuleOptions {
 
 /**
  * 渲染广播文本（固定格式模板）
- *   - 成功：[业务私聊申请] ✅ 用户 <openId> 申请成功（群组：<groupName>）
- *   - 失败：[业务私聊申请] ❌ 用户 <openId> 申请失败（群组：<groupName>）：<reason>
+ *   - 成功：🔔 [业务私聊] ✅ 用户 <openId> 申请成功（群组：<groupName>）
+ *   - 失败：🔔 [业务私聊] ❌ 用户 <openId> 申请失败（群组：<groupName>）：<reason>
+ *   - 结束：🔔 [业务私聊] 🏁 用户 <openId> 申请结束（群组：<groupName>）
  */
 export function renderBroadcastText(event: BroadcastEvent): string {
+  const prefix = "🔔 [业务私聊]";
   if (event.outcome === "matched") {
-    return `[业务私聊申请] ✅ 用户 ${event.openId} 申请成功（群组：${event.groupName}）`;
+    return `${prefix} ✅ 用户 ${event.openId} 申请成功（群组：${event.groupName}）`;
+  }
+  if (event.outcome === "ended") {
+    return `${prefix} 🏁 用户 ${event.openId} 申请结束（群组：${event.groupName}）`;
   }
   // not_member
   const reason = event.reason ?? "不在成员列表";
-  return `[业务私聊申请] ❌ 用户 ${event.openId} 申请失败（群组：${event.groupName}）：${reason}`;
+  return `${prefix} ❌ 用户 ${event.openId} 申请失败（群组：${event.groupName}）：${reason}`;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -81,11 +91,16 @@ export function renderBroadcastText(event: BroadcastEvent): string {
 export function createBroadcastModule(opts: BroadcastModuleOptions): BroadcastModule {
   const { groupTool, log } = opts;
 
-  async function announce(event: BroadcastEvent): Promise<BroadcastResult> {
+  async function announce(event: BroadcastEvent): Promise<BroadcastResult & { messageId?: string }> {
     const text = renderBroadcastText(event);
-    const result = await groupTool.sendGroupMessage(event.groupId, text);
+    // sendGroupMessage 走 rich_text post 类型，支持 at 提及 + root_id 引用回复
+    const result = await groupTool.sendGroupMessage(event.groupId, {
+      text,
+      mentionOpenId: event.mentionOpenId ?? event.openId,
+      replyToMessageId: event.replyToMessageId,
+    });
     if (result.ok) {
-      log(`✓ [broadcast] 广播成功: group=${event.groupId} outcome=${event.outcome}`);
+      log(`✓ [broadcast] 广播成功: group=${event.groupId} outcome=${event.outcome} mention=${event.mentionOpenId ?? "-"} reply=${event.replyToMessageId ?? "-"}`);
     } else {
       log(`⚠️ [broadcast] 广播失败: group=${event.groupId} outcome=${event.outcome} error=${result.error}`);
     }
