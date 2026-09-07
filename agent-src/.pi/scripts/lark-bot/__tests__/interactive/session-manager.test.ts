@@ -1,135 +1,93 @@
-// interactive/session-manager.test.ts — session-manager 新增 API 单元测试
-// 覆盖：countByKind / tryReserveSlot / releaseSlot 的纯内存逻辑
+// interactive/session-manager.test.ts — session-manager 槽位 API 单元测试
+// 覆盖：countAuthorized / tryReserveAuthorizedSlot / releaseAuthorizedSlot 的纯内存逻辑
 //
-// 注：本测试不覆盖 closeSession / cleanupAuthDeadlines / ensureSession
+// 注：本测试不覆盖 closeSession / ensureSession
 // 后者涉及 pi 子进程 spawn，集成测试时再覆盖（lark-bot 规范 §6）
-//
-// 注：sessionsByKind 是模块私有全局状态，每个测试前必须清零（通过 releaseSlot 调到 0）
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
-  countByKind,
-  releaseSlot,
-  tryReserveSlot,
+  countAuthorized,
+  releaseAuthorizedSlot,
+  tryReserveAuthorizedSlot,
 } from "../../interactive/session-manager.js";
 
 // ══════════════════════════════════════════════════════════════
-// 测试基础设施：每个 describe 前清零 sessionsByKind
+// 测试基础设施：每个 describe 前清零 authorizedSlots
 // ══════════════════════════════════════════════════════════════
 
-function resetKind(kind: "p2p-temp" | "p2p-business"): void {
-  while (countByKind(kind) > 0) {
-    releaseSlot(kind);
+function resetAuthorized(): void {
+  while (countAuthorized() > 0) {
+    releaseAuthorizedSlot();
   }
 }
 
-function resetAll(): void {
-  resetKind("p2p-temp");
-  resetKind("p2p-business");
-}
-
 // ══════════════════════════════════════════════════════════════
-// countByKind 初始状态
+// countAuthorized 初始状态
 // ══════════════════════════════════════════════════════════════
 
-describe("countByKind — 初始状态", () => {
-  beforeEach(resetAll);
+describe("countAuthorized — 初始状态", () => {
+  beforeEach(resetAuthorized);
 
-  it("p2p-temp 初始为 0", () => {
-    expect(countByKind("p2p-temp")).toBe(0);
-  });
-
-  it("p2p-business 初始为 0", () => {
-    expect(countByKind("p2p-business")).toBe(0);
+  it("初始为 0", () => {
+    expect(countAuthorized()).toBe(0);
   });
 });
 
 // ══════════════════════════════════════════════════════════════
-// tryReserveSlot — 配额占用
+// tryReserveAuthorizedSlot — 配额占用
 // ══════════════════════════════════════════════════════════════
 
-describe("tryReserveSlot — p2p-temp（MAX=1）", () => {
-  beforeEach(resetAll);
+describe("tryReserveAuthorizedSlot — MAX_AUTHED_SLOTS=10", () => {
+  beforeEach(resetAuthorized);
 
   it("首次占用成功 → count +1", () => {
-    const before = countByKind("p2p-temp");
-    const ok = tryReserveSlot("p2p-temp");
+    const before = countAuthorized();
+    const ok = tryReserveAuthorizedSlot();
     expect(ok).toBe(true);
-    expect(countByKind("p2p-temp")).toBe(before + 1);
+    expect(countAuthorized()).toBe(before + 1);
   });
 
-  it("占用后配额已满 → 返回 false", () => {
-    expect(tryReserveSlot("p2p-temp")).toBe(true);
-    expect(tryReserveSlot("p2p-temp")).toBe(false);
-  });
-});
-
-describe("tryReserveSlot — p2p-business（MAX=9）", () => {
-  beforeEach(resetAll);
-
-  it("9 次连续占用都成功", () => {
-    for (let i = 0; i < 9; i++) {
-      expect(tryReserveSlot("p2p-business")).toBe(true);
+  it("10 次连续占用都成功", () => {
+    for (let i = 0; i < 10; i++) {
+      expect(tryReserveAuthorizedSlot()).toBe(true);
     }
-    expect(countByKind("p2p-business")).toBe(9);
+    expect(countAuthorized()).toBe(10);
   });
 
-  it("第 10 次占用失败（MAX=9）", () => {
-    for (let i = 0; i < 9; i++) {
-      tryReserveSlot("p2p-business");
+  it("第 11 次占用失败（MAX=10）", () => {
+    for (let i = 0; i < 10; i++) {
+      tryReserveAuthorizedSlot();
     }
-    expect(tryReserveSlot("p2p-business")).toBe(false);
-  });
-});
-
-describe("tryReserveSlot — 临时与业务配额独立", () => {
-  beforeEach(resetAll);
-
-  it("p2p-temp 操作不影响 p2p-business 计数", () => {
-    tryReserveSlot("p2p-temp");
-    tryReserveSlot("p2p-business");
-    expect(countByKind("p2p-temp")).toBe(1);
-    expect(countByKind("p2p-business")).toBe(1);
-    releaseSlot("p2p-temp");
-    // p2p-business 计数不受 p2p-temp 操作影响
-    expect(countByKind("p2p-business")).toBe(1);
-  });
-
-  it("p2p-business 操作不影响 p2p-temp 计数", () => {
-    tryReserveSlot("p2p-temp");
-    tryReserveSlot("p2p-business");
-    releaseSlot("p2p-business");
-    expect(countByKind("p2p-temp")).toBe(1);
-    expect(countByKind("p2p-business")).toBe(0);
+    expect(tryReserveAuthorizedSlot()).toBe(false);
   });
 });
 
 // ══════════════════════════════════════════════════════════════
-// releaseSlot — 释放
+// releaseAuthorizedSlot — 释放
 // ══════════════════════════════════════════════════════════════
 
-describe("releaseSlot — 释放计数", () => {
-  beforeEach(resetAll);
+describe("releaseAuthorizedSlot — 释放计数", () => {
+  beforeEach(resetAuthorized);
 
   it("释放后 count -1", () => {
-    tryReserveSlot("p2p-temp");
-    releaseSlot("p2p-temp");
-    expect(countByKind("p2p-temp")).toBe(0);
+    tryReserveAuthorizedSlot();
+    releaseAuthorizedSlot();
+    expect(countAuthorized()).toBe(0);
   });
 
   it("释放到 0 后继续 release 不会变负（防御性）", () => {
-    // 从 0 开始多次 release
-    releaseSlot("p2p-temp");
-    releaseSlot("p2p-temp");
-    releaseSlot("p2p-temp");
-    expect(countByKind("p2p-temp")).toBe(0);
-    expect(countByKind("p2p-temp")).toBeGreaterThanOrEqual(0);
+    releaseAuthorizedSlot();
+    releaseAuthorizedSlot();
+    releaseAuthorizedSlot();
+    expect(countAuthorized()).toBe(0);
+    expect(countAuthorized()).toBeGreaterThanOrEqual(0);
   });
 
-  it("释放后再次 tryReserveSlot 成功（容量恢复）", () => {
-    expect(tryReserveSlot("p2p-temp")).toBe(true);
-    expect(tryReserveSlot("p2p-temp")).toBe(false);
-    releaseSlot("p2p-temp");
-    expect(tryReserveSlot("p2p-temp")).toBe(true);
+  it("释放后再次 tryReserveAuthorizedSlot 成功（容量恢复）", () => {
+    expect(tryReserveAuthorizedSlot()).toBe(true);
+    for (let i = 0; i < 9; i++) tryReserveAuthorizedSlot();
+    expect(tryReserveAuthorizedSlot()).toBe(false);
+    releaseAuthorizedSlot();
+    expect(tryReserveAuthorizedSlot()).toBe(true);
   });
 });

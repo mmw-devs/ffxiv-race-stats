@@ -59,6 +59,11 @@ export interface PendingResultFetch {
 /**
  * pi 子进程会话结构。当前架构下每 p2p chat 一个独立 session。
  * 各 session 的 state 完全独立（activeTask / waitingTasks / dedup / pi process）。
+ *
+ * 鉴权状态极简（重构后）：
+ *   - authorized: false → 未鉴权，首条消息触发鉴权
+ *   - authorized: true  → 已鉴权，后续消息直接处理业务
+ *   - /switch / /quit → closeSession，下次消息重新鉴权
  */
 export interface PiSession {
   /** 唯一标识（与 sessions Map 的 key 相同） */
@@ -80,20 +85,11 @@ export interface PiSession {
   /** 单飞取文本的等待句柄（completeActiveTask 期间最多 1 个） */
   pendingResultFetch: PendingResultFetch | null;
 
-  /* ─────── 私聊侧 MVP 演进字段 ─────── */
+  /* ─────── 鉴权状态（简化后） ─────── */
 
-  /** 会话类型：临时私聊（鉴权中） / 业务私聊（已鉴权） */
-  kind: "p2p-temp" | "p2p-business";
-  /** 会话创建时间戳（ms），用于鉴权窗口判断 */
-  createdAt: number;
-  /** 鉴权窗口到期时间戳（= createdAt + P2P_AUTH_TIMEOUT_MS） */
-  authDeadline: number;
-  /** 用户消息计数（鉴权窗口内上限 P2P_AUTH_MAX_ROUNDS） */
-  authRoundsUsed: number;
+  /** 是否已通过群组鉴权（true=可处理业务，false=待鉴权） */
+  authorized: boolean;
 }
-
-/** PiSession.kind 字面量类型（供 session-manager / ingress 引用） */
-export type PiSessionKind = "p2p-temp" | "p2p-business";
 
 /**
  * 飞书 p2p 事件类型（lark-cli event consume NDJSON 解析后的形状）。
