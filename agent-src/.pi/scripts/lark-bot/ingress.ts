@@ -33,30 +33,32 @@
  *
  * 私聊侧 MVP 演进：
  *   - 删除 identityResolver.resolveOperator 调用点（替换为群组鉴权调用链）
- *   - 增加 /quit 检测、业务配额检查、鉴权窗口判断
+ *   - 增加 /quit / /switch 检测（lark-bot 域命令）
  *   - 新增 groupTool / authModule 单例
- *   - formatPrompt 头部增加 kind=p2p-temp | p2p-business 标识
- *   - 60s 周期清理器调 cleanupAuthDeadlines
+ *   - formatPrompt 头部增加 authorized 标识（替代 kind 二元化）
  *   - 调用 closeSession 走统一关闭清理
+ *
+ * 重构（v2）：
+ *   - 删 kind 二元化（p2p-temp / p2p-business）→ 单 PiSession.authorized: boolean
+ *   - 删鉴权窗口 / 鉴权轮次 / 业务配额分类 / 鉴权窗口清理
+ *   - 引入 /switch 命令：closeSession 后下次消息重新鉴权
+ *   - 鉴权只在 pi.authorized === false 时触发，后续消息直接业务处理
  */
 
-import { CLI, EMOJI_DONE, EMOJI_ERROR, EMOJI_READ, MAX_P2P_BUSINESS_SLOTS, MAX_QUEUE_DEPTH, P2P_AUTH_MAX_ROUNDS, REQUIRED_EVENT_FIELDS } from "./config.js";
+import { CLI, EMOJI_DONE, EMOJI_ERROR, EMOJI_READ, MAX_QUEUE_DEPTH, REQUIRED_EVENT_FIELDS } from "./config.js";
 import type { LarkEvent, PendingTask, PiSession } from "./shared/types.js";
 import { emitTaskJournal, log } from "./shared/logger.js";
 import { addReaction, sendReply, stripMention } from "./protocol/feishu.js";
 import { enqueueTask, startImmediate } from "./interactive/task-state-machine.js";
 import {
-  cleanupAuthDeadlines,
   cleanupSeenMessageIds,
   closeSession,
-  countByKind,
   ensureSession,
   hasSeen,
   markSeen,
   markActive,
   nextPromptId,
-  releaseSlot,
-  tryReserveSlot,
+  tryReserveAuthorizedSlot,
 } from "./interactive/session-manager.js";
 import { sessionKey } from "./routing.js";
 import type { AuthModule } from "./business/auth.js";
@@ -146,7 +148,7 @@ function shouldHandle(event: LarkEvent): boolean {
  */
 function formatPrompt(event: LarkEvent, pi: PiSession, promptId: string): string {
   return [
-    `[私聊 | promptId=${promptId} | kind=${pi.kind} | openId=${event.sender_id}]`,
+    `[私聊 | promptId=${promptId} | authorized=${pi.authorized} | openId=${event.sender_id}]`,
     `[协议] 处理本任务时必须加载 lark-bot-protocol skill 并遵循其 task_log 协议。`,
     `${stripMention(event.content)}`,
   ].join("\n");
@@ -184,8 +186,9 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
     const pi = await ensureSession(key, event.chat_id);
     markActive(pi);
 
-    // 2. /quit 命令检测（lark-bot 域命令，不依赖 agent）
-    if (event.content.trim().startsWith("/quit")) {
+    // 2. lark-bot 域命令（不依赖 agent）
+    const content = event.content.trim();
+    if (content === "/quit") {
       log(`🚪 [${key.slice(-12)}] /quit 收到，关闭会话`);
       addReaction(event.message_id, EMOJI_DONE);
       sendReply(event.message_id, "已关闭本次会话。");
@@ -200,81 +203,48 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
       });
       return;
     }
-
-    // 3. 用户消息计数（鉴权窗口统计）
-    pi.authRoundsUsed++;
-
-    // 4. 鉴权窗口判断（仅 kind=p2p-temp 检查）
-    if (pi.kind === "p2p-temp") {
-      const now = Date.now();
-      if (now >= pi.authDeadline || pi.authRoundsUsed > P2P_AUTH_MAX_ROUNDS) {
-        log(`⛔ [${key.slice(-12)}] 鉴权窗口超时 (rounds=${pi.authRoundsUsed})`);
-        addReaction(event.message_id, EMOJI_ERROR);
-        sendReply(event.message_id, "⛔ 鉴权窗口已过期（5 分钟 / 2 轮），会话关闭。请重新发起。");
-        closeSession(key, "auth_window_expired");
-        emitTaskJournal({
-          eventTime: new Date().toISOString(),
-          promptId: "n/a",
-          operator: "unknown",
-          operatorName: null,
-          state: "terminated",
-          reason: "auth_window_expired",
-        });
-        return;
-      }
+    if (content === "/switch") {
+      log(`🔄 [${key.slice(-12)}] /switch 收到，关闭会话（下次重新鉴权）`);
+      addReaction(event.message_id, EMOJI_DONE);
+      sendReply(event.message_id, "已关闭当前会话，请发送新的业务描述重新鉴权。");
+      closeSession(key, "/switch");
+      emitTaskJournal({
+        eventTime: new Date().toISOString(),
+        promptId: "n/a",
+        operator: "unknown",
+        operatorName: null,
+        state: "terminated",
+        reason: "user_switch",
+      });
+      return;
     }
 
-    // 5. 业务配额检查（仅 kind=p2p-temp 在首次鉴权时检查）
-    if (pi.kind === "p2p-temp" && pi.authRoundsUsed === 1) {
-      const businessCount = countByKind("p2p-business");
-      if (businessCount >= MAX_P2P_BUSINESS_SLOTS) {
-        log(`⛔ [${key.slice(-12)}] 业务私聊配额已满 (${businessCount}/${MAX_P2P_BUSINESS_SLOTS})`);
-        addReaction(event.message_id, EMOJI_ERROR);
-        sendReply(event.message_id, "⛔ 业务私聊配额已满，无法创建会话。请稍后再试。");
-        closeSession(key, "business_quota_full");
-        emitTaskJournal({
-          eventTime: new Date().toISOString(),
-          promptId: "n/a",
-          operator: "unknown",
-          operatorName: null,
-          state: "terminated",
-          reason: "business_quota_full",
-        });
-        return;
-      }
-    }
-
-    // 6. 业务描述提取（去首尾空白）
-    const businessDescription = event.content.trim();
-
-    // 7. 群组鉴权判定（仅 kind=p2p-temp 在第一轮触发）
-    if (pi.kind === "p2p-temp" && pi.authRoundsUsed === 1) {
+    // 3. 群组鉴权判定（仅在未鉴权时触发）
+    if (!pi.authorized) {
       const authResult = await authModule.authorize({
         openId: event.sender_id,
-        businessDescription,
+        businessDescription: content,
       });
 
       if (authResult.status === "matched") {
-        // 鉴权成功 → slot swap + kind 升级
-        releaseSlot("p2p-temp");
-        if (!tryReserveSlot("p2p-business")) {
-          // 业务配额被挤满（极罕见：上一轮检查后并发挤入）
-          log(`⛔ [${key.slice(-12)}] 升级时业务配额被挤满`);
+        // 鉴权成功 → 占用槽位 + 标记已鉴权
+        if (!tryReserveAuthorizedSlot()) {
+          log(`⛔ [${key.slice(-12)}] 鉴权通过但已鉴权会话配额已满`);
           addReaction(event.message_id, EMOJI_ERROR);
-          sendReply(event.message_id, "⛔ 业务私聊配额已满，无法创建会话。");
-          closeSession(key, "business_quota_full_on_upgrade");
+          sendReply(event.message_id, "⛔ 已鉴权会话配额已满，无法创建会话。请稍后再试。");
+          closeSession(key, "authorized_quota_full");
           emitTaskJournal({
             eventTime: new Date().toISOString(),
             promptId: "n/a",
             operator: "unknown",
             operatorName: null,
             state: "terminated",
-            reason: "business_quota_full_on_upgrade",
+            reason: "authorized_quota_full",
           });
           return;
         }
-        pi.kind = "p2p-business";
-        log(`✅ [${key.slice(-12)}] 鉴权通过，升级为 p2p-business: group=${authResult.groupId} "${authResult.groupName}"`);
+        pi.authorized = true;
+        log(`✅ [${key.slice(-12)}] 鉴权通过: group=${authResult.groupId} "${authResult.groupName}"`);
         // 工作留痕：广播到对应群组
         await broadcastModule.announce({
           openId: event.sender_id,
@@ -283,7 +253,7 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
           outcome: "matched",
         });
       } else if (authResult.status === "no_match") {
-        log(`⚠ [${key.slice(-12)}] 鉴权失败: no_match desc="${businessDescription.slice(0, 30)}"`);
+        log(`⚠ [${key.slice(-12)}] 鉴权失败: no_match desc="${content.slice(0, 30)}"`);
         addReaction(event.message_id, EMOJI_ERROR);
         sendReply(event.message_id, "⚠ 未找到匹配的业务群组。请确认业务描述。");
         closeSession(key, "no_match");
@@ -373,7 +343,7 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
 
     // 10. WAVE
     task.reactionId = addReaction(event.message_id, EMOJI_READ);
-    log(`📩 [${key.slice(-12)}] 入队 msgId=${event.message_id.slice(-8)} promptId=${task.promptId} kind=${pi.kind} queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} ready=${pi.ready}`);
+    log(`📩 [${key.slice(-12)}] 入队 msgId=${event.message_id.slice(-8)} promptId=${task.promptId} authorized=${pi.authorized} queue=${pi.waitingTasks.length} active=${pi.activeTask?.promptId ?? "null"} ready=${pi.ready}`);
 
     // 11. Task journal: in_progress（任务创建并入队 / 立即启动）
     emitTaskJournal({
@@ -416,10 +386,5 @@ setInterval(() => {
   const { evictedTtl, evictedLru, remaining } = cleanupSeenMessageIds();
   if (evictedTtl > 0 || evictedLru > 0) {
     log(`🧹 [seenMessageIds 清理] ttl=${evictedTtl} lru=${evictedLru} 剩=${remaining}`);
-  }
-  // 私聊侧 MVP：清理超期临时私聊 + 3 天空闲业务私聊
-  const { expiredTemp, idleBusiness } = cleanupAuthDeadlines();
-  if (expiredTemp > 0 || idleBusiness > 0) {
-    log(`🧹 [会话清理] 超期临时=${expiredTemp} 3天空闲业务=${idleBusiness}`);
   }
 }, 60_000);
