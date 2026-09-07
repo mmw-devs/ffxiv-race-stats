@@ -80,8 +80,9 @@ const groupTool: GroupTool = createGroupTool({
 /**
  * 全局 authModule 单例。
  * 进程启动期构造一次，依赖 groupTool 完成数据获取。
+ * main.ts 需在启动多 EventKey 订阅前调用 authModule.initBoot() 完成冷启动。
  */
-const authModule: AuthModule = createAuthModule({
+export const authModule: AuthModule = createAuthModule({
   groupTool,
   log,
 });
@@ -96,15 +97,7 @@ const broadcastModule: BroadcastModule = createBroadcastModule({
   log,
 });
 
-/**
- * 从环境变量读取授权群组 chat_id 列表。
- * MVP 阶段：单环境变量 BROADCAST_AUTHORIZED_GROUPS，逗号分隔。
- * 后续：迁移到 settings.json（PR 4+）。
- */
-function loadAuthorizedGroupIds(): string[] {
-  const raw = process.env.BROADCAST_AUTHORIZED_GROUPS ?? "";
-  return raw.split(",").map((s) => s.trim()).filter((s) => /^oc_[0-9a-f]{32}$/i.test(s));
-}
+
 
 // ═══════════════ 输入校验（R3 L2 Ingress） ═══════════════
 
@@ -259,7 +252,6 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
       const authResult = await authModule.authorize({
         openId: event.sender_id,
         businessDescription,
-        authorizedGroupIds: loadAuthorizedGroupIds(),
       });
 
       if (authResult.status === "matched") {

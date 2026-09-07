@@ -1,29 +1,31 @@
 /**
- * group-tool.ts — L4a Broadcast 工具层（群组 API 适配）
+ * group-tool.ts — L4a Broadcast 工具层（群组 API 适配，事件驱动版）
  *
  * 职责：
  *   - 群组元数据查询（im chats get）
  *   - 群成员列表查询（im +chat-members-list）
  *   - 群组消息发送（im +messages-send）
+ *   - 列出 lark-bot 所在全量群组（im +chat-list）—— 启动冷启动用
  *
  * 设计：
  *   - 纯函数式工厂 `createGroupTool(opts)`，依赖注入（cliPath / log）
- *   - 不持有全局可变状态（缓存是 tool 实例内部 Map）
+ *   - 不持有全局可变状态
  *   - fail-closed：任何调用失败返回 null / { ok: false }
+ *
+ * 调用方契约：
+ *   - 本模块**不缓存**任何群组/成员数据
+ *   - 调用方（AuthModule）按需调用 + 自管内存缓存 + 事件维护实时性
+ *   - 调用频次由调用方决定（本模块零轮询）
  *
  * 配置来源：
  *   - cliPath：lark-cli 可执行文件路径（复用 config.ts 的 CLI 常量）
- *
- * 演进：
- *   - 工具层文档 §4（已写入）：本模块实现 GroupTool 接口骨架
- *   - 私聊侧 MVP：被业务层 AuthModule 调用，提供 description / members 数据
  */
 
 import { execFileSync } from "node:child_process";
 
 // ═══════════════════ 类型定义 ═══════════════════
 
-/** 群组元数据（飞书 chats get API 透传） */
+/** 群组元数据 */
 export type GroupInfo = {
   chatId: string;
   name: string;
@@ -36,10 +38,10 @@ export type SendResult = {
   error?: string;
 };
 
-/** GroupTool 接口 */
+/** GroupTool 接口（无缓存语义：调用即返回实时数据） */
 export interface GroupTool {
   /**
-   * 查询群组元数据。失败（chat_id 非法 / API 调用失败 / 无效 JSON / 缺字段）返回 null。
+   * 查询单个群组元数据。失败返回 null。
    */
   getGroupInfo(chatId: string): Promise<GroupInfo | null>;
 
@@ -53,55 +55,26 @@ export interface GroupTool {
    */
   sendGroupMessage(chatId: string, text: string): Promise<SendResult>;
 
-  /** 强制清空缓存（运维 / 测试用） */
-  clearCache(): void;
-
-  /** 当前缓存大小（运维 / 测试用） */
-  cacheSize(): number;
+  /**
+   * 列出 lark-bot 所在全量群组。仅启动期冷启动使用一次。
+   * 失败返回 null。
+   */
+  listAllBotGroups(): Promise<GroupInfo[] | null>;
 }
 
 /** 工厂选项 */
 export interface GroupToolOptions {
-  /** lark-cli 可执行文件路径 */
   cliPath: string;
-  /** 日志函数 */
   log: (msg: string) => void;
 }
-
-// ═══════════════════ 缓存 ═══════════════════
-
-interface CacheValue {
-  /** 缓存的值（getGroupInfo / listGroupMembers 缓存 GroupInfo / string[]） */
-  value: GroupInfo | string[] | null;
-  expiresAt: number;
-}
-
-const SUCCESS_TTL_MS = 60 * 60 * 1000; // 1 小时
-const FAILURE_TTL_MS = 30 * 1000; // 30 秒
 
 // ═══════════════════ 实现 ═══════════════════
 
 export function createGroupTool(opts: GroupToolOptions): GroupTool {
   const { cliPath, log } = opts;
-  const cache = new Map<string, CacheValue>();
 
   function isValidChatId(chatId: string): boolean {
-    // 飞书 chat_id 形如 "oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     return /^oc_[0-9a-f]{32}$/i.test(chatId);
-  }
-
-  function cacheGet(key: string): CacheValue | undefined {
-    const v = cache.get(key);
-    if (!v) return undefined;
-    if (Date.now() >= v.expiresAt) {
-      cache.delete(key);
-      return undefined;
-    }
-    return v;
-  }
-
-  function cacheSet(key: string, value: GroupInfo | string[] | null, ttlMs: number): void {
-    cache.set(key, { value, expiresAt: Date.now() + ttlMs });
   }
 
   function callLarkCli<T>(args: string[], parse: (out: string) => T | null): T | null {
@@ -124,33 +97,23 @@ export function createGroupTool(opts: GroupToolOptions): GroupTool {
       return null;
     }
 
-    const cacheKey = `info:${chatId}`;
-    const cached = cacheGet(cacheKey);
-    if (cached) return cached.value as GroupInfo | null;
-
-    const parsed = callLarkCli(
+    return callLarkCli(
       ["im", "chats", "get", "--chat-id", chatId, "--as", "bot", "--format", "json"],
       (out) => {
         try {
           const obj = JSON.parse(out) as { data?: { name?: string; description?: string } };
           const name = obj.data?.name;
-          const description = obj.data?.description ?? "";
           if (typeof name !== "string") return null;
-          return { chatId, name, description };
+          return {
+            chatId,
+            name,
+            description: obj.data?.description ?? "",
+          };
         } catch {
           return null;
         }
       },
     );
-
-    if (parsed === null) {
-      cacheSet(cacheKey, null, FAILURE_TTL_MS);
-      return null;
-    }
-
-    cacheSet(cacheKey, parsed, SUCCESS_TTL_MS);
-    log(`✓ [group-tool] getGroupInfo: ${chatId} name="${parsed.name.slice(0, 20)}"`);
-    return parsed;
   }
 
   async function listGroupMembers(chatId: string): Promise<string[] | null> {
@@ -159,11 +122,7 @@ export function createGroupTool(opts: GroupToolOptions): GroupTool {
       return null;
     }
 
-    const cacheKey = `members:${chatId}`;
-    const cached = cacheGet(cacheKey);
-    if (cached) return cached.value as string[] | null;
-
-    const parsed = callLarkCli(
+    return callLarkCli(
       ["im", "+chat-members-list", "--chat-id", chatId, "--as", "bot", "--format", "json"],
       (out) => {
         try {
@@ -172,30 +131,18 @@ export function createGroupTool(opts: GroupToolOptions): GroupTool {
           };
           const items = obj.data?.items;
           if (!Array.isArray(items)) return null;
-          // 仅返回用户成员（type === "user"），过滤机器人成员
-          const openIds = items
+          return items
             .filter((it) => it.type === "user" && typeof it.member_id === "string")
             .map((it) => it.member_id as string);
-          return openIds;
         } catch {
           return null;
         }
       },
     );
-
-    if (parsed === null) {
-      cacheSet(cacheKey, null, FAILURE_TTL_MS);
-      return null;
-    }
-
-    cacheSet(cacheKey, parsed, SUCCESS_TTL_MS);
-    log(`✓ [group-tool] listGroupMembers: ${chatId} count=${parsed.length}`);
-    return parsed;
   }
 
   async function sendGroupMessage(chatId: string, text: string): Promise<SendResult> {
     if (!isValidChatId(chatId)) {
-      log(`⚠️ [group-tool] chat_id 格式非法: ${chatId.slice(0, 12)}...`);
       return { ok: false, error: "invalid chat_id" };
     }
 
@@ -220,7 +167,6 @@ export function createGroupTool(opts: GroupToolOptions): GroupTool {
       try {
         const obj = JSON.parse(out) as { data?: { message_id?: string } };
         if (typeof obj.data?.message_id === "string") {
-          log(`✓ [group-tool] sendGroupMessage: ${chatId} msgId=${obj.data.message_id.slice(-8)}`);
           return { ok: true };
         }
         return { ok: false, error: "no message_id in response" };
@@ -228,16 +174,67 @@ export function createGroupTool(opts: GroupToolOptions): GroupTool {
         return { ok: false, error: "invalid JSON response" };
       }
     } catch (e) {
-      log(`⚠️ [group-tool] sendGroupMessage 失败: ${(e as Error).message?.slice(0, 200)}`);
       return { ok: false, error: (e as Error).message?.slice(0, 200) };
     }
+  }
+
+  async function listAllBotGroups(): Promise<GroupInfo[] | null> {
+    // 拉全量 lark-bot 所在群组（含分页）
+    const all: GroupInfo[] = [];
+    let pageToken: string | undefined = undefined;
+    const maxPages = 10;
+
+    for (let i = 0; i < maxPages; i++) {
+      const args = ["im", "+chat-list", "--as", "bot", "--format", "json"];
+      if (pageToken) args.push("--page-token", pageToken);
+
+      const parsed = callLarkCli(args, (out) => {
+        try {
+          const obj = JSON.parse(out) as {
+            ok?: boolean;
+            data?: {
+              chats?: Array<{
+                chat_id?: string;
+                name?: string;
+                description?: string;
+              }>;
+              has_more?: boolean;
+              page_token?: string;
+            };
+          };
+          if (obj.ok === false) return null;
+          return {
+            chats: obj.data?.chats ?? [],
+            has_more: obj.data?.has_more ?? false,
+            page_token: obj.data?.page_token ?? "",
+          };
+        } catch {
+          return null;
+        }
+      });
+
+      if (parsed === null) return null;
+
+      for (const c of parsed.chats) {
+        if (typeof c.chat_id !== "string" || !isValidChatId(c.chat_id)) continue;
+        all.push({
+          chatId: c.chat_id,
+          name: typeof c.name === "string" ? c.name : "",
+          description: typeof c.description === "string" ? c.description : "",
+        });
+      }
+
+      if (!parsed.has_more || !parsed.page_token) break;
+      pageToken = parsed.page_token;
+    }
+
+    return all;
   }
 
   return {
     getGroupInfo,
     listGroupMembers,
     sendGroupMessage,
-    clearCache: () => cache.clear(),
-    cacheSize: () => cache.size,
+    listAllBotGroups,
   };
 }

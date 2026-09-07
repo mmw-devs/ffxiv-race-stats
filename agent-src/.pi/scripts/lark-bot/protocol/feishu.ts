@@ -203,14 +203,18 @@ export function stripMention(content: string): string {
 // ═══════════════ WS 事件流 ═══════════════
 
 /**
- * 启动 lark-cli event consume 并把 NDJSON 解析后的事件交给 onEvent 回调。
+ * 启动 lark-cli event consume <EventKey> 并把 NDJSON 解析后的事件交给 onEvent 回调。
  * 返回的 ChildProcess 由调用方持有以做生命周期管理。
  *
- * 设计：当前架构下只关心 im.message.receive_v1；群聊事件由 onEvent 回调方丢弃。
+ * 每个 EventKey 一个独立子进程（lark-cli 一次只能订阅一个 EventKey）。
+ * 调用方按需启动多个 EventKey 子进程。
  */
-export function startLarkEvents(onEvent: (event: LarkEvent) => void | Promise<void>): ChildProcess {
-  log("启动 lark-cli event consume ...");
-  const child = spawn(CLI, ["event", "consume", "im.message.receive_v1", "--as", "bot"], { stdio: ["pipe", "pipe", "pipe"] });
+export function startLarkEvents(
+  eventKey: string,
+  onEvent: (event: unknown) => void | Promise<void>,
+): ChildProcess {
+  log(`启动 lark-cli event consume ${eventKey} ...`);
+  const child = spawn(CLI, ["event", "consume", eventKey, "--as", "bot"], { stdio: ["pipe", "pipe", "pipe"] });
 
   let buf = "";
   child.stdout?.on("data", (d: Buffer) => {
@@ -251,6 +255,6 @@ export function startLarkEvents(onEvent: (event: LarkEvent) => void | Promise<vo
     else if (msg.includes('"ok":false')) log(`飞书错误: ${msg.slice(0, 200)}`);
   });
 
-  child.on("exit", (code) => { log(`飞书事件流退出 code=${code}`); setTimeout(() => startLarkEvents(onEvent), 5000); });
+  child.on("exit", (code) => { log(`飞书事件流退出 code=${code}`); setTimeout(() => startLarkEvents(eventKey, onEvent), 5000); });
   return child;
 }
