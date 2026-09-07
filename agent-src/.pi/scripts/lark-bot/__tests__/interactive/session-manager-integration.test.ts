@@ -1,11 +1,8 @@
 // interactive/session-manager-integration.test.ts — session-manager 集成测试
-// 覆盖：closeSession + releaseSlot 一致性 / cleanupAuthDeadlines 清理逻辑
+// 覆盖：closeSession + authorized 槽位释放一致性 + ensureSession 默认状态
 //
 // 注：通过 mock spawn 让 ensureSession 不真启动 pi 子进程
 // lark-bot 规范 §6「子进程 spawn 不可靠，改用 mock + spy + 直接调入口函数」
-//
-// 注：sessionsByKind 是手动维护的全局计数（PR 1 设计），
-// ingress 在 ensureSession 前调 tryReserveSlot 同步——本测试模拟该调用
 import { EventEmitter } from "node:events";
 
 import { spawn } from "node:child_process";
@@ -13,13 +10,12 @@ import { spawn } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  cleanupAuthDeadlines,
   closeSession,
-  countByKind,
+  countAuthorized,
   ensureSession,
   getAllSessions,
-  releaseSlot,
-  tryReserveSlot,
+  releaseAuthorizedSlot,
+  tryReserveAuthorizedSlot,
 } from "../../interactive/session-manager.js";
 
 // ══════════════════════════════════════════════════════════════
@@ -52,27 +48,26 @@ function makeFakeProc(): unknown {
 }
 
 /**
- * 模拟 ingress 完整调用链：tryReserveSlot + ensureSession
- * （确保 sessionsByKind 同步）
+ * 模拟 ingress 完整调用链：tryReserveAuthorizedSlot + ensureSession
+ * （确保 authorizedSlots 同步）
  */
-async function ensureSessionWithSlot(key: string, chatId: string, kind: "p2p-temp" | "p2p-business") {
-  const ok = tryReserveSlot(kind);
-  if (!ok) throw new Error(`tryReserveSlot(${kind}) failed`);
+async function ensureSessionWithAuthSlot(key: string, chatId: string) {
+  const ok = tryReserveAuthorizedSlot();
+  if (!ok) throw new Error(`tryReserveAuthorizedSlot failed`);
   return await ensureSession(key, chatId);
 }
 
 /**
- * 重置会话状态：关闭所有现存 session（释放 sessionsByKind 计数 +清空 sessions Map）
+ * 重置会话状态：关闭所有现存 session（释放 sessions Map + authorizedSlots）
  * 用 beforeEach 隔离测试间状态
  */
 function resetAll(): void {
-  // 关所有现存 session（释放 sessions Map + sessionsByKind）
+  // 关所有现存 session（释放 sessions Map + authorizedSlots）
   for (const pi of getAllSessions()) {
     closeSession(pi.key, "test-reset");
   }
-  // 防御性清零 sessionsByKind（处理只调 tryReserveSlot 未 ensureSession 的测试）
-  while (countByKind("p2p-temp") > 0) releaseSlot("p2p-temp");
-  while (countByKind("p2p-business") > 0) releaseSlot("p2p-business");
+  // 防御性清零 authorizedSlots（处理只调 tryReserveAuthorizedSlot 未 ensureSession 的测试）
+  while (countAuthorized() > 0) releaseAuthorizedSlot();
 }
 
 beforeEach(() => {
@@ -92,38 +87,59 @@ const VALID_CHAT_ID_B = "oc_bbbbbbbb0000000000000000000bbbbb";
 // closeSession — 槽位释放一致性
 // ══════════════════════════════════════════════════════════════
 
-describe("closeSession — 槽位释放一致性", () => {
-  it("关闭后 sessionsByKind 减 1（p2p-temp）", async () => {
-    const pi = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
-    expect(countByKind("p2p-temp")).toBe(1);
+describe("closeSession — 已鉴权会话槽位释放", () => {
+  it("关闭已鉴权会话后 countAuthorized 减 1", async () => {
+    const pi = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    pi.authorized = true; // 模拟 ingress 鉴权通过后置位
+    expect(countAuthorized()).toBe(1);
 
     closeSession("session-key-A", "test-close");
-    expect(countByKind("p2p-temp")).toBe(0);
+    expect(countAuthorized()).toBe(0);
     expect(pi.proc?.kill).toHaveBeenCalled();
   });
 
-  it("关闭后可再次 tryReserveSlot 占用同一 kind", async () => {
-    await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
+  it("关闭未鉴权会话不释放槽位（避免误释放别人的配额）", async () => {
+    await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    // 注意：pi.authorized 保持 false
+    expect(countAuthorized()).toBe(1);
+
     closeSession("session-key-A", "test-close");
-    expect(tryReserveSlot("p2p-temp")).toBe(true);
-    expect(countByKind("p2p-temp")).toBe(1);
+    // 未鉴权会话不释放 authorizedSlots（手动通过 releaseAuthorizedSlot 释放）
+    expect(countAuthorized()).toBe(1);
+    releaseAuthorizedSlot(); // 模拟 ingress 在 closeSession 后手动释放
+    expect(countAuthorized()).toBe(0);
+  });
+
+  it("关闭已鉴权会话后可再次 tryReserveAuthorizedSlot 占用", async () => {
+    const pi = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    pi.authorized = true; // 模拟 ingress 鉴权通过后置位
+    expect(countAuthorized()).toBe(1);
+
+    // closeSession 检测到 pi.authorized=true → 自动 releaseAuthorizedSlot()
+    closeSession("session-key-A", "test-close");
+    expect(countAuthorized()).toBe(0);
+
+    // 槽位已释放，可重新占用
+    expect(tryReserveAuthorizedSlot()).toBe(true);
+    expect(countAuthorized()).toBe(1);
   });
 
   it("关闭不存在的 key → 返回 null + 不抛错 + 计数不变", () => {
     expect(() => closeSession("non-existent-key", "test")).not.toThrow();
     expect(closeSession("non-existent-key", "test")).toBeNull();
-    expect(countByKind("p2p-temp")).toBe(0);
+    expect(countAuthorized()).toBe(0);
   });
 
   it("多次关闭同一 key 是幂等的", async () => {
-    await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
+    const pi = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    pi.authorized = true;
     closeSession("session-key-A", "first");
     closeSession("session-key-A", "second");
-    expect(countByKind("p2p-temp")).toBe(0);
+    expect(countAuthorized()).toBe(0);
   });
 
   it("closeSession 清空 activeTask / waitingTasks / pendingResultFetch", async () => {
-    const pi = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
+    const pi = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
     // 注入假数据模拟有任务状态
     pi.activeTask = {} as never;
     pi.waitingTasks = [{} as never];
@@ -138,114 +154,9 @@ describe("closeSession — 槽位释放一致性", () => {
   });
 
   it("closeSession 调用 proc.kill()（释放 OS 资源）", async () => {
-    const pi = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
+    const pi = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
     closeSession("session-key-A", "test-close");
     expect(pi.proc?.kill).toHaveBeenCalled();
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
-// cleanupAuthDeadlines — 清理逻辑
-// ══════════════════════════════════════════════════════════════
-
-describe("cleanupAuthDeadlines — 临时私聊超时清理", () => {
-  it("超期临时私聊被清理", async () => {
-    const pi = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
-    expect(countByKind("p2p-temp")).toBe(1);
-    // 模拟鉴权窗口已过期
-    pi.authDeadline = Date.now() - 1000;
-
-    const result = cleanupAuthDeadlines();
-    expect(result.expiredTemp).toBe(1);
-    expect(result.idleBusiness).toBe(0);
-    expect(countByKind("p2p-temp")).toBe(0);
-  });
-
-  it("未超期临时私聊不被清理", async () => {
-    const pi = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
-    pi.authDeadline = Date.now() + 60_000; // 未来 60s
-
-    const result = cleanupAuthDeadlines();
-    expect(result.expiredTemp).toBe(0);
-    expect(countByKind("p2p-temp")).toBe(1);
-  });
-
-  it("业务私聊空闲超 P2P_IDLE_TIMEOUT_MS 被清理", async () => {
-    const pi = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-business");
-    // 模拟会话已升级为业务私聊（ingress 鉴权通过后会改 kind）
-    pi.kind = "p2p-business";
-    // 模拟 3 天没活跃
-    pi.lastActivityAt = Date.now() - 3 * 24 * 60 * 60 * 1000 - 1000;
-
-    const result = cleanupAuthDeadlines();
-    expect(result.idleBusiness).toBe(1);
-    expect(result.expiredTemp).toBe(0);
-    expect(countByKind("p2p-business")).toBe(0);
-  });
-
-  it("业务私聊活跃（lastActivityAt 近期）不被清理", async () => {
-    const pi = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-business");
-    pi.kind = "p2p-business";
-    pi.lastActivityAt = Date.now(); // 当前
-
-    const result = cleanupAuthDeadlines();
-    expect(result.idleBusiness).toBe(0);
-    expect(countByKind("p2p-business")).toBe(1);
-  });
-
-  it("有 activeTask 的 session 跳过清理（防 promoteNext 误启动）", async () => {
-    const pi = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
-    pi.activeTask = { promptId: "test" } as never;
-    pi.authDeadline = Date.now() - 1000; // 模拟超期
-
-    const result = cleanupAuthDeadlines();
-    expect(result.expiredTemp).toBe(0);
-    expect(countByKind("p2p-temp")).toBe(1);
-  });
-
-  it("混合场景：1 个超期临时 + 1 个未超期业务", async () => {
-    const piA = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
-    const piB = await ensureSessionWithSlot("session-key-B", VALID_CHAT_ID_B, "p2p-business");
-    piB.kind = "p2p-business"; // 模拟会话已升级
-    expect(countByKind("p2p-temp")).toBe(1);
-    expect(countByKind("p2p-business")).toBe(1);
-
-    piA.authDeadline = Date.now() - 1000; // A 超期
-    // B 未超期，lastActivityAt 默认是当前
-
-    const result = cleanupAuthDeadlines();
-    expect(result.expiredTemp).toBe(1);
-    expect(result.idleBusiness).toBe(0);
-    expect(countByKind("p2p-temp")).toBe(0);
-    expect(countByKind("p2p-business")).toBe(1);
-  });
-
-  it("混合场景：1 个超期临时 + 1 个 3 天空闲业务", async () => {
-    const piA = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
-    const piB = await ensureSessionWithSlot("session-key-B", VALID_CHAT_ID_B, "p2p-business");
-    piB.kind = "p2p-business"; // 模拟会话已升级
-
-    piA.authDeadline = Date.now() - 1000; // 临时私聊超期
-    piB.lastActivityAt = Date.now() - 3 * 24 * 60 * 60 * 1000 - 1000; // 业务私聊空闲 3 天
-
-    const result = cleanupAuthDeadlines();
-    expect(result.expiredTemp).toBe(1);
-    expect(result.idleBusiness).toBe(1);
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
-// closeSession + cleanupAuthDeadlines 联合
-// ══════════════════════════════════════════════════════════════
-
-describe("closeSession 与 cleanupAuthDeadlines 联合", () => {
-  it("closeSession 后 cleanupAuthDeadlines 不再处理该 session", async () => {
-    const pi = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
-    pi.authDeadline = Date.now() - 1000;
-
-    closeSession("session-key-A", "manual-close");
-    const result = cleanupAuthDeadlines();
-    expect(result.expiredTemp).toBe(0);
   });
 });
 
@@ -254,26 +165,57 @@ describe("closeSession 与 cleanupAuthDeadlines 联合", () => {
 // ══════════════════════════════════════════════════════════════
 
 describe("ensureSession 副作用", () => {
-  it("新 session 默认 kind=p2p-temp + authDeadline 已设置", async () => {
-    const pi = await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
-    expect(pi.kind).toBe("p2p-temp");
-    expect(pi.authDeadline).toBeGreaterThan(Date.now());
-    expect(pi.authRoundsUsed).toBe(0);
-    expect(pi.createdAt).toBeLessThanOrEqual(Date.now());
+  it("新 session 默认 authorized=false", async () => {
+    const pi = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    expect(pi.authorized).toBe(false);
   });
 
   it("spawn 被调用一次", async () => {
-    await ensureSessionWithSlot("session-key-A", VALID_CHAT_ID_A, "p2p-temp");
+    await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
     expect(mockedSpawn).toHaveBeenCalledTimes(1);
   });
 
-  it("tryReserveSlot 失败时（业务配额满）ensureSession 拒绝创建", async () => {
-    // 占满 p2p-business 配额
-    expect(tryReserveSlot("p2p-business")).toBe(true);
-    // 此时 p2p-business 已占 1 个槽位（MAX=9），不影响 p2p-temp
-    // 直接验证 p2p-temp 配额满
-    expect(tryReserveSlot("p2p-temp")).toBe(true);
-    // 再占用应该失败
-    expect(tryReserveSlot("p2p-temp")).toBe(false);
+  it("鉴权后设置 authorized=true → closeSession 释放槽位", async () => {
+    const pi = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    pi.authorized = true; // 模拟 ingress 鉴权通过
+    expect(countAuthorized()).toBe(1);
+
+    closeSession("session-key-A", "matched-done");
+    expect(countAuthorized()).toBe(0);
+  });
+
+  it("/switch 关闭会话后下次 ensureSession 创建新 session（authorized=false）", async () => {
+    const pi1 = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    pi1.authorized = true;
+    closeSession("session-key-A", "/switch");
+
+    // 重新创建会话（同一 chat_id → 同一 key）
+    const pi2 = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    expect(pi2.authorized).toBe(false);
+    // 两次创建是不同的 session 对象
+    expect(pi1).not.toBe(pi2);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// 混合场景
+// ══════════════════════════════════════════════════════════════
+
+describe("多 session 混合", () => {
+  it("独立会话的 authorized 状态互不影响", async () => {
+    const piA = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    const piB = await ensureSessionWithAuthSlot("session-key-B", VALID_CHAT_ID_B);
+
+    piA.authorized = true;
+    expect(piA.authorized).toBe(true);
+    expect(piB.authorized).toBe(false);
+  });
+
+  it("配额满时（MAX_AUTHED_SLOTS=10）无法创建第 11 个已鉴权会话", () => {
+    for (let i = 0; i < 10; i++) {
+      expect(tryReserveAuthorizedSlot()).toBe(true);
+    }
+    expect(tryReserveAuthorizedSlot()).toBe(false);
+    expect(countAuthorized()).toBe(10);
   });
 });

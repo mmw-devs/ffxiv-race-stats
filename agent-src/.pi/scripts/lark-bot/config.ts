@@ -139,20 +139,10 @@ export const MAX_QUEUE_DEPTH = 100;
 
 // ═══════════════ 私聊侧 MVP（会话分类配额） ═══════════════
 
-// 私聊会话分类配额（与 MAX_SESSIONS 解耦：MAX_SESSIONS 是 per-process 上限，
-// MAX_P2P_TEMP_SLOTS + MAX_P2P_BUSINESS_SLOTS 是按会话类型分类配额）
-// 业务私聊配额 = MAX_P2P_SESSIONS - MAX_P2P_TEMP_SLOTS（隐含 = 9）
-export const MAX_P2P_TEMP_SLOTS = 1;
-export const MAX_P2P_BUSINESS_SLOTS = 9;
-
-// 鉴权窗口：临时私聊最长存活时间（ms）
-export const P2P_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
-
-// 鉴权窗口：临时私聊最多接收用户消息数（agent 上限）
-export const P2P_AUTH_MAX_ROUNDS = 2;
-
-// 业务私聊空闲超时（ms）：3 天无活跃则由 60s 清理器关闭
-export const P2P_IDLE_TIMEOUT_MS = 3 * 24 * 60 * 60 * 1000;
+// 私聊会话配额（与 MAX_SESSIONS 解耦：MAX_SESSIONS 是 per-process 上限，
+// MAX_AUTHED_SLOTS 是已鉴权会话的并发上限）。
+// 超过此配额时，新增会话走 no_match 分支拒绝（防资源耗尽）。
+export const MAX_AUTHED_SLOTS = 10;
 
 // ═══════════════ 群组鉴权（事件驱动 / 零轮询） ═══════════════
 
