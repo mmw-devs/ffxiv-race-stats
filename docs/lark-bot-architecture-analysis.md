@@ -263,7 +263,7 @@ settings.json 示例：
 | LLM 调用成本 | 中 | N3 §7.4 | registerTool description 精炼 |
 | OPERATOR_REGISTRY 注入 | 低 | N3 §7.5 | MVP 阶段 2 项，按需 registerTool 查询 |
 | 跨 PR 合并冲突 | 中 | N4 §10 | 建议串行 PR-1 → PR-2 → PR-3 → PR-4 |
-| feature flag 累积 | 低 | N4 §10 | 4 个是 MVP 上限；后续需整合 |
+| feature flag 累积 | 低 | N4 §10 | 5 个是 MVP 上限；后续需整合 |
 | PI Agent 协议不稳定 | 高 | N2 §7.1 / N4 §10 | feature flag 临时启用 matchesCloseIntent 兜底 |
 
 ## 11. 文档清单（第一阶段 6 个产出物）
@@ -274,12 +274,16 @@ settings.json 示例：
 | N1 | `docs/lark-bot-business-flow.md` | 291 | 业务流图（MVP 七阶段 + 任务日志对象生命周期） |
 | N2 | `docs/lark-bot-pi-agent-contract.md` | 450 | PI Agent 上游契约盘点与不稳定点清单 |
 | N3 | `docs/lark-bot-extension-migration-analysis.md` | 383 | spawn 模式 vs 标准 extension 模式对比 |
-| N4 | `docs/lark-bot-migration-roadmap.md` | 831 | 渐进迁移路线图 + registerTool 契约设计 |
-| N5 | `docs/lark-bot-task-journal-schema.md` | 413 | 任务日志对象 schema（OPERATOR_LOG 对齐版） |
-| **N6** | `docs/lark-bot-architecture-analysis.md`（本文档） | 404 | **第一阶段汇总** |
-| 审查报告 | `docs/lark-bot-review-report.md` | 416 | 由 reviewer subagent 产出的一致性审查报告 |
+| N4 | `docs/lark-bot-migration-roadmap.md` | 833 | 渐进迁移路线图 + registerTool 契约设计 |
+| N5 | `docs/lark-bot-task-journal-schema.md` | 427 | 任务日志对象 schema（OPERATOR_LOG 对齐版） |
+| **N6** | `docs/lark-bot-architecture-analysis.md`（本文档） | 407 | **第一阶段汇总** |
+| 审查报告 1 | `docs/lark-bot-review-report.md` | 416 | 第 1 轮 reviewer 一致性审查报告（6 高 / 11 中 / 7 低） |
+| 审查报告 2 | `docs/lark-bot-review-report-revised.md` | 254 | 第 2 轮 reviewer 复审报告（9 残留 + 1 计数不一致） |
+| 审查报告 3 | `docs/lark-bot-review-report-final.md` | 221 | 第 3 轮 reviewer 最终复审报告（2 边角残留） |
+| 审查报告 4 | `docs/lark-bot-review-report-l3.md` | 84 | 第 4 轮 reviewer L3 验证报告（pass） |
+| 会话复审 | `docs/lark-bot-session-review.md` | 368 | 第 5 轮 reviewer 内容一致性复审报告（2 实质 + 2 形式残留） |
 
-合计：2772（不含 review report）。
+合计：3334（不含 5 份审查报告）。
 
 **注**：行数随修订变化，以 `wc -l docs/lark-bot-*.md` 为准。
 
