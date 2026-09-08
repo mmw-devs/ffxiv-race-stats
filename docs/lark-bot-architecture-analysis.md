@@ -89,7 +89,26 @@ PI Agent (extension host)
 - 嵌入方式：`formatCommitMessage(shortDesc, log)` → commit message 4 反引号 JSON 块
 - 校验脚本：`validate-op-log.ts`（ops CI 在 PR 合并前校验）
 
-**关键发现**：当前 MVP 缺失**业务私聊 → PR 提交**的完整路径，task_journal buffer → LogEntry 转换逻辑需新增。
+**任务日志对象跨越两个事件边界**（与业务生命周期紧密关联）：
+
+| 边界 | 事件 | 触发 registerTool |
+|------|------|-----------------|
+| 会话生命周期 | 创建 | 鉴权成功时初始化 buffer |
+| 会话生命周期 | 销毁 | `larkbot_close_business_session` |
+| PR 生命周期 | 提交 | `larkbot_commit_changes` + content-pr skill |
+
+**职责划分**：
+
+- lark-bot 负责 buffer 累积 + LogEntry 转换 + commitMessage 生成
+- content-pr skill 负责 git commit / push / gh pr create / merge
+- ops CI（validate-op-log.ts）负责 PR 合并前的 LogEntry 校验
+
+**关键发现**：
+
+- 当前 MVP 缺失**业务私聊 → PR 提交**的完整路径
+- task_journal buffer → LogEntry 转换逻辑需新增（PR-4）
+- content-pr skill 已实现完整的 PR 提交流程，不需修改
+- content-pr skill 需要补充说明：如何从 lark-bot 拿 LogEntry（PR-4 修订）
 
 ## 3. 五个综合决策
 
@@ -126,7 +145,7 @@ PI Agent (extension host)
 | `feishu_send_group_message` | `broadcast/group-tool.ts sendGroupMessage` |
 | `feishu_list_bot_groups` | `broadcast/group-tool.ts listAllBotGroups` |
 
-### 5.2 业务（PR-2 + PR-4，5 个）
+### 5.2 业务（PR-2 + PR-4，6 个）
 
 | registerTool | 替换实现 | PR |
 |--------------|---------|-----|
@@ -134,7 +153,15 @@ PI Agent (extension host)
 | `larkbot_authorize_user` | `auth.ts authorize / substringMatch` | PR-2 |
 | `larkbot_resolve_operator` | `identity-resolver.ts resolveOperator` | PR-2 |
 | `larkbot_record_change` | 无（缺失路径补齐） | PR-4 |
+| `larkbot_commit_changes` | 无（buffer → LogEntry 转换 + commitMessage 返回） | PR-4 |
 | `larkbot_close_business_session` | 无 | PR-4 |
+
+**关键设计**：
+
+- `larkbot_commit_changes` 与 `larkbot_close_business_session` **不联动**——LLM 决策何时调用
+- `larkbot_commit_changes` 不持有 git 权限——实际 git 操作由 content-pr skill 完成
+- `larkbot_commit_changes` 后 buffer.changes 清空——支持一次会话多次 PR
+- `larkbot_close_business_session` 不强制 changes 非空——会话关闭与提交 PR 是两个事件
 
 ### 5.3 桥接与调试（1 个）
 
@@ -153,6 +180,7 @@ PI Agent (extension host)
 | `larkBot.useAgentMatcher` | PR-2 | true | 是否依赖 LLM 决策（vs substringMatch） |
 | `larkBot.useNaturalLanguageClose` | PR-3 | false | 是否启用自然语言兜底（vs 仅 NDJSON） |
 | `larkBot.enableTaskJournal` | PR-4 | true | 是否启用 task_journal buffer |
+| `larkBot.commitOnClose` | PR-4 | false | 会话关闭时是否自动 commit_changes |
 
 settings.json 示例：
 
@@ -269,6 +297,37 @@ settings.json 示例：
 ### 12.3 估时
 
 待第一阶段 review 后估算（issue #168 明确）。
+
+### 12.4 Skill 修订清单（与 PR-1 / PR-4 配套）
+
+lark-bot 重构涉及两个 skill 修订（同步作为独立 PR 提交）：
+
+#### A. lark-bot-protocol skill 修订（PR-1 + PR-3 落地时）
+
+位置：`agent-src/.pi/skills/lark-bot-protocol/SKILL.md`
+
+| 修订项 | 时机 | 依据 |
+|-------|------|------|
+| 增加 `task_change` NDJSON 事件说明 | PR-1 | N5 §9.1 提议 |
+| 增加 `auth_decision` NDJSON 事件说明 | PR-1 | 决策 4 / N5 §4 |
+| 删除 close_session 三处兜底说明 | PR-3 | N4 §5 |
+| description 修订：增加 registerTool 调用契约说明 | PR-1 | N3 §5 registerTool 列表 |
+
+#### B. content-pr skill 修订（PR-4 落地时）
+
+位置：`agent-src/.pi/skills/content-pr/SKILL.md`
+
+| 修订项 | 时机 | 依据 |
+|-------|------|------|
+| 在工作流中说明：从 lark-bot 获取 commitMessage 的 registerTool 调用（`larkbot_commit_changes`） | PR-4 | N4 §6.5 + N5 §6 |
+| 明确 LogEntry 转换由 lark-bot 完成，content-pr 只负责 git 操作 | PR-4 | N5 §10 |
+| description 修订：增加"接收 lark-bot 提交的 commitMessage" | PR-4 | N5 §6 |
+
+#### C. lark-bot skill（空目录）
+
+位置：`agent-src/.pi/skills/lark-bot/`（当前无 SKILL.md）
+
+状态：未实现。第二阶段启动时确认是否需要新增 skill 作为 lark-bot-extension 的对外文档。
 
 ## 13. 引用
 
