@@ -111,7 +111,23 @@ PI Agent (extension host)
 - content-pr skill 已实现完整的 PR 提交流程，不需修改
 - content-pr skill 需要补充说明：如何从 lark-bot 拿 LogEntry（PR-4 修订）
 
-## 3. 五个综合决策
+### 2.7 PR-1 后私聊会话隔离层级
+
+PR-1 后【不】共享单一 PI Agent session，多 chat 上下文混合会引发鉴权失效 / 业务错乱 / PR 提交错误。隔离分五层：
+
+| 层级 | 隔离机制 | 实现位置 |
+|------|---------|---------|
+| 进程隔离 | 所有 chat 共享同一 PI Agent extension 进程（消除 spawn） | extensions/lark-bot/index.ts |
+| **PI Agent session 隔离** | **per-chat sub-session**（`.pi/sessions/bot-p2p-<chatId>/`） | `larkbot_fetch_pending_events` 返回 `subSessionId` |
+| **LLM 上下文隔离** | sub-session 独立 JSONL，LLM 仅看到当前 chat 消息历史 | sub-session 隔离 |
+| 业务状态隔离 | lark-bot module-level `Map<chatId, ...>` 路由 | `sessions` / `taskJournals` Map |
+| 任务日志隔离 | per-chat `TaskJournal`（LLM 不会跨 chat 访问） | `taskJournals Map<chatId, TaskJournal>` |
+
+**为何不能仅靠应用层隔离**：registerTool 内部按 chatId 路由不会越界，但 LLM 决策层可能跨 chat 错传参数（鉴权失效 / 业务错乱 / PR 提交错误）。隔离必须从 LLM context 层级保证。
+
+详见 N4 §3.7 飞书 WS 桥接方案设计与 registerTool `larkbot_fetch_pending_events` 契约。
+
+## 3. 六个综合决策
 
 | # | 决策点 | 选择 | 依据 |
 |---|--------|------|------|
@@ -120,12 +136,13 @@ PI Agent (extension host)
 | 3 | 任务日志嵌入 | 走 OPERATOR_LOG 已有基础设施（LogEntry + commit message JSON 块） | `op-log-schema.ts` 已完整实现且 PR#85 已验证 |
 | 4 | 鉴权数据源 | 群组缓存 + 成员资格校验保留 lark-bot；语义匹配迁 Agent | MVP "业务层不调协议层"约束 + registerTool 注入 |
 | 5 | 会话边界 | MVP 七阶段生命周期 + 补齐"会话 → PR"连接 | MVP 设计意图 + OPERATOR_LOG 设计对齐 |
+| 6 | 私聊会话隔离 | 应用层隔离（module-level Map）+ per-chat PI Agent sub-session | 避免 LLM 跨 chat 上下文污染（鉴权失效 / 业务错乱 / PR 错误） |
 
 ## 4. PR 拆分总览
 
 | PR | 内容 | 关键删除 | 关键新增 | 决策 |
 |----|------|---------|---------|------|
-| **PR-1** | extension 化（消除 PI Agent 子进程层） | `process.ts` / `spawnPiProcess` / `handlePiEvent` NDJSON | 7 个 `feishu_*` registerTool + 飞书 WS 桥接 | 决策 1 |
+| **PR-1** | extension 化（消除 PI Agent 子进程层） | `process.ts` / `spawnPiProcess` / `handlePiEvent` NDJSON | 7 个 `feishu_*` registerTool + 飞书 WS 桥接 + per-chat sub-session 管理 | 决策 1 + 决策 6 |
 | **PR-2** | 鉴权判定迁 PI Agent LLM | `substringMatch` / `agentMatcher` 钩子 | `larkbot_list_candidate_groups` / `larkbot_authorize_user` / `larkbot_resolve_operator` | 决策 4 |
 | **PR-3** | 关闭意图删除本地正则 | `matchesCloseIntent` / `parseCloseSessionFromText` | （依赖 PI Agent emit close_session 稳定） | 决策 5 |
 | **PR-4** | 任务日志对象接入 OPERATOR_LOG | 无（缺失路径补齐） | `larkbot_record_change` / `larkbot_commit_changes` / `larkbot_close_business_session` / `larkbot_query_journal` | 决策 3 + 决策 5 |
@@ -274,9 +291,9 @@ settings.json 示例：
 | N1 | `docs/lark-bot-business-flow.md` | 291 | 业务流图（MVP 七阶段 + 任务日志对象生命周期） |
 | N2 | `docs/lark-bot-pi-agent-contract.md` | 450 | PI Agent 上游契约盘点与不稳定点清单 |
 | N3 | `docs/lark-bot-extension-migration-analysis.md` | 383 | spawn 模式 vs 标准 extension 模式对比 |
-| N4 | `docs/lark-bot-migration-roadmap.md` | 832 | 渐进迁移路线图 + registerTool 契约设计 |
+| N4 | `docs/lark-bot-migration-roadmap.md` | 876 | 渐进迁移路线图 + registerTool 契约设计 |
 | N5 | `docs/lark-bot-task-journal-schema.md` | 427 | 任务日志对象 schema（OPERATOR_LOG 对齐版） |
-| **N6** | `docs/lark-bot-architecture-analysis.md`（本文档） | 413 | **第一阶段汇总** |
+| **N6** | `docs/lark-bot-architecture-analysis.md`（本文档） | 430 | **第一阶段汇总** |
 | 审查报告 1 | `docs/lark-bot-review-report.md` | 416 | 第 1 轮 reviewer 一致性审查报告（6 高 / 11 中 / 7 低） |
 | 审查报告 2 | `docs/lark-bot-review-report-revised.md` | 254 | 第 2 轮 reviewer 复审报告（9 残留 + 1 计数不一致） |
 | 审查报告 3 | `docs/lark-bot-review-report-final.md` | 221 | 第 3 轮 reviewer 最终复审报告（2 边角残留） |
@@ -284,8 +301,10 @@ settings.json 示例：
 | 会话复审 | `docs/lark-bot-session-review.md` | 368 | 第 5 轮 reviewer 内容一致性复审报告（2 实质 + 2 形式残留） |
 | 审查报告 6 | `docs/lark-bot-review-report-session.md` | 148 | 第 6 轮 reviewer 表述一致性再验证报告（1 自指漂移） |
 | 行数专项 | `docs/lark-bot-review-report-linecount.md` | 273 | 第 7 轮 reviewer 行数一致性专项报告（pass） |
+| SSOT 复审 | `docs/lark-bot-review-report-ssot.md` | 422 | 第 8 轮 reviewer 方案 B + SSOT 一致性复审报告（minor） |
+| 内容迁移 | `docs/lark-bot-review-report-migration.md` | 255 | 第 9 轮 reviewer 内容迁移检查报告（minor） |
 
-合计：2796（不含 7 份审查报告）。
+合计：2857（不含 9 份审查报告）。
 
 **注**：行数随修订变化，以 `wc -l docs/lark-bot-*.md` 为准（上次更新 2026-09-08）。
 
