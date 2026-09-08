@@ -68,7 +68,7 @@ sequenceDiagram
     LB->>LB: hasSeen / markSeen 去重
     alt 命令或鉴权
         LB->>LB: /quit 或 /switch → 直接 close
-        LB->>A: authorize_user 决策<br/>(registerTool，N4 落地)
+        LB->>A: authorize_user 决策<br/>(registerTool，PR-2 落地)
         A-->>LB: {chatId, reasoning}
         LB->>LB: matched → kind=p2p-business<br/>+ matched broadcast
         LB->>G: broadcast(matched)
@@ -81,14 +81,20 @@ sequenceDiagram
         A-->>LB: agent_settled + agent 回复文本
         LB->>FS: sendReplyGetId(msg_id, text)
         FS-->>U: 飞书收到 bot 回复
-    else 关闭意图
-        A->>LB: close_business_session (NDJSON)<br/>(registerTool，N4 落地)
-        LB->>LB: cleanupSessionForClose<br/>+ task_journal → LogEntry
-        LB->>A: 返回 LogEntry 对象
-        A->>A: formatCommitMessage(shortDesc, log)
-        A->>PR: 提交 PR（data.json 变更 + commit 含 OPERATOR_LOG）
+    else 提交 PR（不关闭会话）
+        A->>LB: commit_changes({shortDesc})
+        LB->>LB: buffer → LogEntry → commitMessage<br/>changes 清空（会话元数据保留）
+        LB-->>A: {logEntry, commitMessage, journalReset: true}
+        A->>A: 调用 content-pr skill 完成<br/>git commit / push / gh pr create<br/>（不是 lark-bot 职责）
+        A->>A: 等待用户回复"合并"<br/>gh pr merge --squash
+        Note over A,LB: 会话保持 kind=p2p-business<br/>后续业务变更继续累积
+    else 结束任务（不提交 PR）
+        A->>LB: close_business_session
+        LB->>LB: cleanupSessionForClose 六步清理<br/>buffer 删除（未提交 changes 丢失）
         LB->>G: broadcast(ended) + 引用 matched 消息
-        G-->>U: 群组收到"申请结束"通知
+        LB-->>A: {status: 'closed', broadcastMessageId}
+        A->>FS: sendReply("任务已结束")
+        FS-->>U: 飞书收到 bot 回复
     end
 ```
 
@@ -133,23 +139,82 @@ flowchart LR
 
 ## 6. 任务日志对象生命周期（业务留痕主路径）
 
-> 这是 MVP 设计意图中**当前缺失**的环节。补齐后形成"会话 → PR"的完整业务留痕链。
+> 这是 MVP 设计意图中**当前缺失**的环节。任务日志对象跨越两个事件边界：
+> - 会话生命周期（创建 / 销毁）
+> - PR 生命周期（提交）
+>
+> 两者紧密关联但独立触发。业务私聊会话可跨多次 PR 提交；业务会话关闭不强制提交 PR。
+
+### 6.1 四个生命周期阶段
 
 ```mermaid
 flowchart TD
-    Start[鉴权成功<br/>kind=p2p-business] --> Init["task_journal buffer 初始化<br/>task_journal = {operator, session_start, changes: []}"]
-    Init --> Recv[接收业务指令]
-    Recv --> Decide{Agent 决策}
-    Decide -->|业务操作| Record[registerTool record_change<br/>append ChangeEntry]
-    Decide -->|纯查询| Query[registerTool query_state<br/>不写 journal]
-    Record --> More{继续业务?}
-    Query --> More
-    More -->|是| Recv
-    More -->|否 / 关闭意图| Close[close_business_session]
-    Close --> Convert["task_journal → LogEntry<br/>operator = user_id<br/>timestamp = ISO<br/>changes = ChangeEntry[]"]
-    Convert --> Embed["Agent 调用 formatCommitMessage<br/>嵌入 commit message 4反引号 JSON 块"]
-    Embed --> CI[走 ops CI 提交 PR]
-    CI --> Audit["PR 合入后<br/>/tmp/lark-bot-tasks.jsonl 同步写入审计<br/>(双写)"]
+    subgraph 创建阶段
+        S1[鉴权成功<br/>kind=p2p-business] --> S2["task_journal buffer 初始化<br/>operator 锁定 / groupId / matchedBroadcastMessageId"]
+    end
+    subgraph 累积阶段
+        S2 --> S3[接收业务指令]
+        S3 --> S4{Agent 决策}
+        S4 -->|业务操作| S5[record_change<br/>append ChangeEntry]
+        S4 -->|纯查询| S6[不写 journal]
+        S5 --> S7{继续业务?}
+        S6 --> S7
+        S7 -->|是| S3
+        S7 -->|否| Done[业务告一段落]
+    end
+    subgraph 提交阶段[PR 生命周期]
+        Done --> Commit{commit_changes?}
+        Commit -->|是| C1[buffer → LogEntry 转换<br/>operator / timestamp / changes]
+        C1 --> C2[formatCommitMessage 生成 commitMessage]
+        C2 --> C3["buffer.changes 清空<br/>会话元数据保留<br/>支持多次 PR"]
+        C3 --> C4[LLM 调 content-pr skill 完成<br/>git commit / push / gh pr create<br/>（不是 lark-bot 职责）]
+        C4 --> C5[等待用户回复'合并'<br/>gh pr merge --squash]
+        Commit -->|否| Stay[保留累积，等待后续指令]
+        Stay --> Done
+    end
+    subgraph 销毁阶段
+        Done --> Close{close_business_session?}
+        Close -->|是| D1[cleanupSessionForClose 六步清理]
+        D1 --> D2[ended 广播 + 引用 matched 消息]
+        D2 --> D3[删除 task_journal buffer]
+        D3 --> D4[audit journal 写 terminated]
+        Close -->|否| Done
+    end
+```
+
+### 6.2 职责划分
+
+| 阶段 | lark-bot 职责 | content-pr skill 职责 |
+|------|--------------|---------------------|
+| 创建 | 初始化 buffer / 锁定 operator | — |
+| 累积 | 追加 ChangeEntry（larkbot_record_change） | — |
+| 提交 | buffer → LogEntry 转换 / 生成 commitMessage | git commit / push / gh pr create / merge |
+| 销毁 | cleanupSessionForClose / ended 广播 / buffer 删除 | — |
+
+### 6.3 LogEntry 形态
+
+LogEntry 形态（来自 `agent-src/scripts/op-log-schema.ts`）：
+
+```typescript
+interface LogEntry {
+  operator: string;        // 飞书稳定 user_id（OPERATOR_REGISTRY 校验）
+  timestamp: string;       // ISO 8601
+  changes: ChangeEntry[];  // 字段级 diff
+}
+interface ChangeEntry {
+  field: string;           // JSONPath-like: "teams[0].bossHP"
+  from: unknown;           // 操作前值（undefined = 新增）
+  to: unknown;             // 操作后值（undefined = 删除）
+}
+```
+
+`OPERATOR_REGISTRY` 真源（来自 `agent-src/scripts/op-log-schema.ts`）：
+
+```typescript
+export const OPERATOR_REGISTRY: OperatorRegistry = {
+  "38a32652": { name: "weunimix" },
+  "311a2ea5": { name: "赤墓" },
+};
 ```
 
 LogEntry 形态（来自 `agent-src/scripts/op-log-schema.ts`）：
