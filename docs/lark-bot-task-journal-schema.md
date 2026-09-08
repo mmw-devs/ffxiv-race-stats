@@ -391,7 +391,7 @@ ops CI 校验（PR 合并前）
 | 测试类型 | 覆盖点 | 状态 |
 |---------|--------|------|
 | 单元测试 | `taskJournalToLogEntry` 转换正确性 | 新增（PR-4） |
-| 单元测试 | `closeBusinessSession` 在 changes 为空时拒绝 | 新增（PR-4） |
+| 单元测试 | `larkbot_commit_changes` 在 changes 为空时拒绝 | 新增（PR-4） |
 | 单元测试 | buffer 启动时 operator 校验失败 → 立即清理 | 新增（PR-4） |
 | 单元测试 | `larkbot_record_change` 字段路径非法处理 | 新增（PR-4） |
 | 集成测试 | `larkbot_commit_changes` → audit journal 双写 | 新增（PR-4） |
