@@ -208,39 +208,83 @@ export default function (pi: ExtensionAPI) {
 
 ### 3.7 飞书 WS 桥接（PR-1 关键设计点）
 
-**问题**：registerTool 是 LLM 触发的，飞书 WS 事件是被动接收的，两者如何桥接？
+**问题 1**：registerTool 是 LLM 触发的，飞书 WS 事件是被动接收的，两者如何桥接？
 
-**方案**：lark-bot extension 在 `session_start` 启动 lark-cli event consume 子进程（保留），事件接收在 module-level 异步队列，事件触发时：
+**问题 2**（焦发点）：PR-1 后如何隔离不同私聊会话？多 chat 共享 PI Agent session 会导致 LLM 看见跨 chat 消息混杂，引发鉴权失效 / 业务错乱 / PR 提交错误。
+
+**方案**：
+
+lark-bot extension 在 `session_start` 启动 lark-cli event consume 子进程（保留）。事件接收后路由到**对应 chat 的 PI Agent sub-session**：
 
 ```typescript
-// module-level 事件队列
+// module-level 事件队列（按 chatId 路由）
 const pendingEvents: Map<chatId, LarkEvent[]> = new Map();
+// module-level sub-session 缓存（按 chatId 索引）
+const subSessions: Map<chatId, SubSession> = new Map();
+
+// per-chat sub-session 管理（关键：隔离 LLM 上下文）
+async function ensureSubSession(
+  chatId: string,
+  ctx: ExtensionContext
+): Promise<SubSession> {
+  let sub = subSessions.get(chatId);
+  if (sub) return sub;
+  const sessionDir = join(PROJECT_DIR, ".pi", "sessions", `bot-p2p-${chatId.replace(/:/g, "-")}`);
+  mkdirSync(sessionDir, { recursive: true });
+  sub = await ctx.forkOrCreate({ sessionDir });
+  subSessions.set(chatId, sub);
+  return sub;
+}
 
 // lark-cli event consume stdout handler
 function onLarkEvent(event: LarkEvent) {
   const queue = pendingEvents.get(event.chat_id) ?? [];
   queue.push(event);
   pendingEvents.set(event.chat_id, queue);
-
-  // 触发 LLM 上下文注入（如果该 chat_id 已有 active session）
-  triggerLlmContextInjection(event.chat_id);
 }
 
-// LLM 通过 registerTool 拉取待处理事件
+// LLM 拉取事件 + 获取当前 chat 的 sub-session
 registerTool("larkbot_fetch_pending_events", {
-  parameters: Type.Object({ chatId: Type.String() }),
-  execute: async ({ chatId }) => {
+  description: "拉取当前 chat 的待处理飞书事件",
+  parameters: Type.Object({
+    chatId: Type.String({ description: "当前私聊 chat_id" }),
+  }),
+  execute: async ({ chatId }, ctx) => {
+    // 1. 校验 chatId 参数与 ctx 当前 chatId 一致（防 LLM 错传）
+    //    注：registerTool 不接受 chatId 参数时该校验可省略（由 ctx 提供）
+    // 2. 返回该 chat 的事件队列
     const events = pendingEvents.get(chatId) ?? [];
     pendingEvents.delete(chatId);
-    return { events };
+    // 3. 同时返回该 chat 的 sub-session 句柄（用于后续喂 prompt）
+    const sub = await ensureSubSession(chatId, ctx);
+    return { events, subSessionId: sub.id };
   },
 });
 ```
 
+**隔离层级**：
+
+| 层级 | 隔离机制 |
+|------|---------|
+| **进程隔离** | 全部 chat 共享同一 PI Agent extension 进程（消除 spawn） |
+| **PI Agent session 隔离** | per-chat sub-session（`.pi/sessions/bot-p2p-<chatId>/`） |
+| **LLM 上下文隔离** | sub-session 独立 JSONL，LLM 仅看到当前 chat 的消息历史 |
+| **业务状态隔离** | lark-bot module-level `Map<chatId, ...>` 路由 |
+| **任务日志隔离** | per-chat `TaskJournal`（LLM 不会跨 chat 访问） |
+
 **约束**：
 
-- registerTool `larkbot_fetch_pending_events` 是 LLM 主动拉取，不是事件触发
-- LLM 决策后调用其他 registerTool 处理事件（鉴权 / 业务 / 关闭）
+- LLM context 与 PI Agent session 一一对应，每个 chat 独立
+- registerTool `larkbot_fetch_pending_events` 增加 `subSessionId` 返回，供后续 prompt 使用
+- 所有后续 prompt 转发都走 `sub.prompt({ message })`，不直接走 PI Agent host
+- `pi.on('session_shutdown')` 清理 `subSessions Map`（与清理 `sessions` / `taskJournals` Map 同步）
+
+**为何不能跨 chat 共享 session**：
+
+- 鉴权失效：LLM 可能用 chat A 的 openId 调用 chat B 的 `larkbot_authorize_user`，导致用户被莫名拒绝
+- 业务错乱：LLM 可能把 chat A 的变更累积到 chat B 的 task_journal buffer
+- PR 提交错误：LLM 可能错用 chat B 的 buffer 提交 chat A 的 PR
+- 鉴权窗口重叠：LLM 无法清晰区分两个 chat 的鉴权状态
 
 ### 3.8 测试覆盖（PR-1）
 
