@@ -512,22 +512,52 @@ if (useNaturalLanguageClose) {
   },
 }
 
-// larkbot_close_business_session
+// larkbot_commit_changes
+// 注：PR 提交（git commit / push / gh pr create / gh pr merge）由 content-pr skill 完成，
+// 不在本 registerTool 职责范围内。本工具只负责"buffer → LogEntry 转换 + 返回 commitMessage"，
+// 实际 git 操作由 LLM 拿到 commitMessage 后调用 content-pr skill 完成。
 {
-  name: "larkbot_close_business_session",
-  label: "关闭业务私聊",
-  description: "业务私聊结束时调用。把 task_journal buffer 转换为 LogEntry，返回给 LLM 用于嵌入 commit message。",
+  name: "larkbot_commit_changes",
+  label: "提交业务变更（生成 commit message）",
+  description: "把 task_journal buffer 转换为 LogEntry，生成 commit message 返回给 LLM。LLM 拿到后必须调用 content-pr skill 完成 git 操作（commit / push / PR / merge）。提交成功后 buffer 清空，下一次 commit 重新累积。",
   parameters: Type.Object({
     shortDesc: Type.String({ description: "commit message 第一行简短描述", maxLength: 100 }),
   }),
   execute: async ({ shortDesc }, ctx) => {
-    // 校验当前 session 有 task_journal buffer
-    // 校验 buffer.changes 非空（fail-closed）
-    // 校验 buffer.operator 在 OPERATOR_REGISTRY
-    // 转换 buffer → LogEntry
-    // 调用 formatCommitMessage(shortDesc, log) 生成 commit message
-    // 清理 buffer + 触发 broadcast(ended)
-    // 返回 {logEntry, commitMessage, broadcast: 'ended'}
+    // 1. 校验 task_journal buffer 存在
+    // 2. 校验 buffer.changes 非空（fail-closed）
+    // 3. 校验 buffer.operator 在 OPERATOR_REGISTRY
+    // 4. 转换 buffer → LogEntry（generateLog）
+    // 5. 调用 formatCommitMessage(shortDesc, log) 生成 commitMessage
+    // 6. 清空 buffer.changes（保留 operator / groupId / matchedBroadcastMessageId 等会话元数据）
+    // 7. audit journal 写一条 {state: 'awaiting_review', shortDesc, changesCount}
+    // 8. 返回 {logEntry, commitMessage, journalReset: true}
+    //    LLM 必须用 commitMessage 调 content-pr skill 提交 PR
+    //    若 content-pr skill 失败，LLM 须告知用户；本次 commit 的 LogEntry 已在 audit journal
+  },
+}
+
+// larkbot_close_business_session
+// 注：与会话关闭耦合的事件清理（cleanupSessionForClose 六步 + ended 广播）。
+// 不提交 PR（PR 提交由 content-pr skill 独立完成）。
+// 不强制 changes 非空（关闭会话与提交 PR 是两个事件，业务会话可"无变更关闭"）。
+{
+  name: "larkbot_close_business_session",
+  label: "关闭业务私聊会话",
+  description: "关闭当前业务私聊会话（kind=p2p-business → null），触发 ended 广播，清理 session 与 journal buffer。不提交 PR；如需提交 PR 必须先调用 larkbot_commit_changes。",
+  parameters: Type.Object({}),
+  execute: async (_params, ctx) => {
+    // 1. 校验 session 已鉴权（kind=p2p-business）
+    // 2. cleanupSessionForClose 六步清理：
+    //    - sessions.delete(chatId)
+    //    - sessions.get(chatId).proc?.kill()（no-op，PR-1 后无 proc）
+    //    - 清空 activeTask / waitingTasks / pendingResultFetch
+    //    - emitTaskJournal({state: 'terminated', reason})
+    //    - releaseAuthorizedSlot
+    //    - 表情切换 + 飞书回复（已无 activeTask，仅 ended 广播）
+    // 3. 触发 broadcast(ended)（replyToMessageId = matched.message_id）
+    // 4. 删除 task_journal buffer（无论是否已提交，本次会话的 LogEntry 保留在 audit journal）
+    // 5. 返回 {status: 'closed', broadcastMessageId}
   },
 }
 
@@ -563,36 +593,98 @@ if (useNaturalLanguageClose) {
   → 存入 taskJournals.set(chatId, journal)
 ```
 
-### 6.7 LLM 业务流（PR-4 后）
+### 6.7 LLM 业务流（PR-4 后，按用户场景拆分）
+
+业务私聊生命周期与 PR 提交是**两个紧密关联但独立**的事件。LLM 根据用户输入决定调用哪些 registerTool：
+
+#### 场景 A：提交 PR（不关闭会话）
 
 ```
-1. LLM 决定"这是业务指令"（基于消息内容）
-2. LLM 修改 data.json 的字段（通过 larkbot_record_change 累积；MVP 阶段由 LLM 自己计算 from/to）
-3. LLM 调 larkbot_record_change({field, from, to}) × N
-4. 业务完成 → LLM 调 larkbot_close_business_session({shortDesc})
-5. lark-bot 返回 {logEntry, commitMessage}
-6. LLM 用 commitMessage 提交 git commit + ops CI PR
-7. ops CI 校验 commit message 含 OPERATOR_LOG → 合并入 main
-8. PR 合入后 audit journal 写一条（PR 合入 webhook）
+1. LLM 决定"用户想提交当前业务变更"
+2. LLM 调 larkbot_commit_changes({shortDesc})
+3. lark-bot 校验 buffer.changes 非空 + operator 在注册表
+4. lark-bot 生成 commitMessage + 清空 buffer.changes
+5. lark-bot 返回 {logEntry, commitMessage, journalReset: true}
+6. LLM 拿到 commitMessage，调 content-pr skill 完成：
+   - git checkout -b content/<操作>-<目标>
+   - git commit -m commitMessage
+   - git push
+   - gh pr create --base main
+   - 等待用户回复"合并"
+   - gh pr merge --squash --delete-branch
+7. 会话保持 kind=p2p-business；后续业务变更继续累积到 buffer
 ```
+
+#### 场景 B：结束任务（不提交 PR）
+
+```
+1. LLM 决定"用户想结束当前会话"
+2. LLM 调 larkbot_close_business_session
+3. lark-bot 走 cleanupSessionForClose 六步 + 结束广播
+4. lark-bot 删除 task_journal buffer（未提交的 changes 丢失，audit journal 写 terminated）
+5. lark-bot 返回 {status: 'closed', broadcastMessageId}
+6. LLM 调 feishu_send_reply 回复用户"任务已结束"
+```
+
+#### 场景 C：提交并结束（连续调用）
+
+```
+1. LLM 决定"用户想提交 PR 后结束会话"
+2. LLM 先调 larkbot_commit_changes（场景 A 步骤 2-5）
+3. LLM 调 content-pr skill 完成 git 操作
+4. LLM 再调 larkbot_close_business_session（场景 B 步骤 2-5）
+```
+
+#### 场景 D：无变更提交
+
+```
+1. LLM 决定"用户想提交 PR"
+2. LLM 调 larkbot_commit_changes
+3. lark-bot 校验 buffer.changes 为空 → 拒绝，返回 {error: 'changes 空，无法提交'}
+4. LLM 向用户回复"本次会话无业务变更，无需提交 PR"
+5. LLM 可继续业务操作或调 larkbot_close_business_session 结束会话
+```
+
+#### 关键约束
+
+- `larkbot_commit_changes` 与 `larkbot_close_business_session` **不联动**——LLM 决策何时调用
+- 实际 git 操作（commit / push / gh pr create / merge）由 content-pr skill 完成（不是 lark-bot 职责）
+- 一次业务私聊会话**支持多次 PR 提交**——每次 commit_changes 后 buffer.changes 清空，下次累积重新开始
+- 业务私聊会话关闭时未提交的 changes **丢失**（记 audit journal terminated），不影响已提交的 LogEntry（已在 git history）
 
 ### 6.8 双写策略
 
+`task_journal` 与 `audit journal` 是两个不同对象：
+
+| 对象 | 用途 | 持久化 |
+|------|------|--------|
+| task_journal buffer | 业务私聊会话内的累积（per-chat_id，内存） | module-level Map<chatId, TaskJournal> |
+| TaskJournalEntry / audit journal | 会话状态跃迁审计（开发排障） | /tmp/lark-bot-tasks.jsonl |
+| LogEntry / commit message | 业务留痕（嵌入 commit message） | git history（永久） |
+
+lark-bot 负责的双写时机：
+
 ```
-close_business_session 时：
-  1. task_journal → LogEntry 转换
+larkbot_commit_changes 时：
+  1. buffer → LogEntry 转换
   2. emitTaskJournal 写 audit journal 一条：
-     {state: 'awaiting_review', subject, changesCount, shortDesc}
-  3. LogEntry 返回 LLM 嵌入 commit message
+     {state: 'awaiting_review', shortDesc, changesCount}
+  3. LogEntry + commitMessage 返回 LLM
+  4. LLM 调 content-pr skill 提交 commit message
 
-PR 合入后（ops CI webhook）：
-  4. emitTaskJournal 写 audit journal 一条：
-     {state: 'post_review', prUrl, mergedAt}
-
-PR 拒绝合并：
-  5. emitTaskJournal 写 audit journal 一条：
-     {state: 'terminated', reason: 'pr_rejected', prUrl}
+larkbot_close_business_session 时：
+  1. cleanupSessionForClose 六步
+  2. emitTaskJournal 写 audit journal 一条：
+     {state: 'terminated', reason}
+  3. 删除 buffer
+  4. 触发 ended 广播
 ```
+
+不属于 lark-bot 范畴：
+
+- PR 合入 / 拒绝后 audit journal 更新——content-pr skill / ops CI 职责
+- commit message 嵌入 git——content-pr skill 职责
+- gh pr view / merge / 合并循环——content-pr skill 职责
 
 ### 6.9 测试覆盖（PR-4）
 
