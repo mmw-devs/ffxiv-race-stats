@@ -291,9 +291,9 @@ settings.json 示例：
 | N1 | `docs/lark-bot-business-flow.md` | 291 | 业务流图（MVP 七阶段 + 任务日志对象生命周期） |
 | N2 | `docs/lark-bot-pi-agent-contract.md` | 450 | PI Agent 上游契约盘点与不稳定点清单 |
 | N3 | `docs/lark-bot-extension-migration-analysis.md` | 383 | spawn 模式 vs 标准 extension 模式对比 |
-| N4 | `docs/lark-bot-migration-roadmap.md` | 832 | 渐进迁移路线图 + registerTool 契约设计 |
+| N4 | `docs/lark-bot-migration-roadmap.md` | 876 | 渐进迁移路线图 + registerTool 契约设计 |
 | N5 | `docs/lark-bot-task-journal-schema.md` | 427 | 任务日志对象 schema（OPERATOR_LOG 对齐版） |
-| **N6** | `docs/lark-bot-architecture-analysis.md`（本文档） | 413 | **第一阶段汇总** |
+| **N6** | `docs/lark-bot-architecture-analysis.md`（本文档） | 430 | **第一阶段汇总** |
 | 审查报告 1 | `docs/lark-bot-review-report.md` | 416 | 第 1 轮 reviewer 一致性审查报告（6 高 / 11 中 / 7 低） |
 | 审查报告 2 | `docs/lark-bot-review-report-revised.md` | 254 | 第 2 轮 reviewer 复审报告（9 残留 + 1 计数不一致） |
 | 审查报告 3 | `docs/lark-bot-review-report-final.md` | 221 | 第 3 轮 reviewer 最终复审报告（2 边角残留） |
@@ -302,7 +302,7 @@ settings.json 示例：
 | 审查报告 6 | `docs/lark-bot-review-report-session.md` | 148 | 第 6 轮 reviewer 表述一致性再验证报告（1 自指漂移） |
 | 行数专项 | `docs/lark-bot-review-report-linecount.md` | 273 | 第 7 轮 reviewer 行数一致性专项报告（pass） |
 
-合计：2796（不含 7 份审查报告）。
+合计：2857（不含 7 份审查报告）。
 
 **注**：行数随修订变化，以 `wc -l docs/lark-bot-*.md` 为准（上次更新 2026-09-08）。
 
