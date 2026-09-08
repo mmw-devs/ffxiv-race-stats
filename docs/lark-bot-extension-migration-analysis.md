@@ -188,7 +188,7 @@ extension 本体只做"何时启停 lark-bot 进程"，**不做任何业务逻�
 | `business/auth.ts authorize / substringMatch` | **删除**（由 LLM 决策） | 决策 4：PI Agent 拿到 candidates 后决策 |
 | `business/auth.ts 成员资格校验` | `larkbot_authorize_user({openId, chatId})` | 保留为协议层（lark-cli 调） |
 | `business/auth.ts agentMatcher 钩子` | **删除**（由 LLM 决策） | 不再需要 |
-| `business/broadcast.ts announce` | **保留**（`larkbot_broadcast_to_group`） | 模板渲染 + 飞书消息发送 |
+| `business/broadcast.ts announce` | **保留为 internal helper**（`larkbot_broadcast_to_group`） | 模板渲染 + 飞书消息发送；触发场景为 `larkbot_authorize_user` 鉴权结果的 matched/not_member 公告与 `larkbot_close_business_session` 的 ended 广播。不作为独立 registerTool 暴露给 LLM，仅作为 registerTool 内部副作用调用。 |
 | `ingress.ts matchesCloseIntent` | **删除**（依赖 PI Agent emit close_session） | 决策 5 |
 | `session-manager.ts parseCloseSessionFromText` | **删除**（NDJSON 协议稳定后不需要） | 决策 5 |
 | `task-state-machine.ts promoteNext / handleTaskLog` | **删除**（由 LLM 决策） | 决策 5 |
