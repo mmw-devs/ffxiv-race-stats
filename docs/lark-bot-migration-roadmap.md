@@ -30,7 +30,7 @@ PR-1 (extension 化)
   └→ PR-4 (任务日志)
         ↑
         └ 软依赖：PR-2 完成后 PR-4 才能在业务私聊关闭时正确初始化 task_journal buffer
-                    PR-3 完成后 PR-4 才能在 close_business_session 时简化清理逻辑
+                    PR-3 完成后 PR-4 才能在 `larkbot_close_business_session` 时简化清理逻辑
 ```
 
 ### 1.3 并行性
@@ -63,6 +63,7 @@ PR-1 (extension 化)
 | `feishu_list_group_members` | `broadcast/group-tool.ts listGroupMembers` | lark-cli `im +chat-members-list` |
 | `feishu_send_group_message` | `broadcast/group-tool.ts sendGroupMessage` | lark-cli `im +messages-send` / `+messages-reply` |
 | `feishu_list_bot_groups` | `broadcast/group-tool.ts listAllBotGroups` | lark-cli `im +chat-list` |
+| `larkbot_fetch_pending_events` | 新增（PR-1 飞书 WS 桥接） | module-level 队列 + LLM 拉取 |
 
 ### 2.2 PR-2（鉴权 LLM）— 业务 registerTool
 
@@ -83,10 +84,12 @@ PR-1 (extension 化)
 
 ### 2.4 registerTool 总数
 
-| PR | 飞书 I/O | 业务 | 调试 |
-|----|---------|------|------|
-| PR-1 | 7 | 0 | 0 |
-| PR-2 | 0 | 3 | 0 |
+| PR | 飞书 I/O | 业务 | 调试 | 桥接 |
+|----|---------|------|------|------|
+| PR-1 | 7 | 0 | 0 | 1 |
+| PR-2 | 0 | 3 | 0 | 0 |
+| PR-4 | 0 | 3 | 1 | 0 |
+| **合计** | **7** | **6** | **1** | **1** |
 | PR-4 | 0 | 3 | 1 |
 | **合计** | **7** | **6** | **1** |
 
@@ -245,7 +248,7 @@ registerTool("larkbot_fetch_pending_events", {
 
 | 测试类型 | 覆盖点 |
 |---------|--------|
-| 单元测试 | registerTool TypeBox schema 验证（7 个工具） |
+| 单元测试 | registerTool TypeBox schema 验证（8 个工具） |
 | 单元测试 | Module-level 状态并发安全 |
 | 单元测试 | 飞书 WS 桥接事件队列正确性 |
 | 集成测试 | session_start → 群组冷启动 → registerTool 可用 |
@@ -467,7 +470,7 @@ if (useNaturalLanguageClose) {
 
 ### 6.1 目标
 
-业务私聊开始时累积 task_journal buffer，业务结束时转换为 LogEntry 返回给 LLM，LLM 嵌入 commit message 提交 PR。
+业务私聊开始时累积 task_journal buffer，业务执行中由 `larkbot_record_change` 累积 ChangeEntry；提交时由 `larkbot_commit_changes` 转换 LogEntry 返回给 LLM，会话关闭由 `larkbot_close_business_session` 触发（cleanupSessionForClose 六步 + ended 广播）。
 
 ### 6.2 删除项
 
@@ -651,7 +654,7 @@ if (useNaturalLanguageClose) {
 
 - `larkbot_commit_changes` 与 `larkbot_close_business_session` **不联动**——LLM 决策何时调用
 - 实际 git 操作（commit / push / gh pr create / merge）由 content-pr skill 完成（不是 lark-bot 职责）
-- 一次业务私聊会话**支持多次 PR 提交**——每次 commit_changes 后 buffer.changes 清空，下次累积重新开始
+- 一次业务私聊会话**支持多次 PR 提交**——每次 `larkbot_commit_changes` 后 buffer.changes 清空，下次累积重新开始
 - 业务私聊会话关闭时未提交的 changes **丢失**（记 audit journal terminated），不影响已提交的 LogEntry（已在 git history）
 
 ### 6.8 双写策略
@@ -693,11 +696,11 @@ larkbot_close_business_session 时：
 | 测试类型 | 覆盖点 |
 |---------|--------|
 | 单元测试 | `taskJournalToLogEntry` 转换正确性 |
-| 单元测试 | closeBusinessSession changes 空拒绝 |
+| 单元测试 | `larkbot_commit_changes` 拒绝 changes 空 |
 | 单元测试 | buffer 启动时 operator 校验失败立即清理 |
-| 单元测试 | record_change 字段路径非法处理 |
-| 集成测试 | close_business_session → audit journal 双写 |
-| 集成测试 | close_business_session → LLM 嵌入 commit message → ops CI 校验通过 |
+| 单元测试 | `larkbot_record_change` 字段路径非法处理 |
+| 集成测试 | `larkbot_commit_changes` → audit journal 双写 |
+| 集成测试 | `larkbot_commit_changes` → LLM 拿到 commitMessage → content-pr skill 提交成功 |
 | 集成测试 | business 超时 / 强制关闭 → buffer 丢弃（不转换 LogEntry） |
 | 集成测试 | OPERATOR_REGISTRY 校验失败回滚 |
 
@@ -749,7 +752,7 @@ PR-4 是缺失路径补齐，无"旧路径"可回滚。如有问题需修复 bug
 | PR-1 | `larkBot.useExtensionMode` | settings.json → false → 重启 | < 5 分钟 |
 | PR-2 | `larkBot.useAgentMatcher` | settings.json → false → 重启 | < 5 分钟 |
 | PR-3 | `larkBot.useNaturalLanguageClose` | settings.json → true → 重启 | < 5 分钟 |
-| PR-4 | `larkBot.enableTaskJournal` | settings.json → false → 重启 | < 5 分钟 |
+| PR-4 | `larkBot.enableTaskJournal` / `larkBot.commitOnClose` | settings.json → false → 重启 | < 5 分钟 |
 
 **回滚成本**：每 PR 独立可回滚，最大回滚粒度 = 单 PR。
 

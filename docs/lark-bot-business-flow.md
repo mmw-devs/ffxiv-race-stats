@@ -265,7 +265,7 @@ export const OPERATOR_REGISTRY: OperatorRegistry = {
 | 鉴权窗口 ≤ 5min | 60s 周期清理器 | 超时关闭 |
 | 鉴权轮次 ≤ 2 | `authRoundsUsed++` 触发点 | 超轮关闭 |
 | 业务私聊空闲 ≤ 3 天 | 60s 周期清理器 | 超时关闭 |
-| task_journal.changes 写入顺序 = Agent 决策顺序 | `record_change` 接收顺序 | journal 顺序反映操作顺序 |
+| task_journal.changes 写入顺序 = Agent 决策顺序 | `larkbot_record_change` 接收顺序 | journal 顺序反映操作顺序 |
 | commit message LogEntry operator 必须在 OPERATOR_REGISTRY | `validateOperatorPermission` | fail-closed 拒绝 PR |
 
 ## 9. 与 issue #168 其他节点的关系

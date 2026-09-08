@@ -46,7 +46,7 @@
  * 归属：lark-bot 内存，per-session 持有。
  * 状态：
  *   - 创建后字段全部锁定（operator / groupId 等）
- *   - changes[] 在 commit_changes 后清空，但会话元数据保留（支持多次 PR）
+ *   - changes[] 在 `larkbot_commit_changes` 后清空，但会话元数据保留（支持多次 PR）
  *   - 会话关闭时整个 buffer 删除
  */
 interface TaskJournal {
@@ -88,7 +88,7 @@ interface TaskJournalEntity {
 
 | 字段 | 来源 | 时机 |
 |------|------|------|
-| `operator` | identity-resolver.ts 或 N4 registerTool `authorize_user` 返回的 user_id | 鉴权成功 |
+| `operator` | identity-resolver.ts 或 N4 registerTool `larkbot_authorize_user` 返回的 user_id | 鉴权成功 |
 | `operatorName` | OPERATOR_REGISTRY[operator].name | 同上 |
 | `sessionStartedAt` | 鉴权成功时刻 `new Date().toISOString()` | 同上 |
 | `groupId` / `groupName` | `authResult.groupId` / `groupName` | 同上 |
@@ -140,6 +140,11 @@ function commitChanges(journal: TaskJournal, shortDesc: string): {
   const commitMessage = formatCommitMessage(shortDesc, logEntry);
   return { logEntry, commitMessage };
 }
+
+// 注：919c0d3 拆分后，task_journal → LogEntry 转换由 `larkbot_commit_changes`
+// registerTool 内部调用（PR-4 落地）。原 `closeBusinessSession` 命名废弃，
+// 实际语义由 `commitChanges` + `taskJournalToLogEntry` 承接。
+// 底层辅助函数 `taskJournalToLogEntry` 仍保留，供 `commitChanges` 内部调用。
 ```
 
 **转换语义**：
@@ -163,9 +168,9 @@ function commitChanges(journal: TaskJournal, shortDesc: string): {
 [会话生命周期]                                          [PR 生命周期]
    创建                                                  提交
     ↓                                                    ↓
-初始化 → 累积中 → commit_changes → 累积中 → ... → close_business_session → 已清理
+创建 → 累积 → 提交 → 累积 → ... → 销毁 → 已清理
               ↑                                                    ↓
-              └── record_change（多次）                              buffer 删除
+              └── larkbot_record_change（多次）                              buffer 删除
                                                                   audit journal terminated
 ```
 
@@ -173,11 +178,11 @@ function commitChanges(journal: TaskJournal, shortDesc: string): {
 stateDiagram-v2
     [*] --> 空: 鉴权失败 / 未创建
     空 --> 创建: authModule matched<br/>kind=p2p-business<br/>operator 锁定
-    创建 --> 累积: record_change 首次调用
-    累积 --> 累积: record_change 追加<br/>task_log 更新 subject
-    累积 --> 提交: commit_changes<br/>buffer → LogEntry → commitMessage 返回<br/>changes 清空（会话元数据保留）
+    创建 --> 累积: larkbot_record_change 首次调用
+    累积 --> 累积: larkbot_record_change 追加<br/>task_log 更新 subject
+    累积 --> 提交: larkbot_commit_changes<br/>buffer → LogEntry → commitMessage 返回<br/>changes 清空（会话元数据保留）
     提交 --> 累积: 后续业务操作继续累积<br/>(支持一次会话多次 PR)
-    累积 --> 销毁: close_business_session
+    累积 --> 销毁: larkbot_close_business_session
     销毁 --> [*]: cleanupSessionForClose 六步<br/>ended 广播<br/>buffer 删除<br/>audit journal terminated
     累积 --> 已清理: 业务超时 / 强制关闭<br/>(auth_module_error 等)
     已清理 --> [*]: buffer 丢弃<br/>(不转换 LogEntry)
@@ -189,10 +194,10 @@ stateDiagram-v2
 
 - `changes` 数组顺序 = Agent 决策顺序（lark-bot 不重排序）
 - buffer 启动后 `operator` 不变（即使 sender 变更）
-- `commit_changes` 后 `changes[]` 清空，但 `operator` / `groupId` / `matchedBroadcastMessageId` 等会话元数据保留
-- `close_business_session` 后整个 buffer 删除
+- `larkbot_commit_changes` 后 `changes[]` 清空，但 `operator` / `groupId` / `matchedBroadcastMessageId` 等会话元数据保留
+- `larkbot_close_business_session` 后整个 buffer 删除
 - 业务超时 / 强制关闭不转换 LogEntry（buffer 丢弃）
-- 一次业务私聊会话**支持多次 PR 提交**——每次 commit_changes 产生一个 LogEntry
+- 一次业务私聊会话**支持多次 PR 提交**——每次 `larkbot_commit_changes` 产生一个 LogEntry
 
 ## 6. 字段来源（待你裁决项）
 
@@ -202,7 +207,7 @@ stateDiagram-v2
 
 | 候选 | 说明 | 取舍 |
 |------|------|------|
-| Agent 推断 | Agent 在 close_business_session 调用时根据 changes 总结 | 灵活但不可控 |
+| Agent 推断 | Agent 在 `larkbot_commit_changes` 调用时根据 changes 总结 | 灵活但不可控 |
 | subject 复用 | 直接用 buffer.subject（来自 task_log 上报） | 一致但过于简略 |
 | 用户原话 | 业务私聊首条消息原文 | 真实但可能冗长 |
 | 复合 | `subject + 主要 change 摘要` | 推荐，需 Agent 拼接 |
@@ -238,16 +243,21 @@ N4 registerTool `larkbot_authorize_user` 落地后：
 | 失败场景 | 触发时机 | 处理 |
 |---------|---------|------|
 | OPERATOR_REGISTRY 校验失败 | buffer 启动时 operator 不在注册表 | buffer 立即清理 + 鉴权回滚 + ERROR 表情 |
-| Agent 业务执行期间异常 | record_change 解析失败 / 字段路径非法 | 当前 ChangeEntry 拒绝追加 + ERROR 日志，不阻断后续 record_change |
-| task_journal.changes 为空 | commit_changes 调用时 | **不允许提交**（validateLogStructure 校验 changes 非空）；提示 Agent 必须有业务变更 |
+| Agent 业务执行期间异常 | `larkbot_record_change` 解析失败 / 字段路径非法 | 当前 ChangeEntry 拒绝追加 + ERROR 日志，不阻断后续 `larkbot_record_change` |
+| task_journal.changes 为空 | `larkbot_commit_changes` 调用时 | **不允许提交**（validateLogStructure 校验 changes 非空）；提示 Agent 必须有业务变更 |
 | 业务超时 / 强制关闭 | 60s 周期清理器 / 鉴权失败 | **buffer 丢弃**（未转换 LogEntry）；audit journal 写入 terminated reason |
 | PR 提交失败 | ops CI 拒绝合并 / content-pr skill 报错 | audit journal 写 `{state:'terminated', reason:'pr_rejected', prUrl?}`；该事件由 ops CI 反馈触发，不在 lark-bot 主动写入范围内 |
 | OPERATOR_REGISTRY 与 sender 身份不一致 | identity-resolver 解析的 user_id 与飞书实际 sender 关联失败 | 关闭会话 + 广播 ended + audit journal 写 `{state:'terminated', reason:'operator_resolution_failed'}` |
 
 **state 字段取值约定**：
 
-- 当前文档使用的合法值：`in_progress` / `awaiting_review` / `post_review` / `terminated`
-- `pre_business` / `in_progress` 当前未在任何 emit 点使用（待业务扩展时补齐）
+- 当前已落地（emit 点使用）的合法值（3 个）：
+  - `awaiting_review`
+  - `post_review`
+  - `terminated`
+- 规划值（待业务扩展时补齐 emit 点，2 个）：
+  - `pre_business` — buffer 启动时 emit（未实现）
+  - `in_progress` — 累积阶段 emit（未实现）
 - 同一种 state 通过 `reason` 字段表达不同语义：
   - `terminated` + `reason='session_closed'`
   - `terminated` + `reason='pr_rejected'`
@@ -264,7 +274,7 @@ N4 registerTool `larkbot_authorize_user` 落地后：
 | 用途 | 任务状态跃迁审计（开发排障） | 业务留痕（运营审计 / 合规） |
 | 字段 | eventTime, promptId, operator, state, subject, durationMs, reason | operator, timestamp, changes |
 | 持久化 | /tmp/lark-bot-tasks.jsonl（lark-bot 进程级） | commit message → git history（永久） |
-| 生命周期 | task 状态跃迁即写 | close_business_session 转换 |
+| 生命周期 | task 状态跃迁即写 | `larkbot_commit_changes` 转换 |
 | 解析 | 运维手 grep | `parseLogFromMessage(commitMsg)` |
 
 **双写策略**（与 PR-4 拆分后一致）：
@@ -383,9 +393,9 @@ ops CI 校验（PR 合并前）
 | 单元测试 | `taskJournalToLogEntry` 转换正确性 | 新增（PR-4） |
 | 单元测试 | `closeBusinessSession` 在 changes 为空时拒绝 | 新增（PR-4） |
 | 单元测试 | buffer 启动时 operator 校验失败 → 立即清理 | 新增（PR-4） |
-| 单元测试 | record_change 字段路径非法处理 | 新增（PR-4） |
-| 集成测试 | close_business_session → audit journal 双写 | 新增（PR-4） |
-| 集成测试 | close_business_session → Agent 嵌入 commit message → ops CI 校验通过 | 新增（PR-4） |
+| 单元测试 | `larkbot_record_change` 字段路径非法处理 | 新增（PR-4） |
+| 集成测试 | `larkbot_commit_changes` → audit journal 双写 | 新增（PR-4） |
+| 集成测试 | `larkbot_commit_changes` → LLM 拿到 commitMessage → content-pr skill 提交成功 | 新增（PR-4） |
 | 回归测试 | identity-resolver 未被调用（孤儿） | 删除（PR-1） |
 | 回归测试 | emitTaskJournal 仅审计，不混淆业务留痕 | 保留 + 新增文档说明 |
 

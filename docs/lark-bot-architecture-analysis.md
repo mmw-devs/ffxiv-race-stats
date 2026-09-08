@@ -181,7 +181,7 @@ PI Agent (extension host)
 | `larkBot.useAgentMatcher` | PR-2 | true | 是否依赖 LLM 决策（vs substringMatch） |
 | `larkBot.useNaturalLanguageClose` | PR-3 | false | 是否启用自然语言兜底（vs 仅 NDJSON） |
 | `larkBot.enableTaskJournal` | PR-4 | true | 是否启用 task_journal buffer |
-| `larkBot.commitOnClose` | PR-4 | false | 会话关闭时是否自动 commit_changes |
+| `larkBot.commitOnClose` | PR-4 | false | 会话关闭时是否自动 `larkbot_commit_changes` |
 
 settings.json 示例：
 
