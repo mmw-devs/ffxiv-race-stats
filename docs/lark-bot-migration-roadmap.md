@@ -77,7 +77,8 @@ PR-1 (extension 化)
 | registerTool | 替换现有实现 | 用途 |
 |--------------|-------------|------|
 | `larkbot_record_change` | 无（缺失路径补齐） | 累积 ChangeEntry 到 task_journal buffer |
-| `larkbot_close_business_session` | 无 | buffer → LogEntry 转换 + 触发 ended 广播 |
+| `larkbot_commit_changes` | 无 | buffer → LogEntry 转换 + 返回 commitMessage |
+| `larkbot_close_business_session` | 无 | cleanupSessionForClose 六步 + ended 广播（不提交 PR） |
 | `larkbot_query_journal` | 无（调试用） | 查询当前 session 的 task_journal 状态 |
 
 ### 2.4 registerTool 总数
@@ -86,8 +87,8 @@ PR-1 (extension 化)
 |----|---------|------|------|
 | PR-1 | 7 | 0 | 0 |
 | PR-2 | 0 | 3 | 0 |
-| PR-4 | 0 | 2 | 1 |
-| **合计** | **7** | **5** | **1** |
+| PR-4 | 0 | 3 | 1 |
+| **合计** | **7** | **6** | **1** |
 
 ## 3. PR-1 详细设计：extension 化
 
@@ -487,9 +488,10 @@ if (useNaturalLanguageClose) {
 |------|-------|
 | Module-level 状态 | `taskJournals Map<chatId, TaskJournal>`（per-chat 累积） |
 | registerTool | `larkbot_record_change` |
+| registerTool | `larkbot_commit_changes` |
 | registerTool | `larkbot_close_business_session` |
 | registerTool | `larkbot_query_journal`（调试用） |
-| 转换函数 | `taskJournalToLogEntry` 与 `closeBusinessSession` |
+| 转换函数 | `taskJournalToLogEntry`（`larkbot_commit_changes` 内部调用） |
 
 ### 6.5 registerTool 契约（PR-4 任务日志）
 
@@ -701,7 +703,7 @@ larkbot_close_business_session 时：
 
 ### 6.10 回滚方案（PR-4）
 
-PR-4 是缺失路径补齐，无"旧路径"可回滚。如有问题需修复 bug 或 feature flag 关闭（如 `larkBot.enableTaskJournal: false`）。
+PR-4 是缺失路径补齐，无"旧路径"可回滚。如有问题需修复 bug 或 feature flag 关闭（如 `larkBot.enableTaskJournal: false` 或 `larkBot.commitOnClose: false`）。
 
 ## 7. 跨 PR 兼容性策略
 
@@ -721,6 +723,7 @@ PR-4 是缺失路径补齐，无"旧路径"可回滚。如有问题需修复 bug
 | `larkBot.useAgentMatcher` | PR-2 | true | 是否依赖 LLM 决策（vs substringMatch） |
 | `larkBot.useNaturalLanguageClose` | PR-3 | false | 是否启用自然语言兜底（vs 仅 NDJSON） |
 | `larkBot.enableTaskJournal` | PR-4 | true | 是否启用 task_journal buffer（缺失路径补齐） |
+| `larkBot.commitOnClose` | PR-4 | false | 关闭会话时是否自动调 `larkbot_commit_changes`（默认 false = 强制 LLM 手动决策） |
 
 ### 7.3 settings.json 迁移
 
@@ -780,7 +783,7 @@ PR-4 是缺失路径补齐，无"旧路径"可回滚。如有问题需修复 bug
 | ctx.ui 不支持飞书 | N3 §7.6 | 不使用 ctx.ui |
 | 测试基础设施 | N3 §7.7 | registerTool 纯函数化便于单测 |
 | **新增：跨 PR 合并冲突** | PR-2/3/4 并行 | 建议串行 PR-1 → PR-2 → PR-3 → PR-4 |
-| **新增：feature flag 累积** | 每 PR 一个 flag | 4 个 flag 是 MVP 上限；后续需整合为统一开关 |
+| **新增：feature flag 累积** | 每 PR 一个 flag | 5 个 flag 是 MVP 上限；后续需整合为统一开关 |
 | **新增：PI Agent 协议不稳定** | PR-3 删除兜底依赖 NDJSON 稳定 | feature flag 临时启用 matchesCloseIntent 兜底 |
 | **新增：OPERATOR_REGISTRY 解析失败** | PR-4 buffer 启动时 fail-closed | 鉴权回滚 + ERROR 提示 |
 

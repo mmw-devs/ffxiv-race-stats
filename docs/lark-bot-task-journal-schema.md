@@ -123,7 +123,7 @@ interface ChangeEntry {
 
 ## 4. task_journal → LogEntry 转换规则
 
-转换发生在 `close_business_session` registerTool 调用时：
+转换发生在 `larkbot_commit_changes` registerTool 调用时：
 
 ```typescript
 import { generateLog, formatCommitMessage } from "../../scripts/op-log-schema.js";
@@ -132,7 +132,7 @@ function taskJournalToLogEntry(journal: TaskJournal): LogEntry {
   return generateLog(journal.operator, journal.changes);
 }
 
-function closeBusinessSession(journal: TaskJournal, shortDesc: string): {
+function commitChanges(journal: TaskJournal, shortDesc: string): {
   logEntry: LogEntry;
   commitMessage: string;
 } {
@@ -147,13 +147,13 @@ function closeBusinessSession(journal: TaskJournal, shortDesc: string): {
 - `operator` 直接透传（已在 buffer 启动时锁定）
 - `timestamp` 由 `generateLog` 自动填充 `new Date().toISOString()`
 - `changes` 直接透传
-- `shortDesc` 由 Agent 在 close_business_session 调用时提供（见 §6 来源说明）
+- `shortDesc` 由 Agent 在 `larkbot_commit_changes` 调用时提供（见 §6 来源说明）
 
 **operator 校验时机**：
 
 - buffer 启动时：`isOperatorAllowed(operator)` 必须为 true（fail-closed）
 - 转换时：`validateOperatorPermission(logEntry)` 由 ops CI 在 PR 合并前再次校验
-- 失败处理：lark-bot 拒绝关闭会话 + 提示用户；ops CI 拒绝合并 PR
+- 失败处理：lark-bot 拒绝 `larkbot_commit_changes` + 提示用户；ops CI 拒绝合并 PR
 
 ## 5. buffer 生命周期（与任务日志对象生命周期对齐）
 
@@ -172,16 +172,16 @@ function closeBusinessSession(journal: TaskJournal, shortDesc: string): {
 ```mermaid
 stateDiagram-v2
     [*] --> 空: 鉴权失败 / 未创建
-    空 --> 初始化: authModule matched<br/>kind=p2p-business<br/>operator 锁定
-    初始化 --> 累积中: record_change 首次调用
-    累积中 --> 累积中: record_change 追加<br/>task_log 更新 subject
-    累积中 --> 已提交: commit_changes<br/>buffer → LogEntry → commitMessage 返回<br/>changes 清空（会话元数据保留）
-    已提交 --> 累积中: 后续业务操作继续累积<br/>(支持一次会话多次 PR)
-    累积中 --> 已关闭: close_business_session
-    已关闭 --> [*]: cleanupSessionForClose 六步<br/>ended 广播<br/>buffer 删除<br/>audit journal terminated
-    累积中 --> 已清理: 业务超时 / 强制关闭<br/>(auth_module_error 等)
+    空 --> 创建: authModule matched<br/>kind=p2p-business<br/>operator 锁定
+    创建 --> 累积: record_change 首次调用
+    累积 --> 累积: record_change 追加<br/>task_log 更新 subject
+    累积 --> 提交: commit_changes<br/>buffer → LogEntry → commitMessage 返回<br/>changes 清空（会话元数据保留）
+    提交 --> 累积: 后续业务操作继续累积<br/>(支持一次会话多次 PR)
+    累积 --> 销毁: close_business_session
+    销毁 --> [*]: cleanupSessionForClose 六步<br/>ended 广播<br/>buffer 删除<br/>audit journal terminated
+    累积 --> 已清理: 业务超时 / 强制关闭<br/>(auth_module_error 等)
     已清理 --> [*]: buffer 丢弃<br/>(不转换 LogEntry)
-    初始化 --> 立即清理: OPERATOR_REGISTRY 校验失败<br/>鉴权回滚
+    创建 --> 立即清理: OPERATOR_REGISTRY 校验失败<br/>鉴权回滚
     立即清理 --> [*]: buffer 丢弃
 ```
 
@@ -226,10 +226,10 @@ MVP 建议两者并存：
 - `task.operator = event.sender_id`（占位为 open_id）
 - identity-resolver.ts 未被调用（孤儿模块）
 
-N4 registerTool `authorize_user` 落地后：
+N4 registerTool `larkbot_authorize_user` 落地后：
 
-- Agent 拿到 candidates 列表，决策后调 `authorize_user({openId, chatId})`
-- lark-bot 在 authorize_user 内部调用 identity-resolver 解析 open_id → user_id
+- Agent 拿到 candidates 列表，决策后调 `larkbot_authorize_user({openId, chatId})`
+- lark-bot 在 `larkbot_authorize_user` 内部调用 identity-resolver 解析 open_id → user_id
 - user_id 写入 buffer.operator
 - buffer 启动时校验 `isOperatorAllowed(operator)`
 
@@ -239,10 +239,19 @@ N4 registerTool `authorize_user` 落地后：
 |---------|---------|------|
 | OPERATOR_REGISTRY 校验失败 | buffer 启动时 operator 不在注册表 | buffer 立即清理 + 鉴权回滚 + ERROR 表情 |
 | Agent 业务执行期间异常 | record_change 解析失败 / 字段路径非法 | 当前 ChangeEntry 拒绝追加 + ERROR 日志，不阻断后续 record_change |
-| task_journal.changes 为空 | close_business_session 调用时 | **不允许关闭**（validateLogStructure 校验 changes 非空）；提示 Agent 必须有业务变更 |
+| task_journal.changes 为空 | commit_changes 调用时 | **不允许提交**（validateLogStructure 校验 changes 非空）；提示 Agent 必须有业务变更 |
 | 业务超时 / 强制关闭 | 60s 周期清理器 / 鉴权失败 | **buffer 丢弃**（未转换 LogEntry）；audit journal 写入 terminated reason |
-| PR 提交失败 | ops CI 拒绝合并 | audit journal 记录 `pr_submit_failed`；buffer 状态保留到 ops CI webhook 反馈 |
-| OPERATOR_REGISTRY 与 sender 身份不一致 | identity-resolver 解析的 user_id 与飞书实际 sender 关联失败 | 关闭会话 + 广播 ended + audit journal 标记 `operator_resolution_failed` |
+| PR 提交失败 | ops CI 拒绝合并 / content-pr skill 报错 | audit journal 写 `{state:'terminated', reason:'pr_rejected', prUrl?}`；该事件由 ops CI 反馈触发，不在 lark-bot 主动写入范围内 |
+| OPERATOR_REGISTRY 与 sender 身份不一致 | identity-resolver 解析的 user_id 与飞书实际 sender 关联失败 | 关闭会话 + 广播 ended + audit journal 写 `{state:'terminated', reason:'operator_resolution_failed'}` |
+
+**state 字段取值约定**：
+
+- 当前文档使用的合法值：`in_progress` / `awaiting_review` / `post_review` / `terminated`
+- `pre_business` / `in_progress` 当前未在任何 emit 点使用（待业务扩展时补齐）
+- 同一种 state 通过 `reason` 字段表达不同语义：
+  - `terminated` + `reason='session_closed'`
+  - `terminated` + `reason='pr_rejected'`
+  - `terminated` + `reason='operator_resolution_failed'`
 
 ## 8. 与 audit journal 双写策略
 
@@ -258,18 +267,25 @@ N4 registerTool `authorize_user` 落地后：
 | 生命周期 | task 状态跃迁即写 | close_business_session 转换 |
 | 解析 | 运维手 grep | `parseLogFromMessage(commitMsg)` |
 
-**双写策略**：
+**双写策略**（与 PR-4 拆分后一致）：
 
 ```
-close_business_session 触发时：
+larkbot_commit_changes 成功时：
   1. task_journal → LogEntry 转换
   2. 双写：
-     - audit journal 写一条 {state:'awaiting_review', subject, changes.length}
-     - LogEntry 返回给 Agent 嵌入 commit message
-  3. PR 合并后 ops CI webhook 反馈时：
-     - audit journal 写一条 {state:'post_review', pr_url, merged_at}
-  4. PR 拒绝合并时：
-     - audit journal 写一条 {state:'terminated', reason:'pr_rejected', pr_url}
+     - audit journal 写一条 {state:'awaiting_review', shortDesc, changesCount}
+     - LogEntry + commitMessage 返回 LLM
+  3. LLM 调 content-pr skill 提交 commit message
+
+larkbot_close_business_session 时：
+  1. cleanupSessionForClose 六步
+  2. audit journal 写一条 {state:'terminated', reason}
+  3. 删除 buffer
+  4. 触发 ended 广播
+
+不属于 lark-bot 范畴（由 ops CI / content-pr skill 反馈）：
+  - PR 合入：audit journal 写 {state:'post_review', prUrl, mergedAt}
+  - PR 拒绝：audit journal 写 {state:'terminated', reason:'pr_rejected', prUrl?}
 ```
 
 ## 9. 与 SKILL.md task_log 上报的协调
@@ -380,7 +396,7 @@ ops CI 校验（PR 合并前）
 | N1 业务流图 | 本节点是 N1 §6 任务日志对象生命周期的详细 schema 定义 |
 | N2 PI Agent 契约盘点 | 本节点 §9 提议的 `task_change` 事件需在 N2 中纳入 PI Agent 契约 |
 | N3 spawn vs extension 对比 | 本节点不受迁移影响（无论哪种架构，task_journal buffer 都在 lark-bot 内存） |
-| N4 渐进迁移路线图 | 本节点对应 N4 中 PR-4 的产出；`authorize_user` registerTool 是 PR-2 范围；本节点是 PR-4 范围 |
+| N4 渐进迁移路线图 | 本节点对应 N4 中 PR-4 的产出；`larkbot_authorize_user` registerTool 是 PR-2 范围；本节点是 PR-4 范围 |
 | N6 第一阶段汇总 | 本节点是 N6 的组成部分之一 |
 
 ## 13. 引用

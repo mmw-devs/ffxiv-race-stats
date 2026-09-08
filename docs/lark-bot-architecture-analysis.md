@@ -94,6 +94,7 @@ PI Agent (extension host)
 | 边界 | 事件 | 触发 registerTool |
 |------|------|-----------------|
 | 会话生命周期 | 创建 | 鉴权成功时初始化 buffer |
+| 会话生命周期 | 累积 | `larkbot_record_change` |
 | 会话生命周期 | 销毁 | `larkbot_close_business_session` |
 | PR 生命周期 | 提交 | `larkbot_commit_changes` + content-pr skill |
 
@@ -127,11 +128,11 @@ PI Agent (extension host)
 | **PR-1** | extension 化（消除 PI Agent 子进程层） | `process.ts` / `spawnPiProcess` / `handlePiEvent` NDJSON | 7 个 `feishu_*` registerTool + 飞书 WS 桥接 | 决策 1 |
 | **PR-2** | 鉴权判定迁 PI Agent LLM | `substringMatch` / `agentMatcher` 钩子 | `larkbot_list_candidate_groups` / `larkbot_authorize_user` / `larkbot_resolve_operator` | 决策 4 |
 | **PR-3** | 关闭意图删除本地正则 | `matchesCloseIntent` / `parseCloseSessionFromText` | （依赖 PI Agent emit close_session 稳定） | 决策 5 |
-| **PR-4** | 任务日志对象接入 OPERATOR_LOG | 无（缺失路径补齐） | `larkbot_record_change` / `larkbot_close_business_session` / `larkbot_query_journal` | 决策 3 + 决策 5 |
+| **PR-4** | 任务日志对象接入 OPERATOR_LOG | 无（缺失路径补齐） | `larkbot_record_change` / `larkbot_commit_changes` / `larkbot_close_business_session` / `larkbot_query_journal` | 决策 3 + 决策 5 |
 
 **推荐顺序**：PR-1 → PR-2 → PR-3 → PR-4（PR-2/3/4 必须串行在 PR-1 之后）。
 
-## 5. registerTool 清单（13 个）
+## 5. registerTool 清单（15 个）
 
 ### 5.1 飞书 I/O（PR-1，7 个）
 
@@ -163,7 +164,7 @@ PI Agent (extension host)
 - `larkbot_commit_changes` 后 buffer.changes 清空——支持一次会话多次 PR
 - `larkbot_close_business_session` 不强制 changes 非空——会话关闭与提交 PR 是两个事件
 
-### 5.3 桥接与调试（1 个）
+### 5.3 桥接与调试（2 个）
 
 | registerTool | 用途 | PR |
 |--------------|------|-----|
@@ -190,7 +191,8 @@ settings.json 示例：
     "useExtensionMode": true,
     "useAgentMatcher": true,
     "useNaturalLanguageClose": false,
-    "enableTaskJournal": true
+    "enableTaskJournal": true,
+    "commitOnClose": false
   }
 }
 ```
@@ -269,14 +271,17 @@ settings.json 示例：
 | 节点 | 文档 | 行数 | 主题 |
 |------|------|------|------|
 | 起点 | （commit bb50c1f） | — | 起点 commit 标注 |
-| N1 | `docs/lark-bot-business-flow.md` | 226 | 业务流图（MVP 七阶段 + 任务日志对象生命周期） |
+| N1 | `docs/lark-bot-business-flow.md` | 291 | 业务流图（MVP 七阶段 + 任务日志对象生命周期） |
 | N2 | `docs/lark-bot-pi-agent-contract.md` | 450 | PI Agent 上游契约盘点与不稳定点清单 |
 | N3 | `docs/lark-bot-extension-migration-analysis.md` | 383 | spawn 模式 vs 标准 extension 模式对比 |
-| N4 | `docs/lark-bot-migration-roadmap.md` | 736 | 渐进迁移路线图 + registerTool 契约设计 |
-| N5 | `docs/lark-bot-task-journal-schema.md` | 342 | 任务日志对象 schema（OPERATOR_LOG 对齐版） |
-| **N6** | `docs/lark-bot-architecture-analysis.md`（本文档） | — | **第一阶段汇总** |
+| N4 | `docs/lark-bot-migration-roadmap.md` | 831 | 渐进迁移路线图 + registerTool 契约设计 |
+| N5 | `docs/lark-bot-task-journal-schema.md` | 413 | 任务日志对象 schema（OPERATOR_LOG 对齐版） |
+| **N6** | `docs/lark-bot-architecture-analysis.md`（本文档） | 404 | **第一阶段汇总** |
+| 审查报告 | `docs/lark-bot-review-report.md` | 416 | 由 reviewer subagent 产出的一致性审查报告 |
 
-合计：2137 + 本文档行数。
+合计：2772（不含 review report）。
+
+**注**：行数随修订变化，以 `wc -l docs/lark-bot-*.md` 为准。
 
 ## 12. 后续工作
 

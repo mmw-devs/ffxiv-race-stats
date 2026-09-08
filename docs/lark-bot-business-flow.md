@@ -30,7 +30,7 @@ stateDiagram-v2
     鉴权中 --> 鉴权成功: AuthModule.authorize() = matched<br/>slot swap + kind=p2p-business
     鉴权中 --> 鉴权失败: no_match / not_member / 超 5min / 超 2 轮
     鉴权成功 --> 业务执行: 初始化 task_journal buffer<br/>(operator = user_id)
-    业务执行 --> 业务结束: Agent 调 close_business_session<br/>或 /quit / 自然语言"结束"
+    业务执行 --> 业务结束: Agent 调 larkbot_close_business_session<br/>或 /quit / 自然语言"结束"
     业务执行 --> 业务超时: 3 天无活跃
     鉴权失败 --> 关闭清理: fail-closed
     业务结束 --> 关闭清理: 触发 ended 广播<br/>提交 PR + OPERATOR_LOG
@@ -68,7 +68,7 @@ sequenceDiagram
     LB->>LB: hasSeen / markSeen 去重
     alt 命令或鉴权
         LB->>LB: /quit 或 /switch → 直接 close
-        LB->>A: authorize_user 决策<br/>(registerTool，PR-2 落地)
+        LB->>A: larkbot_authorize_user 决策<br/>(registerTool，PR-2 落地)
         A-->>LB: {chatId, reasoning}
         LB->>LB: matched → kind=p2p-business<br/>+ matched broadcast
         LB->>G: broadcast(matched)
@@ -76,20 +76,20 @@ sequenceDiagram
     else 业务执行
         LB->>A: prompt（含 task_journal buffer 引用）
         A->>A: LLM 解析业务语义
-        A->>LB: registerTool('record_change', {field, from, to})
+        A->>LB: registerTool('larkbot_record_change', {field, from, to})
         LB->>LB: 累积 ChangeEntry 到 task_journal buffer
         A-->>LB: agent_settled + agent 回复文本
         LB->>FS: sendReplyGetId(msg_id, text)
         FS-->>U: 飞书收到 bot 回复
     else 提交 PR（不关闭会话）
-        A->>LB: commit_changes({shortDesc})
+        A->>LB: larkbot_commit_changes({shortDesc})
         LB->>LB: buffer → LogEntry → commitMessage<br/>changes 清空（会话元数据保留）
         LB-->>A: {logEntry, commitMessage, journalReset: true}
         A->>A: 调用 content-pr skill 完成<br/>git commit / push / gh pr create<br/>（不是 lark-bot 职责）
         A->>A: 等待用户回复"合并"<br/>gh pr merge --squash
         Note over A,LB: 会话保持 kind=p2p-business<br/>后续业务变更继续累积
     else 结束任务（不提交 PR）
-        A->>LB: close_business_session
+        A->>LB: larkbot_close_business_session
         LB->>LB: cleanupSessionForClose 六步清理<br/>buffer 删除（未提交 changes 丢失）
         LB->>G: broadcast(ended) + 引用 matched 消息
         LB-->>A: {status: 'closed', broadcastMessageId}
@@ -125,7 +125,7 @@ flowchart LR
         N1[matched desc 但 openId 不在成员] --> N2[broadcast.announce<br/>outcome=not_member]
     end
     subgraph ended 事件
-        E1[close_business_session] --> E2[broadcast.announce<br/>outcome=ended<br/>replyToMessageId = matched.message_id<br/>rich_text post + at 用户]
+        E1[larkbot_close_business_session] --> E2[broadcast.announce<br/>outcome=ended<br/>replyToMessageId = matched.message_id<br/>rich_text post + at 用户]
     end
 ```
 
@@ -155,7 +155,7 @@ flowchart TD
     subgraph 累积阶段
         S2 --> S3[接收业务指令]
         S3 --> S4{Agent 决策}
-        S4 -->|业务操作| S5[record_change<br/>append ChangeEntry]
+        S4 -->|业务操作| S5[larkbot_record_change<br/>append ChangeEntry]
         S4 -->|纯查询| S6[不写 journal]
         S5 --> S7{继续业务?}
         S6 --> S7
@@ -163,7 +163,7 @@ flowchart TD
         S7 -->|否| Done[业务告一段落]
     end
     subgraph 提交阶段[PR 生命周期]
-        Done --> Commit{commit_changes?}
+        Done --> Commit{larkbot_commit_changes?}
         Commit -->|是| C1[buffer → LogEntry 转换<br/>operator / timestamp / changes]
         C1 --> C2[formatCommitMessage 生成 commitMessage]
         C2 --> C3["buffer.changes 清空<br/>会话元数据保留<br/>支持多次 PR"]
@@ -173,7 +173,7 @@ flowchart TD
         Stay --> Done
     end
     subgraph 销毁阶段
-        Done --> Close{close_business_session?}
+        Done --> Close{larkbot_close_business_session?}
         Close -->|是| D1[cleanupSessionForClose 六步清理]
         D1 --> D2[ended 广播 + 引用 matched 消息]
         D2 --> D3[删除 task_journal buffer]

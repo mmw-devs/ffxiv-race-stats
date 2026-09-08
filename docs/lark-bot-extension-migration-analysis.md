@@ -268,7 +268,7 @@ extension 本体只做"何时启停 lark-bot 进程"，**不做任何业务逻�
 | PR-1 | extension 化（消除 PI Agent 子进程层） | spawn PI Agent 子进程 / stdin/stdout NDJSON / process.ts / 双层 restart storm / piRestartState / spawnPromises / 配置相关常量 | 飞书 lark-cli spawn 子进程 / module-level 状态 / registerTool 飞书 I/O / auth.ts / business/broadcast.ts / ingress.ts 入口 |
 | PR-2 | 鉴权判定迁 LLM | auth.ts substringMatch / agentMatcher 钩子 | larkbot_list_candidate_groups + larkbot_authorize_user（成员资格校验） |
 | PR-3 | 关闭意图删除本地正则 | matchesCloseIntent / parseCloseSessionFromText | 依赖 PI Agent emit close_session NDJSON |
-| PR-4 | 任务日志对象接入 OPERATOR_LOG | 无（缺失路径补齐） | larkbot_record_change + larkbot_close_business_session + task_journal buffer + LogEntry 转换 |
+| PR-4 | 任务日志对象接入 OPERATOR_LOG | 无（缺失路径补齐） | larkbot_record_change + larkbot_commit_changes + larkbot_close_business_session + larkbot_query_journal + task_journal buffer + LogEntry 转换 |
 
 **每 PR 的可观察性**：
 
