@@ -1,0 +1,736 @@
+# 渐进迁移路线图 + registerTool 契约设计（issue #168 第一阶段 N4）
+
+> 综合 N1+N2+N3+N5 的渐进迁移 PR 拆分与 registerTool 接口契约。
+> 范围：issue #168 第一阶段综合产出物。
+> 不在范围：第一阶段汇总（见 N6）、spawn vs extension 对比（见 N3）、业务流图（见 N1）。
+
+## 0. 阅读对象与范围
+
+- 阅读对象：issue #168 重构方案设计者、lark-bot 维护者、PI Agent 协议设计者、PR reviewer。
+- 范围：PR-1 ~ PR-4 拆分细节；registerTool 接口契约；回滚方案；测试覆盖。
+- 不在范围：业务语义判断本身（鉴权匹配 / 关闭意图 / 业务执行的判定逻辑在 PR 落地时由 PI Agent LLM 实现）。
+
+## 1. 迁移路线图总览
+
+### 1.1 PR 拆分（路 C，决策 1）
+
+| PR | 内容 | 决策依据 | 前置依赖 |
+|----|------|---------|---------|
+| PR-1 | extension 化（消除 PI Agent 子进程层） | 决策 1 渐进迁移第一步 | 无 |
+| PR-2 | 鉴权判定迁 PI Agent LLM | 决策 4 | PR-1 |
+| PR-3 | 关闭意图删除本地正则 | 决策 5 | PR-1 |
+| PR-4 | 任务日志对象接入 OPERATOR_LOG | 决策 3 + 决策 5 | PR-1（PR-2 与 PR-3 可作为软依赖） |
+
+### 1.2 依赖图
+
+```
+PR-1 (extension 化)
+  ├→ PR-2 (鉴权 LLM)
+  ├→ PR-3 (关闭意图)
+  └→ PR-4 (任务日志)
+        ↑
+        └ 软依赖：PR-2 完成后 PR-4 才能在业务私聊关闭时正确初始化 task_journal buffer
+                    PR-3 完成后 PR-4 才能在 close_business_session 时简化清理逻辑
+```
+
+### 1.3 并行性
+
+- PR-2 / PR-3 / PR-4 必须串行在 PR-1 之后
+- PR-2 / PR-3 / PR-4 理论上可并行（无强代码冲突），但代码合并冲突风险高
+- **建议顺序**：PR-1 → PR-2 → PR-3 → PR-4
+
+### 1.4 PR 演进节奏一致性
+
+参照 PR #159 / #161 / #163 演进节奏：
+
+| 演进 | 单 PR 范围 | 提交频率 |
+|------|-----------|---------|
+| 历史 | 解决一个具体不稳定点 | 每 PR 1 周内 |
+| 重构期 | 解决一个架构问题 | 每 PR 2 周内 |
+
+## 2. registerTool 清单总览
+
+按 PR 分组：
+
+### 2.1 PR-1（extension 化）— 飞书 I/O registerTool
+
+| registerTool | 替换现有实现 | 持久层 |
+|--------------|-------------|--------|
+| `feishu_add_reaction` | `protocol/feishu.ts addReaction` | lark-cli `im reactions create` |
+| `feishu_remove_reaction` | `protocol/feishu.ts delReaction` | lark-cli `im reactions delete` |
+| `feishu_send_reply` | `protocol/feishu.ts sendReply / sendReplyGetId` | lark-cli `im +messages-reply` |
+| `feishu_get_group_info` | `broadcast/group-tool.ts getGroupInfo` | lark-cli `im chats get` |
+| `feishu_list_group_members` | `broadcast/group-tool.ts listGroupMembers` | lark-cli `im +chat-members-list` |
+| `feishu_send_group_message` | `broadcast/group-tool.ts sendGroupMessage` | lark-cli `im +messages-send` / `+messages-reply` |
+| `feishu_list_bot_groups` | `broadcast/group-tool.ts listAllBotGroups` | lark-cli `im +chat-list` |
+
+### 2.2 PR-2（鉴权 LLM）— 业务 registerTool
+
+| registerTool | 替换现有实现 | 用途 |
+|--------------|-------------|------|
+| `larkbot_list_candidate_groups` | `auth.ts candidates 过滤逻辑` | 鉴权决策输入（候选群组列表） |
+| `larkbot_authorize_user` | `auth.ts authorize / substringMatch` | 鉴权决策执行（成员资格校验） |
+| `larkbot_resolve_operator` | `identity-resolver.ts resolveOperator` | open_id → user_id（OPERATOR_REGISTRY 校验） |
+
+### 2.3 PR-4（任务日志）— 业务 registerTool
+
+| registerTool | 替换现有实现 | 用途 |
+|--------------|-------------|------|
+| `larkbot_record_change` | 无（缺失路径补齐） | 累积 ChangeEntry 到 task_journal buffer |
+| `larkbot_close_business_session` | 无 | buffer → LogEntry 转换 + 触发 ended 广播 |
+| `larkbot_query_journal` | 无（调试用） | 查询当前 session 的 task_journal 状态 |
+
+### 2.4 registerTool 总数
+
+| PR | 飞书 I/O | 业务 | 调试 |
+|----|---------|------|------|
+| PR-1 | 7 | 0 | 0 |
+| PR-2 | 0 | 3 | 0 |
+| PR-4 | 0 | 2 | 1 |
+| **合计** | **7** | **5** | **1** |
+
+## 3. PR-1 详细设计：extension 化
+
+### 3.1 目标
+
+消除 PI Agent 子进程层（spawn `pi --mode rpc`）；lark-bot 改为 PI Agent 标准 extension，registerTool 集合替代 stdin/stdout NDJSON 协议。保留 lark-cli 子进程层（飞书 I/O 必须）。
+
+### 3.2 删除项
+
+| 类别 | 具体项 |
+|------|-------|
+| 进程管理 | `process.ts` 全部（PID / 看门狗 / 双层 restart storm / 心跳 / 内存监控 / stdin shutdown） |
+| 进程管理 | `extensions/lark-bot/index.ts` 的 spawn 逻辑（改 registerTool 集合） |
+| 进程管理 | `session-manager.ts` `spawnPiProcess` / `spawnPromises` / `piRestartState` |
+| 进程管理 | `config.ts` 中相关常量（CIRCUIT_BREAKER_* 移到 module-level / RESTART_STORM_* / HEAP_* / PI_RESTART_*） |
+| NDJSON 协议 | `session-manager.ts` `handlePiEvent` NDJSON 解析循环 |
+| NDJSON 协议 | `task-state-machine.ts` 中 pi.stdin.write / pi.stdout 读取 |
+| 配置 | `.pi/settings.json` 中 `larkBot.autoStart` 配置（不再需要） |
+| 持久化 | `/tmp/lark-bot.pid` / `/tmp/lark-bot.restart-history` / `/tmp/lark-bot.pi-restart-history` |
+
+### 3.3 保留项
+
+| 类别 | 具体项 |
+|------|-------|
+| 飞书 WS 接收 | `protocol/feishu.ts startLarkEvents`（仍 spawn lark-cli event consume） |
+| 飞书协议 I/O | `protocol/feishu.ts circuit breaker` 状态（移到 module-level） |
+| 飞书事件入口 | `ingress.ts` 飞书事件 → LLM 决策桥接（不再 spawn PI Agent） |
+| 鉴权缓存 | `business/auth.ts groups / members Map`（PR-2 复用） |
+| 工作留痕 | `business/broadcast.ts announce`（PR-2 复用） |
+| 群组 API | `broadcast/group-tool.ts`（被 registerTool feishu_* 复用） |
+| 配置 | `config.ts` 路径 / emoji / 超时常量 |
+| 日志 | `shared/logger.ts` |
+| 类型 | `shared/types.ts` PendingTask / LarkEvent |
+
+### 3.4 新增项
+
+| 类别 | 具体项 |
+|------|-------|
+| Extension 主入口 | `extensions/lark-bot/index.ts` 改为 registerTool 集合 |
+| Module-level 状态 | `sessions Map<chatId, PiSession>` / `authorizedSlots` / `circuitBreaker state` / `groups Map<chatId, GroupInfo>` / `members Map<chatId, Set<openId>>` / `identityCache Map<openId, CacheValue>` |
+| 飞书 WS 桥接 | module-level 异步队列：飞书事件 → LLM 上下文注入 / 鉴权触发 |
+| registerTool | feishu_add_reaction / feishu_remove_reaction / feishu_send_reply / feishu_get_group_info / feishu_list_group_members / feishu_send_group_message / feishu_list_bot_groups |
+
+### 3.5 extensions/lark-bot/index.ts 改造骨架
+
+```typescript
+import { spawn } from "node:child_process";  // 仅用于 lark-cli spawn
+import { Type } from "@sinclair/typebox";      // TypeBox schema
+
+export default function (pi: ExtensionAPI) {
+  // ── 启动期：初始化飞书 WS 订阅（PR-1 保留 lark-cli spawn）
+  pi.on("session_start", async (event, ctx) => {
+    if (event.reason !== "startup") return;
+    await initLarkBotModule();           // 启动群组冷启动 + EventKey 订阅
+    // 不再 spawn lark-bot 主进程
+  });
+
+  // ── 关闭期：清理 module-level 状态
+  pi.on("session_shutdown", async (event, ctx) => {
+    cleanupLarkBotModule();
+  });
+
+  // ── 飞书 I/O registerTool（7 个）
+  pi.registerTool({
+    name: "feishu_add_reaction",
+    label: "添加飞书表情",
+    description: "为飞书消息添加 emoji 反应",
+    parameters: Type.Object({
+      msgId: Type.String(),
+      emoji: Type.String(),
+    }),
+    execute: async (toolCallId, params, signal, onUpdate, ctx) => {
+      return await feishuAddReaction(params);
+    },
+  });
+  // ... 其他 6 个飞书 I/O registerTool
+}
+```
+
+### 3.6 registerTool 契约（PR-1 飞书 I/O）
+
+```typescript
+// feishu_add_reaction
+{
+  name: "feishu_add_reaction",
+  label: "添加飞书表情",
+  description: "为飞书消息添加 emoji 反应（如 'WAVE' / 'THINKING' / 'DONE' / 'ERROR'）。返回 reaction_id 用于后续切换或删除。",
+  parameters: Type.Object({
+    msgId: Type.String({ description: "飞书消息 ID" }),
+    emoji: Type.String({ description: "emoji 类型，如 'WAVE'" }),
+  }),
+  execute: async (params, ctx) => {
+    // 内部调 lark-cli im reactions create
+    // 熔断器检查
+    // 返回 {ok: true, reactionId: '...'} 或 {ok: false, error: '...'}
+  },
+}
+
+// feishu_send_reply
+{
+  name: "feishu_send_reply",
+  label: "回复飞书消息",
+  description: "回复飞书私聊消息，返回新消息 ID。超时 18s。",
+  parameters: Type.Object({
+    msgId: Type.String(),
+    text: Type.String({ maxLength: 4000 }),
+  }),
+  execute: async (params, ctx) => {
+    // 内部调 sendReplyGetId（保留超时机制）
+    // 返回 {ok: true, replyId: '...'} 或 {ok: false, error: '...', timedOut}
+  },
+}
+```
+
+（其他 5 个 registerTool 契约按相同模式展开，本节不重复）
+
+### 3.7 飞书 WS 桥接（PR-1 关键设计点）
+
+**问题**：registerTool 是 LLM 触发的，飞书 WS 事件是被动接收的，两者如何桥接？
+
+**方案**：lark-bot extension 在 `session_start` 启动 lark-cli event consume 子进程（保留），事件接收在 module-level 异步队列，事件触发时：
+
+```typescript
+// module-level 事件队列
+const pendingEvents: Map<chatId, LarkEvent[]> = new Map();
+
+// lark-cli event consume stdout handler
+function onLarkEvent(event: LarkEvent) {
+  const queue = pendingEvents.get(event.chat_id) ?? [];
+  queue.push(event);
+  pendingEvents.set(event.chat_id, queue);
+
+  // 触发 LLM 上下文注入（如果该 chat_id 已有 active session）
+  triggerLlmContextInjection(event.chat_id);
+}
+
+// LLM 通过 registerTool 拉取待处理事件
+registerTool("larkbot_fetch_pending_events", {
+  parameters: Type.Object({ chatId: Type.String() }),
+  execute: async ({ chatId }) => {
+    const events = pendingEvents.get(chatId) ?? [];
+    pendingEvents.delete(chatId);
+    return { events };
+  },
+});
+```
+
+**约束**：
+
+- registerTool `larkbot_fetch_pending_events` 是 LLM 主动拉取，不是事件触发
+- LLM 决策后调用其他 registerTool 处理事件（鉴权 / 业务 / 关闭）
+
+### 3.8 测试覆盖（PR-1）
+
+| 测试类型 | 覆盖点 |
+|---------|--------|
+| 单元测试 | registerTool TypeBox schema 验证（7 个工具） |
+| 单元测试 | Module-level 状态并发安全 |
+| 单元测试 | 飞书 WS 桥接事件队列正确性 |
+| 集成测试 | session_start → 群组冷启动 → registerTool 可用 |
+| 集成测试 | session_shutdown → module-level 状态清理 |
+| Mock 测试 | lark-cli spawn 子进程 mock（保留） |
+| 回归测试 | `spawn 'pi --mode rpc'` 调用次数 = 0 |
+| 回归测试 | process.ts 不再被引用 |
+
+### 3.9 回滚方案（PR-1）
+
+保留 feature flag `larkBot.useExtensionMode`：
+
+```typescript
+// 启动期根据 settings.json 决定走 spawn 模式还是 extension 模式
+if (settings.larkBot?.useExtensionMode === true) {
+  // 新路径：registerTool
+} else {
+  // 旧路径：spawn lark-bot 进程（保留 PR-1 之前代码）
+}
+```
+
+回滚步骤：修改 settings.json → `useExtensionMode: false` → 重启 PI Agent。
+
+## 4. PR-2 详细设计：鉴权迁 LLM
+
+### 4.1 目标
+
+鉴权判定（业务描述 → 群组匹配）由 PI Agent LLM 决策，lark-bot 仅保留成员资格校验。
+
+### 4.2 删除项
+
+| 类别 | 具体项 |
+|------|-------|
+| 鉴权判定 | `business/auth.ts` `substringMatch` 函数 |
+| 鉴权判定 | `business/auth.ts` `agentMatcher` 钩子类型与 factory 调用 |
+| 鉴权判定 | `normalizeForMatch`（substringMatch 辅助函数） |
+| 调用 | `ingress.ts` 中 substringMatch 调用点 |
+
+### 4.3 保留项
+
+| 类别 | 具体项 |
+|------|-------|
+| 鉴权缓存 | `auth.ts groups / members Map`（EventKey 增量更新） |
+| 鉴权缓存 | `auth.ts onChatAdded / onChatDeleted / onUserAdded / onUserDeleted / onChatUpdated / onChatDisbanded` |
+| 鉴权缓存 | `auth.ts initBoot` 冷启动 |
+| 工作留痕 | `business/broadcast.ts announce`（鉴权成功后调用） |
+| 注册表 | `OPERATOR_REGISTRY`（larkbot_resolve_operator 用） |
+
+### 4.4 新增项
+
+| 类别 | 具体项 |
+|------|-------|
+| registerTool | `larkbot_list_candidate_groups` |
+| registerTool | `larkbot_authorize_user` |
+| registerTool | `larkbot_resolve_operator` |
+| 决策协议 | `auth_decision` NDJSON 事件（N2 §9.2）→ PR-2 改为 LLM 直接调用 registerTool |
+
+### 4.5 registerTool 契约（PR-2 鉴权 / 身份）
+
+```typescript
+// larkbot_list_candidate_groups
+{
+  name: "larkbot_list_candidate_groups",
+  label: "列出候选群组",
+  description: "返回 bot 所在的有 description 的群组列表（用于鉴权决策输入）。返回每群的 chatId、name、description。LLM 据此判断用户消息属于哪个业务群组。",
+  parameters: Type.Object({}),
+  execute: async (_params, ctx) => {
+    const candidates = [...groups.values()]
+      .filter(g => g.description?.trim())
+      .map(g => ({ chatId: g.chatId, name: g.name, description: g.description }));
+    return { candidates };
+  },
+}
+
+// larkbot_authorize_user
+{
+  name: "larkbot_authorize_user",
+  label: "授权用户业务私聊",
+  description: "校验用户是否在指定群组成员列表中。LLM 决策 chatId 后调用。返回 matched / not_member / no_match。",
+  parameters: Type.Object({
+    openId: Type.String({ description: "飞书用户 open_id" }),
+    chatId: Type.String({ description: "LLM 决策的群组 chat_id" }),
+  }),
+  execute: async ({ openId, chatId }, ctx) => {
+    // 校验 openId 格式
+    // 校验 chatId 格式
+    // 检查 groups 中是否有该 chatId
+    // 校验 members.get(chatId).has(openId)
+    // 返回 {status: 'matched' | 'not_member' | 'no_match' | 'auth_module_error'}
+    // matched 时占用 authorizedSlots + 触发 broadcast
+  },
+}
+
+// larkbot_resolve_operator
+{
+  name: "larkbot_resolve_operator",
+  label: "解析飞书 user_id",
+  description: "把飞书 open_id 解析为稳定 user_id。LRU 缓存（成功 TTL 1h，失败 TTL 30s）。校验 user_id 是否在 OPERATOR_REGISTRY。",
+  parameters: Type.Object({
+    openId: Type.String({ description: "飞书 open_id" }),
+  }),
+  execute: async ({ openId }, ctx) => {
+    // 调 identity-resolver 逻辑
+    // 返回 {operator: 'user_id', name: '...', inRegistry: true} 或 {operator: null, inRegistry: false}
+  },
+}
+```
+
+### 4.6 LLM 决策流（PR-2 后）
+
+```
+1. 飞书消息进入 module-level 事件队列
+2. LLM 通过 larkbot_fetch_pending_events 拉取
+3. LLM 决定"这是鉴权请求"（基于消息内容）
+4. LLM 调用 larkbot_list_candidate_groups 拿到 candidates
+5. LLM 决策 chatId（基于业务描述 + candidates）
+6. LLM 调用 larkbot_authorize_user({openId, chatId})
+7. lark-bot 返回 {status: 'matched' | 'not_member' | 'no_match'}
+8. matched 时：
+   - 占用 authorizedSlots
+   - 初始化 task_journal buffer（operator = larkbot_resolve_operator(openId) 的结果）
+   - 触发 broadcast(matched)
+9. not_member / no_match 时：
+   - 触发对应 broadcast
+   - 关闭会话（kind=p2p-temp → null）
+```
+
+### 4.7 测试覆盖（PR-2）
+
+| 测试类型 | 覆盖点 |
+|---------|--------|
+| 单元测试 | larkbot_list_candidate_groups 返回 schema |
+| 单元测试 | larkbot_authorize_user 四种 status 路径（matched / not_member / no_match / auth_module_error） |
+| 单元测试 | larkbot_resolve_operator 缓存 TTL 行为 |
+| 集成测试 | LLM 模拟 → candidates → 决策 → authorize → matched broadcast |
+| 集成测试 | task_journal buffer 初始化时 operator 校验失败回滚 |
+| 回归测试 | substringMatch 调用次数 = 0 |
+| 回归测试 | agentMatcher 调用次数 = 0 |
+
+### 4.8 回滚方案（PR-2）
+
+保留 feature flag `larkBot.useAgentMatcher`：
+
+```typescript
+const useAgentMatcher = settings.larkBot?.useAgentMatcher !== false; // 默认 true
+
+if (useAgentMatcher) {
+  // 新路径：依赖 LLM 调用 larkbot_authorize_user
+  // LLM 未调用 → 鉴权失败（no_match）
+} else {
+  // 旧路径：保留 substringMatch
+}
+```
+
+回滚步骤：修改 settings.json → `useAgentMatcher: false` → 重启 PI Agent。
+
+## 5. PR-3 详细设计：关闭意图删除
+
+### 5.1 目标
+
+删除 `matchesCloseIntent` 本地正则与 `parseCloseSessionFromText` 文本兜底，依赖 PI Agent emit `close_session` NDJSON 稳定。
+
+### 5.2 删除项
+
+| 类别 | 具体项 |
+|------|-------|
+| 关闭检测 | `ingress.ts` `matchesCloseIntent` 函数 |
+| 关闭检测 | `ingress.ts` `closeSessionFromUserIntent` 调用点 |
+| 兜底解析 | `session-manager.ts` `parseCloseSessionFromText` 函数 |
+| 兜底解析 | `session-manager.ts` handlePiEvent 中文本兜底分支 |
+
+### 5.3 保留项
+
+| 类别 | 具体项 |
+|------|-------|
+| 关闭清理 | `session-manager.ts` `cleanupSessionForClose` 六步清单 |
+| 关闭清理 | `session-manager.ts` `closeSessionFromAgent`（仅 NDJSON 路径） |
+| 关闭清理 | `session-manager.ts` `closeBroadcastHandler`（broadcast ended 触发） |
+| 关闭清理 | `task-state-machine.ts` `completeActiveTask` 后清理 |
+
+### 5.4 依赖项
+
+- PI Agent 必须能稳定 emit `close_session` NDJSON（参考 N2 §7.1 不稳定点）
+- 若 PI Agent 协议不稳定，PR-3 期间保留 matchesCloseIntent 作为 feature flag（折中方案）
+
+### 5.5 feature flag 折中（PR-3）
+
+保留 `larkBot.useNaturalLanguageClose` 配置：
+
+```typescript
+const useNaturalLanguageClose = settings.larkBot?.useNaturalLanguageClose === true; // 默认 false
+
+if (useNaturalLanguageClose) {
+  // 旧路径：matchesCloseIntent 兜底
+} else {
+  // 新路径：仅依赖 PI Agent emit close_session NDJSON
+}
+```
+
+**说明**：PR-3 默认不启用自然语言兜底；如 PI Agent 协议不稳定，再 feature flag 启用兜底观察。
+
+### 5.6 测试覆盖（PR-3）
+
+| 测试类型 | 覆盖点 |
+|---------|--------|
+| 单元测试 | matchesCloseIntent 函数不存在（编译时验证） |
+| 单元测试 | parseCloseSessionFromText 函数不存在（编译时验证） |
+| 集成测试 | LLM emit close_session → cleanupSessionForClose 正确触发 |
+| 集成测试 | cleanupSessionForClose 六步清单不变 |
+| 集成测试 | close_session 仅走 NDJSON 路径（handlePiEvent case 'close_session'） |
+| 回归测试 | matchesCloseIntent 调用次数 = 0 |
+| 回归测试 | parseCloseSessionFromText 调用次数 = 0 |
+
+### 5.7 回滚方案（PR-3）
+
+修改 settings.json → `larkBot.useNaturalLanguageClose: true` → 临时恢复本地正则兜底（如果匹配逻辑仍在代码中保留为可选）。
+
+## 6. PR-4 详细设计：任务日志接入
+
+### 6.1 目标
+
+业务私聊开始时累积 task_journal buffer，业务结束时转换为 LogEntry 返回给 LLM，LLM 嵌入 commit message 提交 PR。
+
+### 6.2 删除项
+
+无（缺失路径补齐）。
+
+### 6.3 保留项
+
+| 类别 | 具体项 |
+|------|-------|
+| 审计日志 | `shared/logger.ts emitTaskJournal`（审计日志 /tmp/lark-bot-tasks.jsonl） |
+| 已实现 schema | `agent-src/scripts/op-log-schema.ts` LogEntry / ChangeEntry / generateLog / formatCommitMessage / parseLogFromMessage |
+| 已实现注册表 | `agent-src/scripts/op-log-schema.ts` OPERATOR_REGISTRY |
+| 已实现校验 | `agent-src/scripts/validate-op-log.ts`（ops CI 校验脚本） |
+
+### 6.4 新增项
+
+| 类别 | 具体项 |
+|------|-------|
+| Module-level 状态 | `taskJournals Map<chatId, TaskJournal>`（per-chat 累积） |
+| registerTool | `larkbot_record_change` |
+| registerTool | `larkbot_close_business_session` |
+| registerTool | `larkbot_query_journal`（调试用） |
+| 转换函数 | `taskJournalToLogEntry` 与 `closeBusinessSession` |
+
+### 6.5 registerTool 契约（PR-4 任务日志）
+
+```typescript
+// larkbot_record_change
+{
+  name: "larkbot_record_change",
+  label: "记录业务变更",
+  description: "把字段级变更累积到当前 chat 的 task_journal buffer。LLM 在每次业务操作后调用。",
+  parameters: Type.Object({
+    field: Type.String({ description: "JSONPath-like 字段路径，如 'teams[0].bossHP'" }),
+    from: Type.Optional(Type.Unknown({ description: "操作前值（undefined 表示新增）" })),
+    to: Type.Optional(Type.Unknown({ description: "操作后值（undefined 表示删除）" })),
+  }),
+  execute: async ({ field, from, to }, ctx) => {
+    // 校验当前 session 已鉴权（kind=p2p-business）
+    // 校验当前 session 有 task_journal buffer
+    // 追加 ChangeEntry 到 buffer.changes
+    // 返回 {ok: true, journalSize: buffer.changes.length}
+  },
+}
+
+// larkbot_close_business_session
+{
+  name: "larkbot_close_business_session",
+  label: "关闭业务私聊",
+  description: "业务私聊结束时调用。把 task_journal buffer 转换为 LogEntry，返回给 LLM 用于嵌入 commit message。",
+  parameters: Type.Object({
+    shortDesc: Type.String({ description: "commit message 第一行简短描述", maxLength: 100 }),
+  }),
+  execute: async ({ shortDesc }, ctx) => {
+    // 校验当前 session 有 task_journal buffer
+    // 校验 buffer.changes 非空（fail-closed）
+    // 校验 buffer.operator 在 OPERATOR_REGISTRY
+    // 转换 buffer → LogEntry
+    // 调用 formatCommitMessage(shortDesc, log) 生成 commit message
+    // 清理 buffer + 触发 broadcast(ended)
+    // 返回 {logEntry, commitMessage, broadcast: 'ended'}
+  },
+}
+
+// larkbot_query_journal（调试用）
+{
+  name: "larkbot_query_journal",
+  label: "查询当前 task_journal",
+  description: "查询当前 chat 的 task_journal buffer 状态。调试用，不参与业务流程。",
+  parameters: Type.Object({}),
+  execute: async (_params, ctx) => {
+    // 返回 {journaledAt, changes, subject, entity} 或 {empty: true}
+  },
+}
+```
+
+### 6.6 buffer 初始化时机
+
+```
+鉴权 matched 时（PR-2 完成后）：
+  → 调用 larkbot_resolve_operator(openId) 获取 user_id
+  → 校验 isOperatorAllowed(user_id) 为 true（fail-closed）
+  → 创建 TaskJournal：
+      {
+        operator: user_id,
+        operatorName: registry[user_id].name,
+        sessionStartedAt: new Date().toISOString(),
+        groupId, groupName, matchedBroadcastMessageId,
+        subject: null,
+        entity: null,
+        changes: [],
+        promptId: <当前消息 promptId>,
+      }
+  → 存入 taskJournals.set(chatId, journal)
+```
+
+### 6.7 LLM 业务流（PR-4 后）
+
+```
+1. LLM 决定"这是业务指令"（基于消息内容）
+2. LLM 修改 data.json 的字段（通过 larkbot_record_change 累积；MVP 阶段由 LLM 自己计算 from/to）
+3. LLM 调 larkbot_record_change({field, from, to}) × N
+4. 业务完成 → LLM 调 larkbot_close_business_session({shortDesc})
+5. lark-bot 返回 {logEntry, commitMessage}
+6. LLM 用 commitMessage 提交 git commit + ops CI PR
+7. ops CI 校验 commit message 含 OPERATOR_LOG → 合并入 main
+8. PR 合入后 audit journal 写一条（PR 合入 webhook）
+```
+
+### 6.8 双写策略
+
+```
+close_business_session 时：
+  1. task_journal → LogEntry 转换
+  2. emitTaskJournal 写 audit journal 一条：
+     {state: 'awaiting_review', subject, changesCount, shortDesc}
+  3. LogEntry 返回 LLM 嵌入 commit message
+
+PR 合入后（ops CI webhook）：
+  4. emitTaskJournal 写 audit journal 一条：
+     {state: 'post_review', prUrl, mergedAt}
+
+PR 拒绝合并：
+  5. emitTaskJournal 写 audit journal 一条：
+     {state: 'terminated', reason: 'pr_rejected', prUrl}
+```
+
+### 6.9 测试覆盖（PR-4）
+
+| 测试类型 | 覆盖点 |
+|---------|--------|
+| 单元测试 | `taskJournalToLogEntry` 转换正确性 |
+| 单元测试 | closeBusinessSession changes 空拒绝 |
+| 单元测试 | buffer 启动时 operator 校验失败立即清理 |
+| 单元测试 | record_change 字段路径非法处理 |
+| 集成测试 | close_business_session → audit journal 双写 |
+| 集成测试 | close_business_session → LLM 嵌入 commit message → ops CI 校验通过 |
+| 集成测试 | business 超时 / 强制关闭 → buffer 丢弃（不转换 LogEntry） |
+| 集成测试 | OPERATOR_REGISTRY 校验失败回滚 |
+
+### 6.10 回滚方案（PR-4）
+
+PR-4 是缺失路径补齐，无"旧路径"可回滚。如有问题需修复 bug 或 feature flag 关闭（如 `larkBot.enableTaskJournal: false`）。
+
+## 7. 跨 PR 兼容性策略
+
+### 7.1 向后兼容窗口
+
+每 PR 合并后保留 1 周观察期：
+
+- 监控 registerTool 调用次数、错误率、延迟
+- 监控 lark-bot 进程崩溃次数（应为 0）
+- 监控业务私聊完成率
+
+### 7.2 feature flag 总表
+
+| feature flag | PR | 默认值 | 说明 |
+|--------------|-----|--------|------|
+| `larkBot.useExtensionMode` | PR-1 | false | 是否启用 extension 模式（vs spawn 模式） |
+| `larkBot.useAgentMatcher` | PR-2 | true | 是否依赖 LLM 决策（vs substringMatch） |
+| `larkBot.useNaturalLanguageClose` | PR-3 | false | 是否启用自然语言兜底（vs 仅 NDJSON） |
+| `larkBot.enableTaskJournal` | PR-4 | true | 是否启用 task_journal buffer（缺失路径补齐） |
+
+### 7.3 settings.json 迁移
+
+新增 settings.json 示例：
+
+```json
+{
+  "larkBot": {
+    "useExtensionMode": true,
+    "useAgentMatcher": true,
+    "useNaturalLanguageClose": false,
+    "enableTaskJournal": true
+  }
+}
+```
+
+向后兼容：缺失字段时使用默认值。
+
+## 8. 回滚方案汇总
+
+| PR | feature flag | 回滚步骤 | 回滚时间 |
+|----|--------------|---------|---------|
+| PR-1 | `larkBot.useExtensionMode` | settings.json → false → 重启 | < 5 分钟 |
+| PR-2 | `larkBot.useAgentMatcher` | settings.json → false → 重启 | < 5 分钟 |
+| PR-3 | `larkBot.useNaturalLanguageClose` | settings.json → true → 重启 | < 5 分钟 |
+| PR-4 | `larkBot.enableTaskJournal` | settings.json → false → 重启 | < 5 分钟 |
+
+**回滚成本**：每 PR 独立可回滚，最大回滚粒度 = 单 PR。
+
+## 9. 测试覆盖要求汇总
+
+### 9.1 每 PR 必测项
+
+| 维度 | 要求 |
+|------|------|
+| 单元测试覆盖率 | registerTool execute 路径覆盖率 ≥ 80% |
+| 集成测试 | 端到端业务流：飞书消息 → LLM 决策 → registerTool 调用 → 飞书回复 |
+| 回归测试 | 删除项调用次数 = 0（substringMatch / matchesCloseIntent / parseCloseSessionFromText） |
+| 性能测试 | registerTool 调用延迟 < 500ms（不含 lark-cli spawn） |
+| 并发测试 | 多 session 并发 registerTool 调用无状态冲突 |
+
+### 9.2 测试基础设施
+
+- vitest 现有 195 测试 + 重构期间新增测试必须全过（issue #168 验收标准）
+- typecheck 干净
+- lark-cli spawn 仍需 mock（PR-1 保留）
+
+## 10. 风险与缓解（继承 N3 §7 + 新增）
+
+| 风险 | 来源 | 缓解 |
+|------|------|------|
+| PI Agent session 生命周期 | N3 §7.1 | pi.on('session_shutdown') 清理 module-level 状态 |
+| registerTool 并发安全 | N3 §7.2 | per-chat_id lock（Promise 链式 serialize） |
+| 飞书 WS → registerTool 桥接 | N3 §7.3 | module-level 事件队列 + larkbot_fetch_pending_events |
+| LLM 调用成本 | N3 §7.4 | registerTool description 精炼 |
+| OPERATOR_REGISTRY 注入 | N3 §7.5 | MVP 阶段 2 项，不需注入；按需 registerTool 查询 |
+| ctx.ui 不支持飞书 | N3 §7.6 | 不使用 ctx.ui |
+| 测试基础设施 | N3 §7.7 | registerTool 纯函数化便于单测 |
+| **新增：跨 PR 合并冲突** | PR-2/3/4 并行 | 建议串行 PR-1 → PR-2 → PR-3 → PR-4 |
+| **新增：feature flag 累积** | 每 PR 一个 flag | 4 个 flag 是 MVP 上限；后续需整合为统一开关 |
+| **新增：PI Agent 协议不稳定** | PR-3 删除兜底依赖 NDJSON 稳定 | feature flag 临时启用 matchesCloseIntent 兜底 |
+| **新增：OPERATOR_REGISTRY 解析失败** | PR-4 buffer 启动时 fail-closed | 鉴权回滚 + ERROR 提示 |
+
+## 11. 不应预设的项
+
+- registerTool execute 内部实现的并发控制方式（per-chat lock vs 全局 lock）
+- module-level 状态的持久化策略（lark-bot 重启后是否保留 sessions Map）
+- registerTool 执行超时上限（建议 5s/30s 两档，待 PR-1 decide）
+- registerTool 失败重试策略（是否由 LLM 决策 vs lark-bot 自动重试）
+- PI Agent 协议升级时间表（不可控）
+- ctx.ui 是否使用（决定不使用）
+
+## 12. 与 issue #168 其他节点的关系
+
+| 节点 | 关系 |
+|------|------|
+| N1 业务流图 | 本节点 §3-§6 的 PR-1 ~ PR-4 是 N1 §3 sequenceDiagram 中各步骤的落地路径 |
+| N2 PI Agent 契约盘点 | 本节点 §3.7 飞书 WS 桥接方案 + §4.5 registerTool 契约吸收 N2 §9 协议扩展点 |
+| N3 spawn vs extension | 本节点 §3 PR-1 + §3.5 extension 骨架 + §3.6 registerTool 契约是 N3 §5 映射的工程化落地 |
+| N5 任务日志 schema | 本节点 §6 PR-4 + §6.5 registerTool 契约是 N5 §2 TaskJournal + §4 转换规则的落地 |
+| N6 第一阶段汇总 | 本节点是 N6 的组成部分之一 |
+
+## 13. 引用
+
+- `docs/lark-bot-business-flow.md`（N1）— 业务流图
+- `docs/lark-bot-pi-agent-contract.md`（N2）— PI Agent 契约盘点与不稳定点清单
+- `docs/lark-bot-extension-migration-analysis.md`（N3）— spawn vs extension 对比
+- `docs/lark-bot-task-journal-schema.md`（N5）— 任务日志对象 schema
+- `agent-src/.pi/extensions/lark-bot/index.ts` — 现有 PI Agent extension 入口
+- `agent-src/.pi/scripts/lark-bot/main.ts` — lark-bot 主进程装配点
+- `agent-src/.pi/scripts/lark-bot/process.ts` — 进程级防护（PR-1 删除）
+- `agent-src/.pi/scripts/lark-bot/interactive/session-manager.ts` — PI Agent 子进程管理（PR-1 大幅缩减）
+- `agent-src/.pi/scripts/lark-bot/interactive/task-state-machine.ts` — 任务状态机（PR-3 简化）
+- `agent-src/.pi/scripts/lark-bot/ingress.ts` — 飞书事件入口
+- `agent-src/.pi/scripts/lark-bot/business/auth.ts` — 鉴权判定（PR-2 删除 substringMatch）
+- `agent-src/.pi/scripts/lark-bot/business/broadcast.ts` — 工作留痕广播
+- `agent-src/.pi/scripts/lark-bot/broadcast/group-tool.ts` — 群组 API 适配
+- `agent-src/.pi/scripts/lark-bot/identity-resolver.ts` — open_id → user_id（PR-2 激活）
+- `agent-src/.pi/scripts/lark-bot/protocol/feishu.ts` — 飞书协议 I/O
+- `agent-src/.pi/scripts/lark-bot/shared/types.ts` — 类型定义
+- `agent-src/.pi/scripts/lark-bot/shared/logger.ts` — 日志门面
+- `agent-src/.pi/scripts/lark-bot/config.ts` — 配置常量（PR-1 大幅缩减）
+- `agent-src/scripts/op-log-schema.ts` — OPERATOR_LOG 模块
+- `agent-src/scripts/validate-op-log.ts` — ops CI 校验脚本
+- `.pi/npm/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts` — ExtensionAPI / ToolDefinition / ExtensionContext 完整定义
