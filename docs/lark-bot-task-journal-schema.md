@@ -30,9 +30,24 @@
 ```typescript
 /**
  * 业务私聊会话内的任务日志累积缓冲。
- * 生命周期：鉴权成功（kind=p2p-business）→ close_business_session。
+ *
+ * 生命周期（四个阶段，紧密关联但时机不同）：
+ *   创建：鉴权成功（kind=p2p-business）
+ *   累积：业务执行中（larkbot_record_change）
+ *   提交：PR 提交时（larkbot_commit_changes → buffer → LogEntry → 返回 commitMessage）
+ *   销毁：业务私聊关闭时（larkbot_close_business_session）
+ *
+ * 任务日志对象跨越两个事件边界：
+ *   - 会话生命周期（创建 / 销毁）
+ *   - PR 生命周期（提交）
+ *
+ * 提交与销毁不是一步动作（PR 提交可与会话关闭独立触发）。
+ *
  * 归属：lark-bot 内存，per-session 持有。
- * 终态：转换为 LogEntry 后清空。
+ * 状态：
+ *   - 创建后字段全部锁定（operator / groupId 等）
+ *   - changes[] 在 commit_changes 后清空，但会话元数据保留（支持多次 PR）
+ *   - 会话关闭时整个 buffer 删除
  */
 interface TaskJournal {
   /** 鉴权通过的飞书 user_id（OPERATOR_REGISTRY 校验通过） */
@@ -140,16 +155,30 @@ function closeBusinessSession(journal: TaskJournal, shortDesc: string): {
 - 转换时：`validateOperatorPermission(logEntry)` 由 ops CI 在 PR 合并前再次校验
 - 失败处理：lark-bot 拒绝关闭会话 + 提示用户；ops CI 拒绝合并 PR
 
-## 5. buffer 生命周期
+## 5. buffer 生命周期（与任务日志对象生命周期对齐）
+
+任务日志对象有四个生命周期阶段，跨越两个事件边界：
+
+```
+[会话生命周期]                                          [PR 生命周期]
+   创建                                                  提交
+    ↓                                                    ↓
+初始化 → 累积中 → commit_changes → 累积中 → ... → close_business_session → 已清理
+              ↑                                                    ↓
+              └── record_change（多次）                              buffer 删除
+                                                                  audit journal terminated
+```
 
 ```mermaid
 stateDiagram-v2
     [*] --> 空: 鉴权失败 / 未创建
-    空 --> 初始化: AuthModule matched<br/>kind=p2p-business
-    初始化 --> 累积中: buffer 启动<br/>operator 锁定<br/>matchedBroadcastMessageId 记录
+    空 --> 初始化: authModule matched<br/>kind=p2p-business<br/>operator 锁定
+    初始化 --> 累积中: record_change 首次调用
     累积中 --> 累积中: record_change 追加<br/>task_log 更新 subject
-    累积中 --> 已转换: close_business_session
-    已转换 --> [*]: LogEntry 返回给 Agent<br/>buffer 清空<br/>audit journal 双写
+    累积中 --> 已提交: commit_changes<br/>buffer → LogEntry → commitMessage 返回<br/>changes 清空（会话元数据保留）
+    已提交 --> 累积中: 后续业务操作继续累积<br/>(支持一次会话多次 PR)
+    累积中 --> 已关闭: close_business_session
+    已关闭 --> [*]: cleanupSessionForClose 六步<br/>ended 广播<br/>buffer 删除<br/>audit journal terminated
     累积中 --> 已清理: 业务超时 / 强制关闭<br/>(auth_module_error 等)
     已清理 --> [*]: buffer 丢弃<br/>(不转换 LogEntry)
     初始化 --> 立即清理: OPERATOR_REGISTRY 校验失败<br/>鉴权回滚
@@ -160,8 +189,10 @@ stateDiagram-v2
 
 - `changes` 数组顺序 = Agent 决策顺序（lark-bot 不重排序）
 - buffer 启动后 `operator` 不变（即使 sender 变更）
+- `commit_changes` 后 `changes[]` 清空，但 `operator` / `groupId` / `matchedBroadcastMessageId` 等会话元数据保留
+- `close_business_session` 后整个 buffer 删除
 - 业务超时 / 强制关闭不转换 LogEntry（buffer 丢弃）
-- 一次业务私聊会话最多产生一个 LogEntry
+- 一次业务私聊会话**支持多次 PR 提交**——每次 commit_changes 产生一个 LogEntry
 
 ## 6. 字段来源（待你裁决项）
 
@@ -276,16 +307,37 @@ interface TaskChangeEvent {
 
 ## 10. 与 PR / commit message 协议集成
 
+**职责划分**：
+
+| 阶段 | 职责 | 实现 |
+|------|------|------|
+| buffer → LogEntry 转换 | lark-bot | `larkbot_commit_changes` registerTool |
+| commit message 生成 | lark-bot | `formatCommitMessage(shortDesc, log)` |
+| git commit / push / gh pr create / merge | PI Agent (content-pr skill) | `agent-src/.pi/skills/content-pr/SKILL.md` |
+| commit message 校验 | ops CI | `agent-src/scripts/validate-op-log.ts` |
+
 **集成路径**：
 
 ```
-业务私聊关闭
-  → close_business_session registerTool
-  → lark-bot 转换 task_journal → LogEntry
-  → 返回 LogEntry + commitMessage 给 Agent
-  → Agent 修改 data.json + commit message 含 formatCommitMessage 输出
-  → Agent 走 ops CI 提交 PR
-  → ops CI validate-op-log.ts 校验 commit message 含 4反引号 JSON 块
+业务会话中 LLM 调 larkbot_commit_changes({shortDesc})
+  → lark-bot 校验 buffer.changes 非空 + operator 在 OPERATOR_REGISTRY
+  → buffer → LogEntry 转换
+  → formatCommitMessage(shortDesc, log) 生成 commitMessage
+  → buffer.changes 清空（会话元数据保留）
+  → 返回 {logEntry, commitMessage} 给 LLM
+
+LLM 拿到 commitMessage 后调 content-pr skill
+  → content-pr skill 负责：
+    - git checkout -b content/<操作>-<目标>
+    - 修改 data.json
+    - git commit -m commitMessage（包含 4反引号 JSON 块）
+    - git push
+    - gh pr create --base main
+    - 等待用户回复"合并"
+    - gh pr merge --squash --delete-branch
+
+ops CI 校验（PR 合并前）
+  → validate-op-log.ts 提取 commit message 4反引号 JSON 块
   → parseLogFromMessage(commitMsg) 提取 LogEntry
   → validateOperatorPermission 校验 operator 在 OPERATOR_REGISTRY
   → validateLogStructure 校验结构完整
@@ -293,9 +345,12 @@ interface TaskChangeEvent {
   → git history 永久保存 LogEntry
 ```
 
-**ops CI 校验脚本**（已有 `agent-src/scripts/validate-op-log.ts`）：
+**关键边界**：
 
-- 已在 PR #85 验证流程使用
+- lark-bot **不持有 git 权限**，不调 gh CLI
+- content-pr skill **不持有业务会话状态**，仅消费 commitMessage
+- 任务日志对象**仅在 lark-bot 内存中存在**，转换后即销毁 buffer（changes 清空）
+- LogEntry 一旦嵌入 commit message，永久保存在 git history，与 lark-bot 重启 / 会话关闭无关
 - 校验 commit message 是否含 LogEntry JSON 块
 - 校验 operator 必须在 OPERATOR_REGISTRY
 - 校验 changes 非空
