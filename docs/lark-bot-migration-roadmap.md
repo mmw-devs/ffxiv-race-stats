@@ -326,11 +326,12 @@ function onLarkEvent(event: LarkEvent) {
 保留 feature flag `larkBot.useExtensionMode`：
 
 ```typescript
-// 启动期根据 settings.json 决定走 spawn 模式还是 extension 模式
+// 启动期根据 settings.json 决定是否启用 extension 化 registerTool 集合
+// （spawn per-chat PI Agent 进程始终保留——方案 G）
 if (settings.larkBot?.useExtensionMode === true) {
-  // 新路径：registerTool
+  // PR-1：新路径——registerTool 集合替代 stdin/stdout NDJSON 协议
 } else {
-  // 旧路径：spawn lark-bot 进程（保留 PR-1 之前代码）
+  // 旧路径：spawn lark-bot 进程（保留 PR-1 之前代码，作为回滚）
 }
 ```
 
