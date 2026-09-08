@@ -233,7 +233,11 @@ MVP 建议两者并存：
 
 N4 registerTool `larkbot_authorize_user` 落地后：
 
-- Agent 拿到 candidates 列表，决策后调 `larkbot_authorize_user({openId, chatId})`
+- **鉴权决策完整流程**（详细见 N4 §4.6）：
+  1. Agent 调 `larkbot_list_candidate_groups` 拿候选群组列表
+     （仅含 description 非空的群组，返回 `[{chatId, name, description}]`）
+  2. Agent 根据用户业务描述与 candidates 列表 LLM 决策 chatId
+  3. Agent 调 `larkbot_authorize_user({openId, chatId})`
 - lark-bot 在 `larkbot_authorize_user` 内部调用 identity-resolver 解析 open_id → user_id
 - user_id 写入 buffer.operator
 - buffer 启动时校验 `isOperatorAllowed(operator)`
