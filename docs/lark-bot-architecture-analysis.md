@@ -329,7 +329,7 @@ settings.json 示例：
 | 会话复审 | `docs/lark-bot-session-review.md` | 368 | 第 5 轮 reviewer 内容一致性复审报告（2 实质 + 2 形式残留） |
 | 审查报告 6 | `docs/lark-bot-review-report-session.md` | 148 | 第 6 轮 reviewer 表述一致性再验证报告（1 自指漂移） |
 | 行数专项 | `docs/lark-bot-review-report-linecount.md` | 273 | 第 7 轮 reviewer 行数一致性专项报告（pass） |
-| SSOT 复审 | `docs/lark-bot-review-report-ssot.md` | 422 | 第 8 轮 reviewer 方案 B + SSOT 一致性复审报告（minor） |
+| SSOT 复审 | `docs/lark-bot-review-report-ssot.md` | 422 | 第 8 轮 reviewer 方案 B 与 SSOT 一致性复审报告（minor；方案 B 随后被验证为 API 不可落地） |
 | 内容迁移 | `docs/lark-bot-review-report-migration.md` | 255 | 第 9 轮 reviewer 内容迁移检查报告（minor） |
 
 合计：2906（不含 9 份审查报告）。
