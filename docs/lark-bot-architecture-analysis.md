@@ -111,19 +111,45 @@ PI Agent (extension host)
 - content-pr skill 已实现完整的 PR 提交流程，不需修改
 - content-pr skill 需要补充说明：如何从 lark-bot 拿 LogEntry（PR-4 修订）
 
-### 2.7 PR-1 后私聊会话隔离层级
+### 2.7 PR-1 后私聊会话隔离层级（方案 G）
 
-PR-1 后【不】共享单一 PI Agent session，多 chat 上下文混合会引发鉴权失效 / 业务错乱 / PR 提交错误。隔离分五层：
+**原方案 B（PR-170）设计错误**：
+
+> 假设 `ctx.forkOrCreate({ sessionDir })` 创建 per-chat sub-session，但该 API **不存在**。
+>
+> PI Agent 实际仅有 `newSession` / `fork` / `switchSession`，均为"替换当前 session"操作，且仅在 command handler 中可用（`extensions.md` L1074）。
+>
+> 详见 issue #168 comment 5592358044。
+
+**方案 G（当前采用）**：
+
+保留 MVP 现状：每 chat 一个独立 PI Agent 子进程（`spawn(pi --mode rpc --session-dir <chatId>)`）。隔离分四层：
 
 | 层级 | 隔离机制 | 实现位置 |
 |------|---------|---------|
-| 进程隔离 | 所有 chat 共享同一 PI Agent extension 进程（消除 spawn） | extensions/lark-bot/index.ts |
-| **PI Agent session 隔离** | **per-chat sub-session**（`.pi/sessions/bot-p2p-<chatId>/`） | `larkbot_fetch_pending_events` 返回 `subSessionId` |
-| **LLM 上下文隔离** | sub-session 独立 JSONL，LLM 仅看到当前 chat 消息历史 | sub-session 隔离 |
-| 业务状态隔离 | lark-bot module-level `Map<chatId, ...>` 路由 | `sessions` / `taskJournals` Map |
-| 任务日志隔离 | per-chat `TaskJournal`（LLM 不会跨 chat 访问） | `taskJournals Map<chatId, TaskJournal>` |
+| **进程隔离** | **每 chat 一个 PI Agent 子进程**（`spawn(pi --session-dir <chatId>)`）——天然 LLM 上下文隔离 | `extensions/lark-bot/index.ts`（保留 MVP spawn） |
+| **PI Agent session 隔离** | per-chat sessionDir（`.pi/sessions/bot-p2p-<chatId>/`）——PI Agent 进程加载独立会话历史 | session-manager.ts |
+| **业务状态隔离** | lark-bot module-level `Map<chatId, ...>` 路由 | `sessions` / `taskJournals` Map |
+| **任务日志隔离** | per-chat `TaskJournal`（LLM 不会跨 chat 访问） | `taskJournals Map<chatId, TaskJournal>` |
 
-**为何不能仅靠应用层隔离**：registerTool 内部按 chatId 路由不会越界，但 LLM 决策层可能跨 chat 错传参数（鉴权失效 / 业务错乱 / PR 提交错误）。隔离必须从 LLM context 层级保证。
+**为何方案 G 是当前最优解**：
+
+| 替代方案 | 缺陷 |
+|---------|------|
+| 应用层隔离 + PI Agent 共享 session | LLM 跨 chat 上下文污染（鉴权失效 / 业务错乱 / PR 错误） |
+| 自实现 sub-session（绕过 PI Agent session API） | 需绕过 PI Agent skill / tool 系统，工程量大 |
+| pi-app-server（多会话网关） | 适用于 Web/桌面/嵌入式，lark-bot 是 extension 模式与架构冲突 |
+
+方案 G 与 doubao 建议 + PI Agent 官方哲学"spawn pi instances"完全一致，零新 API 依赖，已落地。
+
+**4 项强化措施**（应对 chatId 错传风险）：
+
+| 风险 | 缓解措施 |
+|------|---------|
+| LLM 错传 chatId | prompt header 强化 chatId 上下文（`[私聊 | chatId=oc_xxx]`）；registerTool **不接受** chatId 参数（由 ctx 提供） |
+| registerTool execute 越界 | 每次 execute 从 ctx 取 chatId，与 `pendingEvents` / `sessions` / `taskJournals` Map 路由对齐 |
+| OPERATOR_REGISTRY 校验 | 最终业务操作需 `validateOperatorPermission`（PR-4 落地），保证 user_id 在注册表内 |
+| 进程级故障 | PI Agent 进程崩溃只影响 1 个 chat，不影响其他 chat |
 
 详见 N4 §3.7 飞书 WS 桥接方案设计与 registerTool `larkbot_fetch_pending_events` 契约。
 
@@ -136,16 +162,18 @@ PR-1 后【不】共享单一 PI Agent session，多 chat 上下文混合会引�
 | 3 | 任务日志嵌入 | 走 OPERATOR_LOG 已有基础设施（LogEntry + commit message JSON 块） | `op-log-schema.ts` 已完整实现且 PR#85 已验证 |
 | 4 | 鉴权数据源 | 群组缓存 + 成员资格校验保留 lark-bot；语义匹配迁 Agent | MVP "业务层不调协议层"约束 + registerTool 注入 |
 | 5 | 会话边界 | MVP 七阶段生命周期 + 补齐"会话 → PR"连接 | MVP 设计意图 + OPERATOR_LOG 设计对齐 |
-| 6 | 私聊会话隔离 | 应用层隔离（module-level Map）+ per-chat PI Agent sub-session | 避免 LLM 跨 chat 上下文污染（鉴权失效 / 业务错乱 / PR 错误） |
+| 6 | 私聊会话隔离 | **方案 G：保留 MVP spawn per-chat PI Agent 进程 + 强化应用层隔离（不消除 spawn）** | 方案 B（per-chat PI Agent sub-session）的 `ctx.forkOrCreate` API 不存在；PI Agent 推荐 spawn pi instances（README 官方哲学）；与 doubao 建议一致 |
 
 ## 4. PR 拆分总览
 
 | PR | 内容 | 关键删除 | 关键新增 | 决策 |
 |----|------|---------|---------|------|
-| **PR-1** | extension 化（消除 PI Agent 子进程层） | `process.ts` / `spawnPiProcess` / `handlePiEvent` NDJSON | 7 个 `feishu_*` registerTool + 飞书 WS 桥接 + per-chat sub-session 管理 | 决策 1 + 决策 6 |
+| **PR-1** | **优化 spawn 基础设施**（不消除 spawn）+ extension 化 registerTool | `process.ts` / `handlePiEvent` NDJSON | 7 个 `feishu_*` registerTool + 飞书 WS 桥接 + 强化应用层隔离（prompt header / execute 校验） | 决策 1 |
 | **PR-2** | 鉴权判定迁 PI Agent LLM | `substringMatch` / `agentMatcher` 钩子 | `larkbot_list_candidate_groups` / `larkbot_authorize_user` / `larkbot_resolve_operator` | 决策 4 |
 | **PR-3** | 关闭意图删除本地正则 | `matchesCloseIntent` / `parseCloseSessionFromText` | （依赖 PI Agent emit close_session 稳定） | 决策 5 |
 | **PR-4** | 任务日志对象接入 OPERATOR_LOG | 无（缺失路径补齐） | `larkbot_record_change` / `larkbot_commit_changes` / `larkbot_close_business_session` / `larkbot_query_journal` | 决策 3 + 决策 5 |
+
+**PR-1 目标修订**：原计划"消除 PI Agent 子进程层"修订为"优化 spawn 基础设施 + 强化应用层隔离"。理由：PI Agent 实际 API（types.d.ts L246-289）不支持并发隔离 sub-session，唯一可落地的 per-chat LLM 上下文隔离方案是 per-chat spawn（与 doubao 建议一致）。
 
 **推荐顺序**：PR-1 → PR-2 → PR-3 → PR-4（PR-2/3/4 必须串行在 PR-1 之后）。
 
@@ -291,9 +319,9 @@ settings.json 示例：
 | N1 | `docs/lark-bot-business-flow.md` | 291 | 业务流图（MVP 七阶段 + 任务日志对象生命周期） |
 | N2 | `docs/lark-bot-pi-agent-contract.md` | 450 | PI Agent 上游契约盘点与不稳定点清单 |
 | N3 | `docs/lark-bot-extension-migration-analysis.md` | 383 | spawn 模式 vs 标准 extension 模式对比 |
-| N4 | `docs/lark-bot-migration-roadmap.md` | 876 | 渐进迁移路线图 + registerTool 契约设计 |
+| N4 | `docs/lark-bot-migration-roadmap.md` | 895 | 渐进迁移路线图 + registerTool 契约设计 |
 | N5 | `docs/lark-bot-task-journal-schema.md` | 427 | 任务日志对象 schema（OPERATOR_LOG 对齐版） |
-| **N6** | `docs/lark-bot-architecture-analysis.md`（本文档） | 430 | **第一阶段汇总** |
+| **N6** | `docs/lark-bot-architecture-analysis.md`（本文档） | 460 | **第一阶段汇总** |
 | 审查报告 1 | `docs/lark-bot-review-report.md` | 416 | 第 1 轮 reviewer 一致性审查报告（6 高 / 11 中 / 7 低） |
 | 审查报告 2 | `docs/lark-bot-review-report-revised.md` | 254 | 第 2 轮 reviewer 复审报告（9 残留 + 1 计数不一致） |
 | 审查报告 3 | `docs/lark-bot-review-report-final.md` | 221 | 第 3 轮 reviewer 最终复审报告（2 边角残留） |
@@ -304,7 +332,7 @@ settings.json 示例：
 | SSOT 复审 | `docs/lark-bot-review-report-ssot.md` | 422 | 第 8 轮 reviewer 方案 B + SSOT 一致性复审报告（minor） |
 | 内容迁移 | `docs/lark-bot-review-report-migration.md` | 255 | 第 9 轮 reviewer 内容迁移检查报告（minor） |
 
-合计：2857（不含 9 份审查报告）。
+合计：2906（不含 9 份审查报告）。
 
 **注**：行数随修订变化，以 `wc -l docs/lark-bot-*.md` 为准（上次更新 2026-09-08）。
 
