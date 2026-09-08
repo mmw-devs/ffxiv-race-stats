@@ -74,10 +74,10 @@ PI Agent (extension host)
 
 **路 C（渐进迁移）推荐**：PR-1 extension 化 → PR-2 鉴权 LLM → PR-3 关闭意图 → PR-4 任务日志。
 
-**关键约束**：
+**关键约束**（方案 G 修订后）：
 
 - 飞书 WS 事件接收无法消除 spawn（PI Agent 无飞书通道 API，lark-cli 子进程必须保留）
-- PI Agent 子进程层可消除（与 extension host 合一）
+- **PI Agent 子进程层不消除**（每 chat 一个 PI Agent 子进程，spawn `pi --mode rpc --session-dir <chatId>`，方案 G；详见 §2.7 + N4 §3.7）
 - 每个 PR 保留 feature flag，< 5 分钟可回滚
 
 ### 2.6 任务日志对象
@@ -222,7 +222,7 @@ PI Agent (extension host)
 
 | feature flag | PR | 默认值 | 说明 |
 |--------------|-----|--------|------|
-| `larkBot.useExtensionMode` | PR-1 | false | 是否启用 extension 模式（vs spawn 模式） |
+| `larkBot.useExtensionMode` | PR-1 | false | 是否启用 extension 化 registerTool 集合（**spawn per-chat PI Agent 进程始终保留**） |
 | `larkBot.useAgentMatcher` | PR-2 | true | 是否依赖 LLM 决策（vs substringMatch） |
 | `larkBot.useNaturalLanguageClose` | PR-3 | false | 是否启用自然语言兜底（vs 仅 NDJSON） |
 | `larkBot.enableTaskJournal` | PR-4 | true | 是否启用 task_journal buffer |
@@ -348,8 +348,8 @@ settings.json 示例：
 
 **建议第二阶段从 PR-1 开始**：
 
-- PR-1 extension 化是其他 PR 的前置依赖
-- PR-1 风险最大（消除 spawn PI Agent 子进程），需独立验证
+- PR-1（优化 spawn + extension 化 registerTool）是其他 PR 的前置依赖
+- PR-1 风险最大（**保留 per-chat spawn + 强化应用层隔离**，需验证 registerTool execute chatId 隔离正确性），需独立验证
 - PR-1 后 PR-2/3/4 互相独立，可按业务优先级选择
 
 ### 12.3 估时

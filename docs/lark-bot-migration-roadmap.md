@@ -16,7 +16,7 @@
 
 | PR | 内容 | 决策依据 | 前置依赖 |
 |----|------|---------|---------|
-| PR-1 | extension 化（消除 PI Agent 子进程层） | 决策 1 渐进迁移第一步 | 无 |
+| PR-1 | 优化 spawn 基础设施 + extension 化 registerTool（**不消除 spawn**） | 决策 1 渐进迁移第一步 | 无 |
 | PR-2 | 鉴权判定迁 PI Agent LLM | 决策 4 | PR-1 |
 | PR-3 | 关闭意图删除本地正则 | 决策 5 | PR-1 |
 | PR-4 | 任务日志对象接入 OPERATOR_LOG | 决策 3 + 决策 5 | PR-1（PR-2 与 PR-3 可作为软依赖） |
@@ -95,20 +95,22 @@ PR-1 (extension 化)
 
 ### 3.1 目标
 
-消除 PI Agent 子进程层（spawn `pi --mode rpc`）；lark-bot 改为 PI Agent 标准 extension，registerTool 集合替代 stdin/stdout NDJSON 协议。保留 lark-cli 子进程层（飞书 I/O 必须）。
+**修订后**：保留 MVP spawn 模式（每 chat 一个 PI Agent 子进程 `spawn(pi --mode rpc --session-dir <chatId>)`），不消除 PI Agent 子进程层（方案 G）；PR-1 主要工作是**优化 spawn 基础设施**（spawn helper / mutex / restart 防护）+ **extension 化飞书 I/O / 鉴权 / 业务 / 任务日志**为 registerTool 集合，替代 stdin/stdout NDJSON 协议。保留 lark-cli 子进程层（飞书 I/O 必须）。
+
+理由：PI Agent 实际 API（types.d.ts L246-289）不支持 per-chat 并发隔离 sub-session（详见 issue #168 comment 5592358044），唯一可落地的 per-chat LLM 上下文隔离方案是 per-chat spawn，与 doubao 建议一致。
 
 ### 3.2 删除项
 
 | 类别 | 具体项 |
 |------|-------|
 | 进程管理 | `process.ts` 全部（PID / 看门狗 / 双层 restart storm / 心跳 / 内存监控 / stdin shutdown） |
-| 进程管理 | `extensions/lark-bot/index.ts` 的 spawn 逻辑（改 registerTool 集合） |
-| 进程管理 | `session-manager.ts` `spawnPiProcess` / `spawnPromises` / `piRestartState` |
-| 进程管理 | `config.ts` 中相关常量（CIRCUIT_BREAKER_* 移到 module-level / RESTART_STORM_* / HEAP_* / PI_RESTART_*） |
-| NDJSON 协议 | `session-manager.ts` `handlePiEvent` NDJSON 解析循环 |
-| NDJSON 协议 | `task-state-machine.ts` 中 pi.stdin.write / pi.stdout 读取 |
+| 进程管理 | `extensions/lark-bot/index.ts` 的 spawn 逻辑（**保留 spawn，但精简为 optimization helper**——不消除 spawn） |
+| NDJSON 协议 | `session-manager.ts` `handlePiEvent` NDJSON 解析循环（**改为 lark-bot module-level 事件队列 + registerTool 拉取模式**） |
+| NDJSON 协议 | `task-state-machine.ts` 中 pi.stdin.write / pi.stdout 读取（**改为 lark-bot module-level 转发**） |
 | 配置 | `.pi/settings.json` 中 `larkBot.autoStart` 配置（不再需要） |
 | 持久化 | `/tmp/lark-bot.pid` / `/tmp/lark-bot.restart-history` / `/tmp/lark-bot.pi-restart-history` |
+| 保留 | `session-manager.ts` `spawnPiProcess` / `spawnPromises` / `piRestartState`（**精简优化而非删除**，方案 G 保留 per-chat spawn） |
+| 保留 | `config.ts` PI_RESTART_* 常量（精简为更合理的 restart 策略） |
 
 ### 3.3 保留项
 
@@ -116,7 +118,7 @@ PR-1 (extension 化)
 |------|-------|
 | 飞书 WS 接收 | `protocol/feishu.ts startLarkEvents`（仍 spawn lark-cli event consume） |
 | 飞书协议 I/O | `protocol/feishu.ts circuit breaker` 状态（移到 module-level） |
-| 飞书事件入口 | `ingress.ts` 飞书事件 → LLM 决策桥接（不再 spawn PI Agent） |
+| 飞书事件入口 | `ingress.ts` 飞书事件 → LLM 决策桥接（**改为 module-level 事件队列 + registerTool larkbot_fetch_pending_events 拉取模式；PI Agent 由每 chat spawn 提供，无 ingress 直接 spawn**） |
 | 鉴权缓存 | `business/auth.ts groups / members Map`（PR-2 复用） |
 | 工作留痕 | `business/broadcast.ts announce`（PR-2 复用） |
 | 群组 API | `broadcast/group-tool.ts`（被 registerTool feishu_* 复用） |
@@ -315,8 +317,9 @@ function onLarkEvent(event: LarkEvent) {
 | 集成测试 | session_start → 群组冷启动 → registerTool 可用 |
 | 集成测试 | session_shutdown → module-level 状态清理 |
 | Mock 测试 | lark-cli spawn 子进程 mock（保留） |
-| 回归测试 | `spawn 'pi --mode rpc'` 调用次数 = 0 |
-| 回归测试 | process.ts 不再被引用 |
+| 回归测试 | `spawn 'pi --mode rpc'` 调用次数 ≥ 1（per-chat spawn，方案 G 保留） |
+| 回归测试 | `session-manager.ts` 中 per-chat sessionDir 格式（`bot-p2p-<chatId>`）正确性 |
+| 回归测试 | process.ts 中 PID / 看门狗 / 重启风暴相关代码不再被引用（**但 spawn 本身保留**） |
 
 ### 3.9 回滚方案（PR-1）
 
@@ -783,7 +786,7 @@ PR-4 是缺失路径补齐，无"旧路径"可回滚。如有问题需修复 bug
 
 | feature flag | PR | 默认值 | 说明 |
 |--------------|-----|--------|------|
-| `larkBot.useExtensionMode` | PR-1 | false | 是否启用 extension 模式（vs spawn 模式） |
+| `larkBot.useExtensionMode` | PR-1 | false | 是否启用 extension 化 registerTool 集合（**spawn per-chat PI Agent 进程始终保留**） |
 | `larkBot.useAgentMatcher` | PR-2 | true | 是否依赖 LLM 决策（vs substringMatch） |
 | `larkBot.useNaturalLanguageClose` | PR-3 | false | 是否启用自然语言兜底（vs 仅 NDJSON） |
 | `larkBot.enableTaskJournal` | PR-4 | true | 是否启用 task_journal buffer（缺失路径补齐） |

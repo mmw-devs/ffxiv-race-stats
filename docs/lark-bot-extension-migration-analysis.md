@@ -204,8 +204,8 @@ extension 本体只做"何时启停 lark-bot 进程"，**不做任何业务逻�
 | `process.ts 信号处理` | 简化（lark-bot extension 自身处理） | |
 | `process.ts installStdinShutdown` | **删除** | |
 | `process.ts startHeartbeat` | **删除** | 由 PI Agent 日志托管 |
-| `session-manager.ts spawnPiProcess` | **删除**（不 spawn PI Agent） | |
-| `session-manager.ts piRestartState` | **删除** | |
+| `session-manager.ts spawnPiProcess` | **精简优化**（每 chat spawn 基础设施精简） | 方案 G 保留 per-chat spawn |
+| `session-manager.ts piRestartState` | **精简优化**（精简为合理的 restart 防护） | 方案 G 保留 |
 | `config.ts restart history 文件` | **删除** | |
 | `config.ts HEAP_PRESSURE_MB / HEAP_HARD_LIMIT_MB` | **删除** | |
 
@@ -265,14 +265,14 @@ extension 本体只做"何时启停 lark-bot 进程"，**不做任何业务逻�
 
 | PR | 内容 | 删除 | 保留 |
 |----|------|------|------|
-| PR-1 | extension 化（消除 PI Agent 子进程层） | spawn PI Agent 子进程 / stdin/stdout NDJSON / process.ts / 双层 restart storm / piRestartState / spawnPromises / 配置相关常量 | 飞书 lark-cli spawn 子进程 / module-level 状态 / registerTool 飞书 I/O / auth.ts / business/broadcast.ts / ingress.ts 入口 |
+| PR-1 | **优化 spawn 基础设施**（**不消除 spawn**）+ extension 化 registerTool | spawn NDJSON / process.ts 重启风暴 / spawnPromises / 配置相关常量 | 飞书 lark-cli spawn 子进程 / per-chat spawn `pi --session-dir <chatId>` / module-level 状态 / registerTool 飞书 I/O / auth.ts / business/broadcast.ts / ingress.ts 入口 |
 | PR-2 | 鉴权判定迁 LLM | auth.ts substringMatch / agentMatcher 钩子 | larkbot_list_candidate_groups + larkbot_authorize_user（成员资格校验） |
 | PR-3 | 关闭意图删除本地正则 | matchesCloseIntent / parseCloseSessionFromText | 依赖 PI Agent emit close_session NDJSON |
 | PR-4 | 任务日志对象接入 OPERATOR_LOG | 无（缺失路径补齐） | larkbot_record_change + larkbot_commit_changes + larkbot_close_business_session + larkbot_query_journal + task_journal buffer + LogEntry 转换 |
 
 **每 PR 的可观察性**：
 
-- PR-1：进程数从 N+2 减到 N+1（PI Agent 子进程消失）；spawn `pi --mode rpc` 调用次数 = 0
+- PR-1：进程数 N+2 → N+2（**不变**，方案 G 保留 per-chat spawn）；spawn `pi --mode rpc` 调用次数 = N（每 chat 一次）；spawnNDJSON 通信去除（改为 module-level 事件队列 + registerTool 拉取）
 - PR-2：substringMatch 调用次数 = 0；agentMatcher 钩子类型声明删除
 - PR-3：matchesCloseIntent 调用次数 = 0；parseCloseSessionFromText 调用次数 = 0；close_session 路径数 = 1（仅 NDJSON）
 - PR-4：task_journal buffer 命中次数；LogEntry 嵌入 commit message 次数
