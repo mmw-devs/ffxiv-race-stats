@@ -74,7 +74,7 @@ interface ExtensionUIContext {
 
 - 飞书 WS 事件接收**必须**通过 spawn lark-cli 子进程（PI Agent 无飞书通道 API）
 - 飞书消息 → lark-bot 的事件流仍保留 stdin/stdout NDJSON（lark-cli event consume）
-- **lark-cli 子进程层无法消除**；**PI Agent 子进程层可消除**（与 extension host 合一）
+- **lark-cli 子进程层无法消除**（飞书 I/O 必须）；**PI Agent 子进程层不消除**（方案 G——保留 per-chat spawn，详见 §6.4 PR-1 修订与 N6 §2.7）
 
 ## 2. lark-bot 现有"双重架构"
 
@@ -126,7 +126,7 @@ extension 本体只做"何时启停 lark-bot 进程"，**不做任何业务逻�
 
 | 维度 | 现有双重架构 | 标准 extension 模式 | 收益 / 代价 |
 |------|------------|------------------|-----------|
-| 进程数 | 1 lark-bot + N PI Agent + N lark-cli | 0 lark-bot + 0 PI Agent 子进程 + N lark-cli | 减少 N 个 PI Agent 子进程 |
+| 进程数 | 1 lark-bot + N PI Agent + N lark-cli | **1 lark-bot + N PI Agent 子进程 + N lark-cli**（方案 G：保留 per-chat spawn 隔离 LLM 上下文） | **进程数不变**（**不减少** PI Agent 子进程；保留 per-chat spawn 隔离 LLM 上下文） |
 | 通信协议 | stdin/stdout NDJSON（私有） | 函数调用（execute 异步） | 消除私有协议维护 |
 | 状态管理 | 全局 Map + 文件 | ExtensionContext + module-level state | 上下文隔离更清晰 |
 | 重启管理 | 双层 restart storm + PID 看门狗 | PI Agent session 生命周期托管 | 消除 L5 进程级防护 |
@@ -304,7 +304,9 @@ extension 本体只做"何时启停 lark-bot 进程"，**不做任何业务逻�
 **方案**：
 - 飞书 WS 事件仍走 lark-cli event consume spawn 子进程（保留）
 - 事件接收在 module-level 异步队列
-- 事件触发时：若对应 chat_id 已有 active session → 把事件作为 LLM 上下文注入；若无 → 触发鉴权流程（registerTool larkbot_authorize_user）
+- 事件接收：按 chatId 路由到 `pendingEvents Map<chatId, LarkEvent[]>`（module-level 异步队列）
+- LLM 主动拉取：通过 `larkbot_fetch_pending_events` registerTool 按 ctx 提供的 chatId 拉取（不接受 LLM 参数）
+- chatId 路由：ctx 提供当前 chatId，与 `pendingEvents` / `sessions` / `taskJournals` Map 路由对齐
 - 注：这不是 registerTool 的标准用法，是 lark-bot extension 特有的"事件 → 业务总线"桥接
 
 ### 7.4 LLM 调用 registerTool 的成本

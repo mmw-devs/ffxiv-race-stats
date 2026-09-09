@@ -318,8 +318,8 @@ settings.json 示例：
 | 起点 | （commit bb50c1f） | — | 起点 commit 标注 |
 | N1 | `docs/lark-bot-business-flow.md` | 291 | 业务流图（MVP 七阶段 + 任务日志对象生命周期） |
 | N2 | `docs/lark-bot-pi-agent-contract.md` | 450 | PI Agent 上游契约盘点与不稳定点清单 |
-| N3 | `docs/lark-bot-extension-migration-analysis.md` | 383 | spawn 模式 vs 标准 extension 模式对比 |
-| N4 | `docs/lark-bot-migration-roadmap.md` | 901 | 渐进迁移路线图 + registerTool 契约设计 |
+| N3 | `docs/lark-bot-extension-migration-analysis.md` | 385 | spawn 模式 vs 标准 extension 模式对比 |
+| N4 | `docs/lark-bot-migration-roadmap.md` | 899 | 渐进迁移路线图 + registerTool 契约设计 |
 | N5 | `docs/lark-bot-task-journal-schema.md` | 427 | 任务日志对象 schema（OPERATOR_LOG 对齐版） |
 | **N6** | `docs/lark-bot-architecture-analysis.md`（本文档） | 460 | **第一阶段汇总** |
 | 审查报告 1 | `docs/lark-bot-review-report.md` | 416 | 第 1 轮 reviewer 一致性审查报告（6 高 / 11 中 / 7 低） |
