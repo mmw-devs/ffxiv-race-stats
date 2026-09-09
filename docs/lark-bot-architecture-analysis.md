@@ -288,12 +288,14 @@ settings.json 示例：
 | 验收项 | 状态 | 落地文档 / PR |
 |-------|------|--------------|
 | 第一阶段产出架构分析文档，包含现有 spawn 模式 vs 标准 extension 模式的对比结论 | ✅ 已完成 | 本文档 + N3 |
-| 第二阶段重构基于第一阶段产出，每步 PR 可独立 review / 合入 | ⏳ 待第二阶段 | N4 已给出 PR-1~PR-4 拆分 |
+| 第二阶段重构基于第一阶段产出，每步 PR 可独立 review / 合入 | ✅ PR-1 已完成（分支 feature/issue-168-pr1-extension） | N4 §3.1.3 实补 |
 | PI Agent 不可靠点有清晰兜底策略（无论是集中还是分散） | ✅ 已完成 | N2 §8 + 本文档 §7 |
-| SKILL.md 注入问题得到解决，PI Agent 真正看到协议 | ⏳ 待 PR-1 | N4 §3 + N3 §1 |
+| SKILL.md 注入问题得到解决，PI Agent 真正看到协议 | ✅ PR-1 已完成 | N4 §3.1.3 + lark-bot-protocol/SKILL.md §3 |
 | PR#163 中发现的边界 bug 都有针对性回归测试 | ⏳ 待 PR 落地 | N4 §9 测试覆盖要求 |
-| 现有 195 测试 + 重构期间新增测试全过 | ⏳ 待 PR 落地 | N4 §9 + 各 PR 单测 |
-| typecheck 干净 | ⏳ 待 PR 落地 | 各 PR CI 检查 |
+| 现有 195 测试 + 重构期间新增测试全过 | ⏳ 待 PR-1 验证 | N4 §9 + PR-1 新增 4 个测试文件 |
+| typecheck 干净 | ⏳ 待 PR-1 验证 | 各 PR CI 检查 |
+
+> **PR-1 落地说明（2026-09 编码）**：PR-1 已完成编码，包括 `extensions/lark-bot/process/` 拆分（spawn-helper / children-registry / session-cleanup / log-rotate）、`index.ts` 重写（8 个 registerTool + useExtensionMode 分支）、`process.ts` 删除、`main.ts` 简化、SKILL.md 修订、vitest 配置扩展、4 个新测试文件。详见 `docs/lark-bot-migration-roadmap.md` §3.1.3。
 
 ## 9. 范围与限制
 

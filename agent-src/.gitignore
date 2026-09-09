@@ -17,6 +17,9 @@ Thumbs.db
 
 # Dependencies
 node_modules/
+# PR-1 例外：typebox 软链接（指向 .pi/npm/node_modules/typebox）— registerTool schema 必需
+!.pi/extensions/lark-bot/node_modules/
+!.pi/extensions/lark-bot/node_modules/typebox
 
 # Static server logs (if any)
 access.log

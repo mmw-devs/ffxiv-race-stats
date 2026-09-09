@@ -1,41 +1,31 @@
 /**
- * main.ts — lark-bot 进程入口
+ * main.ts — lark-bot 进程入口（PR-1 适配版）
  *
- * 装配：读取 config → 启动日志 → 启动 p2p session → 启动飞书事件流 → 安装运维关切
+ * 路径：agent-src/.pi/scripts/lark-bot/main.ts
  *
- * 「群聊=广播」重构后的精简启动序列：
- *   - startAllPi() 仅启动 "p2p" 一个 session（不再批量启动 group:<chat_id>）
- *   - 不再调用 lark-cli GET /open-apis/im/v1/chats（无群聊列表需求）
- *   - 不再启动 pollActiveThreads 周期任务（轮询兜底已剔除）
+ * PR-1 变更（issue#168 N4 §3.2.1）：
+ *   - 移除 process.ts 直接 import
+ *   - 进程级防护（installCrashHandlers / checkRestartStorm / PID 文件 /
+ *     startWatchdog / startHeartbeat / installSignalHandlers）已移交 systemd/pm2
+ *   - installStdinShutdown / cleanupOldSessions 迁到
+ *     extensions/lark-bot/process/{spawn-helper,session-cleanup}.ts
  *
- * 这是 SSOT 结构下的"装配点"：所有跨模块的初始化与生命周期挂钩在这里。
- * 没有业务逻辑（业务逻辑在 ingress / protocol / interactive）。
+ * 此文件保留作为 useExtensionMode=false 时的回滚入口。
+ * 当 .pi/settings.json 设置 `larkBot.useExtensionMode: true` 时，
+ * lark-bot 即当前 PI Agent extension 进程（extensions/lark-bot/index.ts），
+ * main.ts 不再启动。
  *
- * 用法: tsx main.ts
+ * 装配：读取 config → 启动日志 → 启动 p2p session → 启动飞书事件流
  */
 
-import {
-  appendCrashLog,
-  checkExistingPid,
-  checkRestartStorm,
-  clearPidFile,
-  cleanupOldSessions,
-  installCrashHandlers,
-  installSignalHandlers,
-  installStdinShutdown,
-  onExitCleanup,
-  startHeartbeat,
-  startWatchdog,
-  writePidFile,
-} from "./process.js";
-import { AUTH_EVENT_KEYS, HEAP_HARD_LIMIT_MB, SESSION_EVICTION_INTERVAL_MS } from "./config.js";
+import { installStdinShutdown, recordPiRestartHistoryLegacy } from "../../extensions/lark-bot/process/spawn-helper.js";
+import { cleanupOldSessions, startSessionCleanupInterval } from "../../extensions/lark-bot/process/session-cleanup.js";
+import { AUTH_EVENT_KEYS, SESSION_EVICTION_INTERVAL_MS } from "./config.js";
 import { log } from "./shared/logger.js";
 import {
-  cleanupSeenMessageIds,
   enforceSessionLimit,
   evictIdleSessions,
   getAllSessions,
-  getPiRestartStats,
   setCloseBroadcastHandler,
   startAllPi,
   killAllSessions,
@@ -50,31 +40,12 @@ import "./ingress.js";
 // ═══════════════ 启动 ═══════════════
 
 export async function main(): Promise<void> {
-  // R1 L5：uncaughtException / unhandledRejection 必须在 PID 校验前安装
-  // 防止启动期崩溃时无 handler
-  installCrashHandlers((kind, err) => {
-    appendCrashLog(kind, err);
-    log(`💥 ${kind}: ${err instanceof Error ? err.message : String(err)}`);
-    cleanup();
-    // 以非零退出码退出，systemd / pm2 看到非 0 才会拉起新进程
-    process.exit(1);
-  });
+  // PR-1：进程级 restart storm 检查已移交 systemd/pm2
+  // 保留 legacy 函数调用以维持文件 history 记录（仅写历史，不阻断启动）
+  recordPiRestartHistoryLegacy();
 
-  // R1 L5：重启风暴检查。PID 校验之后、写入新 PID 之前。
-  // 如果处于冷却期，直接退出让 supervisor 等待重试间隔
-  const restartState = checkRestartStorm();
-  if (restartState === "cooldown") {
-    log("⛔ 处于重启风暴冷却期，拒绝启动");
-    process.exit(0);
-  }
-
-  // 启动期 PID 校验：使用 isAlive() 确保 Windows 下也能准确检测
-  if (checkExistingPid()) {
-    log("已在运行（PID 文件存在且进程存活）");
-    process.exit(0);
-  }
-  writePidFile(process.pid);
-  log("════════ lark-bot 启动 ════════");
+  log("════════ lark-bot 启动（PR-1 回滚路径） ════════");
+  log("⚠️ PR-1：进程级防护已移交 systemd/pm2");
 
   // commit 4：startAllPi 为空操作（per-p2p session 懒启动）
   startAllPi();
@@ -155,9 +126,9 @@ export async function main(): Promise<void> {
     }
   }
 
-  // session 文件清理（保留，每 24h 一次）
+  // PR-1：session 文件清理迁到 extensions/lark-bot/process/session-cleanup.ts
   setTimeout(() => cleanupOldSessions(), 60 * 1000);
-  setInterval(cleanupOldSessions, 24 * 60 * 60 * 1000);
+  startSessionCleanupInterval();
 
   // commit 4：周期性 session 淘汰（空闲超时 + 数量上限）
   setInterval(() => {
@@ -168,58 +139,29 @@ export async function main(): Promise<void> {
     }
   }, SESSION_EVICTION_INTERVAL_MS);
 
-  // R1 L5：心跳定时器。getStats 由 main.ts 注入避免 process.ts 反向依赖 session-manager
-  startHeartbeat(() => {
-    const stats: Record<string, unknown> = {
-      sessions: getAllSessions().map(pi => ({
-        proc: pi.proc ? "alive" : "dead",
-        waitingTasks: pi.waitingTasks.length,
-        seen: pi.seenMessageIds.size,
-        ready: pi.ready,
-      })),
-      piRestarts: getPiRestartStats(),
-    };
-
-    // 盲区 #3 防护：硬内存上限触发主动清理
-    const heapMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-    if (heapMB > HEAP_HARD_LIMIT_MB) {
-      const before = getAllSessions().reduce((s, p) => s + p.seenMessageIds.size, 0);
-      const r = cleanupSeenMessageIds();
-      const after = getAllSessions().reduce((s, p) => s + p.seenMessageIds.size, 0);
-      log(`🚨 [hard memory] heap=${heapMB}MB > ${HEAP_HARD_LIMIT_MB}MB, 主动清理 seenMessageIds: ${before}→${after} (evictedTtl=${r.evictedTtl} evictedLru=${r.evictedLru})`);
-    }
-    return stats;
-  });
-
   installLarkBotLifecycle();
 }
 
-// ═══════════════ 生命周期 ═══════════════
+// ═══════════════ 生命周期（PR-1 简化版） ═══════════════
 
 function installLarkBotLifecycle(): void {
-  // 双 PID 看门狗：监控 DIRECT_PARENT（tsx CLI）和 AGENT_PID（PI Agent），任一退出即清理
-  const DIRECT_PARENT = process.ppid;
-  const AGENT_PID = process.env.LARK_PARENT_PID ? Number(process.env.LARK_PARENT_PID) : null;
-
-  const monitoredPids: number[] = [DIRECT_PARENT];
-  if (AGENT_PID && AGENT_PID > 0 && AGENT_PID !== DIRECT_PARENT) {
-    monitoredPids.push(AGENT_PID);
-  }
-
-  log(`看门狗监控 PID=[${monitoredPids.join(", ")}]`);
-  startWatchdog(monitoredPids, (deadPid) => {
-    log(`进程 ${deadPid} 已退出，lark-bot 自动终止`);
+  // PR-1：双 PID 看门狗已删除（systemd 接管父进程生命周期）
+  // 保留 installStdinShutdown 用于 extension stdin IPC（实测 6-6 验证）
+  // PR-1 注：extension 通过 stdin pipe 发送 {"type":"shutdown"} 触发 lark-bot 优雅退出
+  installStdinShutdown(() => {
+    log("[main] 收到 stdin shutdown 指令，退出");
     cleanup();
   });
 
-  installSignalHandlers(cleanup);
-  onExitCleanup(clearPidFile);
-  installStdinShutdown(cleanup);
+  // PR-1：心跳已删除（systemd 接管）
+  // PR-1：信号处理已删除（systemd 接管 SIGINT/SIGTERM）
+  // PR-1：PID 文件已删除（不再有独立 lark-bot 进程）
+  // PR-1：onExitCleanup / process.on("exit") 已删除（systemd 重启无需清理 PID 文件）
 }
 
 function cleanup(): void {
   killAllSessions();
-  clearPidFile();
+  log("[main] 清理完毕，退出");
   process.exit(0);
 }
 

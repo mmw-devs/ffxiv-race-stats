@@ -137,6 +137,50 @@ PR-1 (extension 化)
 | NDJSON 协议解析重构（仅 stdin/stdout NDJSON 解析保留） | PR-2 | 拆分方案——独立 PR |
 | spawn helper / mutex 阈值细化 | PR-2 | 实测后调整 |
 
+### 3.1.3 PR-1 编码落地状态（实补）
+
+> 本节为 PR-1 实际编码落地后追加的状态说明。
+
+**实际落地 vs 文档规划差异**：
+
+| # | 文档规划 | 实际落地 | 差异说明 |
+|---|---------|---------|---------|
+| 1 | `process.ts` 拆分到 PR-2 | **PR-1 即完成** | 实际拆分出 `extensions/lark-bot/process/{spawn-helper, children-registry, session-cleanup, log-rotate}.ts` 4 个文件 |
+| 2 | 删除项集中到 PR-2 | **PR-1 即删除** | `process.ts` 整文件删除；进程级防护（watchdog / restart storm / heartbeat / PID 文件 / crash handlers）移交 systemd |
+| 3 | registerTool 仅暴露 7 个飞书 I/O | **PR-1 暴露 8 个**（+ larkbot_fetch_pending_events 占位） | PR-2 启用完整飞书 WS 桥接 |
+| 4 | `delReaction` 不导出 | **`delReaction` 改为 export** | PR-1 registerTool `feishu_remove_reaction` 需要直接调用 |
+| 5 | main.ts 保留原状 | **main.ts 同步简化** | PR-1 必须连带简化 main.ts（移除对 process.ts 的依赖）；保留为回滚路径 |
+| 6 | `shared/logger.ts` 不变 | **`shared/logger.ts` 改为 import 新路径** | 从 `process.js` 改为 `extensions/lark-bot/process/log-rotate.js` |
+
+**新增文件清单**：
+
+- `extensions/lark-bot/index.ts`（重写，14.8KB）
+- `extensions/lark-bot/process/spawn-helper.ts`（新建，8.7KB）
+- `extensions/lark-bot/process/children-registry.ts`（新建，2.8KB）
+- `extensions/lark-bot/process/session-cleanup.ts`（新建，3.1KB）
+- `extensions/lark-bot/process/log-rotate.ts`（新建，2.6KB）
+- `extensions/lark-bot/__tests__/index.test.ts`（新建，8.5KB）
+- `extensions/lark-bot/__tests__/process/spawn-helper.test.ts`（新建，8.4KB）
+- `extensions/lark-bot/__tests__/process/children-registry.test.ts`（新建，4.9KB）
+- `extensions/lark-bot/__tests__/process/session-cleanup.test.ts`（新建，3.9KB）
+
+**修改文件清单**：
+
+- `agent-src/.pi/scripts/lark-bot/main.ts`（简化为回滚路径）
+- `agent-src/.pi/scripts/lark-bot/protocol/feishu.ts`（`delReaction` 改 export）
+- `agent-src/.pi/scripts/lark-bot/shared/logger.ts`（import 路径调整）
+- `agent-src/.pi/skills/lark-bot-protocol/SKILL.md`（增加 PR-1 registerTool 调用契约说明）
+- `agent-src/vitest.config.mjs`（增加 `.pi/extensions/**/__tests__/**/*.test.ts` include）
+
+**删除文件**：
+
+- `agent-src/.pi/scripts/lark-bot/process.ts`（整文件删除；迁出函数全部落到 `extensions/lark-bot/process/` 4 个文件）
+
+**Feature flag 接入**：
+
+- `settings.json` 新增 `larkBot.useExtensionMode`（默认 `false` → 启用旧路径回滚）
+- `larkBot.autoStart` 保留兼容（旧版默认 `false`）
+
 ### 3.2 删除项
 
 | 类别 | 具体项 |
