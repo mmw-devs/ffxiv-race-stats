@@ -123,14 +123,14 @@ PI Agent (extension host)
 
 **方案 G（当前采用）**：
 
-保留 MVP 现状：每 chat 一个独立 PI Agent 子进程（`spawn(pi --mode rpc --session-dir <chatId>)`）。隔离分四层：
+保留 MVP 现状：每 chat 一个独立 PI Agent 子进程（`spawn(pi --mode rpc --session-dir <chatId>)`）。隔离分四层（实测 1-3 确认）：
 
-| 层级 | 隔离机制 | 实现位置 |
+| 层级 | 隔离机制 | 实测依据 |
 |------|---------|---------|
-| **进程隔离** | **每 chat 一个 PI Agent 子进程**（`spawn(pi --session-dir <chatId>)`）——天然 LLM 上下文隔离 | `extensions/lark-bot/index.ts`（保留 MVP spawn） |
-| **PI Agent session 隔离** | per-chat sessionDir（`.pi/sessions/bot-p2p-<chatId>/`）——PI Agent 进程加载独立会话历史 | session-manager.ts |
-| **业务状态隔离** | lark-bot module-level `Map<chatId, ...>` 路由 | `sessions` / `taskJournals` Map |
-| **任务日志隔离** | per-chat `TaskJournal`（LLM 不会跨 chat 访问） | `taskJournals Map<chatId, TaskJournal>` |
+| 进程隔离 | 每 chat 一个 PI Agent 子进程（spawn(pi --session-dir <chatId>)） | 实测 2 + 实测 6-6 |
+| PI Agent session 隔离 | per-chat sessionDir（实测 6-6 确认协议稳定） | 实测 6-6 |
+| 业务状态隔离 | lark-bot module-level Map<chatId, ...> 路由（chatToSession Map 反查） | 实测 1 + 实测 6-1 |
+| 任务日志隔离 | per-chat TaskJournal | （保留） |
 
 **为何方案 G 是当前最优解**：
 
@@ -152,6 +152,30 @@ PI Agent (extension host)
 | 进程级故障 | PI Agent 进程崩溃只影响 1 个 chat，不影响其他 chat |
 
 详见 N4 §3.7 飞书 WS 桥接方案设计与 registerTool `larkbot_fetch_pending_events` 契约。
+
+### 2.8 双层架构（PR-171 后补遗）
+
+**双层架构（实测 6-6 修订）**：
+
+- ✅ PI Agent host session（extensions/lark-bot/）
+- ✅ 每 chat 一个 PI Agent 子进程（spawn pi --mode rpc --session-dir <chatId>）
+- ✅ 保留 stdin/stdout NDJSON 协议（实测 2 + 实测 6-6 确认协议稳定）
+- ❌ 不保留 lark-bot 独立进程（已改为 extension）
+- ⚠️ 删除进程级崩溃防护（移交 systemd）实测 6-3 确认 session_shutdown 不会自动清理子进程，必须手动 kill
+
+### 2.9 状态管理并发安全约束（PR-171 后补遗）
+
+**并发安全约束（实测 5 + 实测 6-4 修订）**：
+
+registerTool.execute 内严格遵循：
+
+1. ✅ 原子操作安全（counter++ / Map.set / Array.push）
+2. ❌ 禁止 check-then-act 跨 await（同 turn 多工具有陈旧读竞态）
+3. ✅ 跨 turn 调用安全
+4. ❌ `if (map.has(k)) map.set(k, v+1); else map.set(k, 1)` 模式禁止
+5. ✅ 读 + 删除必须单步（无中间 await）
+
+实测数据：实测 6-4 证明 `map.set(k, (map.get(k) ?? 0) + 1)` 单步原子操作正确。
 
 ## 3. 六个综合决策
 
