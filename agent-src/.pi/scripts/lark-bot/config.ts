@@ -40,7 +40,6 @@ if (!_looksLikeOpsRepoRoot && !_looksLikeDevRepoRoot) {
 
 // ═══════════════ 进程与日志 ═══════════════
 
-export const PID_FILE = join(tmpdir(), "lark-bot.pid");
 export const LOG_FILE = join(tmpdir(), "lark-bot.log");
 export const TASK_JOURNAL_FILE = join(tmpdir(), "lark-bot-tasks.jsonl");
 
@@ -85,29 +84,11 @@ export const SESSION_MAX_AGE_DAYS = 30;
 export const SESSION_KEEP_PER_CHAT = 5;
 export const SESSION_ACTIVE_THRESHOLD_MS = 5 * 60 * 1000;
 
-// ═══════════════ 健壮性（L5 进程级防护） ═══════════════
-
-// 进程级异常处理：uncaughtException / unhandledRejection 不直接 exit，
-// 而是 log + cleanup + exit(1)，给 systemd 留下明确的 non-zero 退出码
-// 以便上层 supervisor 决定是否拉起。
-export const CRASH_LOG_PREFIX = "💥 CRASH";
-
-// 心跳日志周期，用于运维侧确认 lark-bot 进程确实活着。
-export const HEARTBEAT_INTERVAL_MS = 60_000;
-
-// 内存压力阈值（MB）：超过则输出告警日志（不主动重启，避免状态丢失）。
-export const HEAP_PRESSURE_MB = 500;
-
-// 硬内存上限（MB）：超过则主动清理 seenMessageIds 等可释放资源，避免 OOM。
-// 高于 HEAP_PRESSURE_MB 是"软告警"，这里是"硬动作"阈值。
-export const HEAP_HARD_LIMIT_MB = 800;
-
 // ═══════════════ 健壮性（pi 子进程重启风暴） ═══════════════
 
 // pi 子进程持续崩溃的检测窗口与阈值：在窗口内超过阈值则停止重试。
-// 与 L5 RESTART_STORM_MAX 的区别：
-//   - RESTART_STORM_MAX 限制的是 lark-bot 进程级重启（由 supervisor 拉起）
-//   - PI_RESTART_MAX 限制的是单次 lark-bot 运行内的 pi 子进程重启
+// L5 进程级 restart storm（RESTART_STORM_* / CRASH_LOG_PREFIX / HEARTBEAT_INTERVAL_MS /
+// HEAP_PRESSURE_MB / HEAP_HARD_LIMIT_MB / PID_FILE）已由 systemd/pm2 接管，不再需要。
 export const PI_RESTART_WINDOW_MS = 5 * 60 * 1000;
 export const PI_RESTART_MAX = 10;
 export const PI_RESTART_HISTORY_FILE = join(tmpdir(), "lark-bot.pi-restart-history");
@@ -178,14 +159,6 @@ export const REQUIRED_EVENT_FIELDS = [
 // waitingTasks 中任务最大等待时长：超时任务在 promoteNext 时丢弃并 ERROR。
 // 该值应远大于预期 Agent 处理耗时（数秒到 1 分钟），但小于飞书消息可恢复时间。
 export const TASK_MAX_AGE_MS = 30 * 60 * 1000; // 30 分钟
-
-// ═══════════════ 健壮性（L5 重启风暴保护） ═══════════════
-
-// 短时间内多次重启则暂停，避免「重启→挂→重启」循环耗资源。
-export const RESTART_HISTORY_FILE = join(tmpdir(), "lark-bot.restart-history");
-export const RESTART_STORM_WINDOW_MS = 5 * 60 * 1000;
-export const RESTART_STORM_MAX = 3;
-export const RESTART_STORM_COOLDOWN_MS = 5 * 60 * 1000;
 
 // ═══════════════ 代理注入（启动期一次性） ═══════════════
 

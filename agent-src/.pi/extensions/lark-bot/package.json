@@ -1,0 +1,15 @@
+{
+  "name": "@lark-bot/extension",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PI Agent extension for lark-bot (issue #168 PR-1 extension 化). 声明 typebox 依赖以避免硬编码路径。",
+  "type": "module",
+  "dependencies": {
+    "typebox": "1.1.38"
+  },
+  "comments": {
+    "typebox 来源": "npm 解析会自动找到 .pi/npm/node_modules/typebox（PI Agent 自身依赖）。无需软链接、无需硬编码绝对路径。",
+    "typebox 作用": "registerTool 的 parameters 字段需要 TypeBox schema（PI Agent ExtensionAPI 注册约束）。",
+    "为何不放在根 package.json": "extensions/lark-bot/ 是 PI Agent extension，不属于主项目 dev / ops 双仓库构建链路，独立声明依赖更清晰。"
+  }
+}
