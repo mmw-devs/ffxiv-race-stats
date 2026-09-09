@@ -18,7 +18,6 @@
  * 装配：读取 config → 启动日志 → 启动 p2p session → 启动飞书事件流
  */
 
-import { installStdinShutdown, recordPiRestartHistoryLegacy } from "../../extensions/lark-bot/process/spawn-helper.js";
 import { cleanupOldSessions, startSessionCleanupInterval } from "../../extensions/lark-bot/process/session-cleanup.js";
 import { AUTH_EVENT_KEYS, SESSION_EVICTION_INTERVAL_MS } from "./config.js";
 import { log } from "./shared/logger.js";
@@ -41,9 +40,6 @@ import "./ingress.js";
 
 export async function main(): Promise<void> {
   // PR-1：进程级 restart storm 检查已移交 systemd/pm2
-  // 保留 legacy 函数调用以维持文件 history 记录（仅写历史，不阻断启动）
-  recordPiRestartHistoryLegacy();
-
   log("════════ lark-bot 启动（PR-1 回滚路径） ════════");
   log("⚠️ PR-1：进程级防护已移交 systemd/pm2");
 
@@ -139,25 +135,11 @@ export async function main(): Promise<void> {
     }
   }, SESSION_EVICTION_INTERVAL_MS);
 
-  installLarkBotLifecycle();
+  // PR-1-cleanup：生命周期已全部移交 systemd/pm2
+  // 不再安装 stdin shutdown / signal handlers / PID 文件 / 看门狗
 }
 
-// ═══════════════ 生命周期（PR-1 简化版） ═══════════════
-
-function installLarkBotLifecycle(): void {
-  // PR-1：双 PID 看门狗已删除（systemd 接管父进程生命周期）
-  // 保留 installStdinShutdown 用于 extension stdin IPC（实测 6-6 验证）
-  // PR-1 注：extension 通过 stdin pipe 发送 {"type":"shutdown"} 触发 lark-bot 优雅退出
-  installStdinShutdown(() => {
-    log("[main] 收到 stdin shutdown 指令，退出");
-    cleanup();
-  });
-
-  // PR-1：心跳已删除（systemd 接管）
-  // PR-1：信号处理已删除（systemd 接管 SIGINT/SIGTERM）
-  // PR-1：PID 文件已删除（不再有独立 lark-bot 进程）
-  // PR-1：onExitCleanup / process.on("exit") 已删除（systemd 重启无需清理 PID 文件）
-}
+// ═══════════════ 生命周期（PR-1-cleanup 已全部移交 systemd） ═══════════════
 
 function cleanup(): void {
   killAllSessions();

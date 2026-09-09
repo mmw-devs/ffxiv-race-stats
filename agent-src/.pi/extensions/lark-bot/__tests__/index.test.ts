@@ -71,7 +71,7 @@ function createMockPi(): MockPi {
 
 // ═══════════════ Tests ═══════════════
 
-describe("extension — 8 个 registerTool 注册", () => {
+describe("extension — 7 个 registerTool 注册", () => {
   let mockPi: MockPi;
 
   beforeEach(() => {
@@ -79,8 +79,8 @@ describe("extension — 8 个 registerTool 注册", () => {
     extensionFn(mockPi as any);
   });
 
-  it("注册 8 个 registerTool", () => {
-    expect(mockPi.tools.size).toBe(8);
+  it("注册 7 个 registerTool（feishu_* 全部）", () => {
+    expect(mockPi.tools.size).toBe(7);
     const expectedTools = [
       "feishu_add_reaction",
       "feishu_remove_reaction",
@@ -89,7 +89,6 @@ describe("extension — 8 个 registerTool 注册", () => {
       "feishu_list_group_members",
       "feishu_send_group_message",
       "feishu_list_bot_groups",
-      "larkbot_fetch_pending_events",
     ];
     for (const name of expectedTools) {
       expect(mockPi.tools.has(name)).toBe(true);
@@ -171,26 +170,31 @@ describe("extension — registerTool execute 调用契约", () => {
     expect(result.details.groups).toHaveLength(2);
   });
 
-  it("larkbot_fetch_pending_events PR-1 占位返回空", async () => {
-    const tool = mockPi.tools.get("larkbot_fetch_pending_events");
-    const result = await tool.execute("call-4", { chatId: "oc_test" });
-    expect(result.details.events).toEqual([]);
-    expect(result.details.note).toMatch(/PR-1 placeholder/);
+  it("larkbot_fetch_pending_events PR-1-cleanup 后不再提供（PR-2 实装）", () => {
+    // PR-1-cleanup：larkbot_fetch_pending_events 已删除，PR-2 完整实装飞书 WS 桥接时再加。
+    // 验证工具未注册即可。
+    const mockPi2 = createMockPi();
+    extensionFn(mockPi2 as any);
+    expect(mockPi2.tools.has("larkbot_fetch_pending_events")).toBe(false);
   });
 });
 
 describe("extension — session_start 启动逻辑", () => {
   let mockPi: MockPi;
   const originalEnv = process.env.LARK_BOT_RUNTIME;
+  const originalSettings: string | undefined = process.env.LARK_BOT_SETTINGS_PATH;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockPi = createMockPi();
     process.env.LARK_BOT_RUNTIME = "";
+    // 通过环境变量让 readSettings 读取特定 settings.json（PR-1-cleanup 起支持）
+    process.env.LARK_BOT_SETTINGS_PATH = "";
   });
 
   afterEach(() => {
     process.env.LARK_BOT_RUNTIME = originalEnv;
+    process.env.LARK_BOT_SETTINGS_PATH = originalSettings;
   });
 
   it("LARK_BOT_RUNTIME=1 时跳过启动（防递归）", async () => {
@@ -205,9 +209,9 @@ describe("extension — session_start 启动逻辑", () => {
     expect(trackChild).not.toHaveBeenCalled();
   });
 
-  it("useExtensionMode=false + autoStart=false 时跳过启动", async () => {
-    // 不设置 settings.json 时 readSettings 返回 {}
-    // settings?.larkBot?.useExtensionMode !== true 且 settings?.larkBot?.autoStart !== true
+  it("settings 不存在 + autoStart 未设时跳过启动", async () => {
+    // 不设置 LARK_BOT_SETTINGS_PATH，readSettings 返回 {}（settings.json 不存在则返空）
+    process.env.LARK_BOT_SETTINGS_PATH = "/tmp/non-existent-settings.json";
     extensionFn(mockPi as any);
 
     const handlers = mockPi.handlers.get("session_start") ?? [];
@@ -215,6 +219,46 @@ describe("extension — session_start 启动逻辑", () => {
 
     const { trackChild } = await import("../process/children-registry.js");
     expect(trackChild).not.toHaveBeenCalled();
+  });
+
+  it("autoStart=true + useExtensionMode=false 走旧路径（spawn lark-cli main.ts）", async () => {
+    // 通过临时 settings.json 启用回滚路径
+    const tmpSettings = "/tmp/lark-bot-test-settings-autostart-rollback.json";
+    require("node:fs").writeFileSync(
+      tmpSettings,
+      JSON.stringify({ larkBot: { autoStart: true, useExtensionMode: false } }),
+    );
+    process.env.LARK_BOT_SETTINGS_PATH = tmpSettings;
+    extensionFn(mockPi as any);
+
+    const handlers = mockPi.handlers.get("session_start") ?? [];
+    await handlers[0]({ reason: "startup" }, {});
+
+    // 旧路径 spawn 独立 lark-bot 进程 → trackChild 被调用
+    const { trackChild } = await import("../process/children-registry.js");
+    expect(trackChild).toHaveBeenCalled();
+
+    // 清理临时文件
+    require("node:fs").unlinkSync(tmpSettings);
+  });
+
+  it("autoStart=true + useExtensionMode=true 走新路径（spawn lark-cli event consume）", async () => {
+    const tmpSettings = "/tmp/lark-bot-test-settings-autostart-extension.json";
+    require("node:fs").writeFileSync(
+      tmpSettings,
+      JSON.stringify({ larkBot: { autoStart: true, useExtensionMode: true } }),
+    );
+    process.env.LARK_BOT_SETTINGS_PATH = tmpSettings;
+    extensionFn(mockPi as any);
+
+    const handlers = mockPi.handlers.get("session_start") ?? [];
+    await handlers[0]({ reason: "startup" }, {});
+
+    // 新路径 spawn lark-cli event consume → trackChild 也被调用
+    const { trackChild } = await import("../process/children-registry.js");
+    expect(trackChild).toHaveBeenCalled();
+
+    require("node:fs").unlinkSync(tmpSettings);
   });
 
   it("session_start reason !== startup 时跳过", async () => {

@@ -15,18 +15,26 @@
  * 与 PR-1 之前的关键差异：
  *   1. PR-1 起 lark-bot 即当前 extension 进程（不再 spawn 独立 lark-bot 进程）
  *   2. 保留「spawn per-chat PI Agent 子进程」（方案 G）
- *   3. 新增 8 个 registerTool（7 个 feishu_* + larkbot_fetch_pending_events）
+ *   3. 新增 7 个 registerTool（feishu_* 7 个）
  *   4. children-registry.ts 跟踪所有子进程（实测 6-3）
  *   5. session_shutdown 手动 kill（实测 6-3）
  *
- * Feature flag（settings.json）：
- *   - larkBot.useExtensionMode（默认 false → 启动旧 lark-bot 进程作为回滚）
- *   - larkBot.autoStart（兼容旧版，默认 false）
+ * Feature flag（settings.json larkBot.*）：
+ *   - autoStart：主开关，默认 false。false → 本 extension 不启动任何 lark-bot 逻辑。
+ *   - useExtensionMode：启动路径选择，默认 false。
+ *       false → 启动独立 lark-bot 进程（main.ts 回滚路径，与 PR-1 之前完全一致）
+ *       true  → 当前 extension 进程即 lark-bot，registerTool 直接可用
  *
- * 向后兼容：
- *   - useExtensionMode=false → 走旧路径 spawn 独立 lark-bot 进程（PR-1 之前行为）
- *   - autoStart=false → 不自动启动（默认）
- *   - useExtensionMode=true + autoStart=false → 当前 extension 进程即 lark-bot，但需手动触发（PR-1 占位）
+ * 组合行为表：
+ *
+ *   | autoStart | useExtensionMode | 行为                                |
+ *   |-----------|------------------|-------------------------------------|
+ *   | false     | *                | 跳过启动（默认状态）               |
+ *   | true      | false (默认)     | spawn 独立 lark-bot 进程（回滚）    |
+ *   | true      | true             | 当前 extension 进程即 lark-bot      |
+ *
+ * 推荐配置：autoStart=true + useExtensionMode=true （PR-1 新路径）。
+ * 回滚：autoStart=true + useExtensionMode=false （< 5 分钟切换）。
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -120,7 +128,7 @@ export default function (pi: any) {
     const larkCli = spawnLarkCliEventConsume();
     trackChild(larkCli); // 实测 6-3
 
-    console.error("[lark-bot ext] 启动完成，registerTool 已注册（8 个）");
+    console.error("[lark-bot ext] 启动完成，registerTool 已注册（7 个）");
   });
 
   // ── 关闭期（实测 6-3：手动遍历 children kill） ──
@@ -327,34 +335,20 @@ export default function (pi: any) {
       };
     },
   });
-
-  // ── 8. larkbot_fetch_pending_events（PR-1 占位） ──
-  pi.registerTool({
-    name: "larkbot_fetch_pending_events",
-    label: "拉取当前 chat 的待处理飞书事件",
-    description:
-      "PR-1 占位：返回空事件列表。完整实现见 PR-2（飞书 WS 桥接）。" +
-      "届时 chatId 由 ctx 强制路由到 chatToSession Map（实测 1+6-1）。",
-    parameters: Type.Object({
-      chatId: Type.Optional(Type.String({ description: "飞书 chat_id（PR-2 启用）" })),
-    }),
-    execute: async (_toolCallId: string, _params: { chatId?: string }) => {
-      // PR-1 占位：返回空，不读 pendingEvents
-      // PR-2 实装：原子读+删除 pendingEvents.get(chatId)（实测 5 强制）
-      return {
-        content: [{ type: "text", text: `PR-1 placeholder：pending events 暂未启用（PR-2 完整实装）` }],
-        details: { ok: true, events: [], pending: false, note: "PR-1 placeholder" },
-      };
-    },
-  });
 }
 
 // ═══════════════ 辅助函数 ═══════════════
 
-/** 读取 settings.json（本地凭证文件，不入库） */
+/**
+ * 读取 settings.json（本地凭证文件，不入库）
+ *
+ * 支持 LARK_BOT_SETTINGS_PATH 环境变量覆盖默认路径（用于测试）。
+ * 默认路径：<项目根>/.pi/settings.json。
+ */
 function readSettings(): any {
   try {
-    const settingsPath = join(root, ".pi", "settings.json");
+    const settingsPath =
+      process.env.LARK_BOT_SETTINGS_PATH ?? join(root, ".pi", "settings.json");
     if (!existsSync(settingsPath)) return {};
     return JSON.parse(readFileSync(settingsPath, "utf-8"));
   } catch {
@@ -426,7 +420,7 @@ async function startLegacyLarkBotProcess(): Promise<void> {
   const proc = spawn(nodeBin, [tsxEntry, script], {
     cwd: root,
     stdio: ["pipe", "ignore", "ignore"],
-    env: { ...process.env, LARK_PARENT_PID: String(process.pid) },
+    env: process.env,
     detached: process.platform !== "win32",
     windowsHide: process.platform === "win32",
   });

@@ -31,13 +31,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import {
   IS_WIN,
   PI_BIN,
-  PI_RESTART_HISTORY_FILE,
   PI_RESTART_MAX,
   PI_RESTART_WINDOW_MS,
   PROJECT_DIR,
 } from "../../../scripts/lark-bot/config.js";
 import { log } from "../../../scripts/lark-bot/shared/logger.js";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // ═══════════════ 类型定义 ═══════════════
@@ -88,6 +86,9 @@ const restartStates = new Map<string, PiRestartState>();
  * 同一 sessionKey 的并发 spawn 复用同一 Promise。
  * spawn 完成后自动清理 entry，避免内存泄漏。
  *
+ * PR-1-cleanup：PR-1 阶段为孤岛 API（session-manager.ts 未迁移）。PR-2 启用 registerTool
+ * 拉取模式时，session-manager.ts 切到本 API；在此之前请勿在新代码中使用。
+ *
  * 用法：
  *   try {
  *     const { promise } = getOrCreateSpawnEntry(key);
@@ -95,6 +96,8 @@ const restartStates = new Map<string, PiRestartState>();
  *   } finally {
  *     clearSpawnEntry(key);
  *   }
+ *
+ * @deprecated PR-1 阶段 session-manager.ts 仍用内联 spawn mutex；PR-2 切到本 API 后取消标注。
  */
 export function getOrCreateSpawnEntry(sessionKey: string): SpawnPromiseEntry {
   // 单步原子读——实测 5 允许
@@ -126,7 +129,12 @@ export function clearSpawnEntry(sessionKey: string): void {
  * 不含 stdin/stdout NDJSON 解析——本模块仅 spawn。
  * NDJSON 解析仍由 session-manager.ts 拥有（PR-1 不动）。
  *
+ * PR-1-cleanup：PR-1 阶段为孤岛 API（session-manager.ts 未迁移到本 API）。
+ * PR-2 启用 registerTool 拉取模式时，session-manager.ts 切到本 API。
+ *
  * @returns SpawnedPi 包含 proc / sessionKey / sessionDir / spawnedAt
+ *
+ * @deprecated PR-1 阶段 session-manager.ts 仍用内联 spawn；PR-2 切到本 API 后取消标注。
  */
 export function spawnPi(opts: SpawnPiOptions): SpawnedPi {
   const { sessionKey, chatId, cwd = PROJECT_DIR } = opts;
@@ -231,6 +239,11 @@ export function getPiRestartStats(): Record<string, { count: number; reason: str
  *   3. 调 children-registry.ts 的 cleanup（实测 6-3）
  *
  * 本函数仅做"exit 事件 → 回调"的薄封装，方便单测 mock。
+ *
+ * PR-1-cleanup：PR-1 阶段为孤岛 API（session-manager.ts 未迁移）。
+ * PR-2 启用 registerTool 拉取模式时，session-manager.ts 切到本 API。
+ *
+ * @deprecated PR-1 阶段 session-manager.ts 仍用内联 watchPiExit；PR-2 切到本 API 后取消标注。
  */
 export function watchPiExit(spawned: SpawnedPi, onExit: (code: number | null) => void): void {
   spawned.proc.on("exit", (code) => {
@@ -270,40 +283,9 @@ export function installStdinShutdown(handler: () => void): void {
   });
 }
 
-// ═══════════════ 进程级 restart history（向后兼容保留） ═══════════════
+// ═══════════════ 进程级 restart history ═══════════════
 
-/**
- * 写入进程级 restart history 文件（/tmp/lark-bot.pi-restart-history）。
- *
- * 注：PR-1 已删除进程级 restart storm 防护（移交 systemd）。
- * 本函数保留仅用于：
- *   - 向后兼容（main.ts 旧路径仍可能引用）
- *   - 调试 / 运维侧查看 per-process 重启历史
- *
- * 新代码不应调用本函数。
- *
- * @deprecated 进程级 restart storm 已移交 systemd，本函数仅保留兼容
- */
-export function recordPiRestartHistoryLegacy(): void {
-  const now = Date.now();
-  const windowStart = now - PI_RESTART_WINDOW_MS;
-
-  let history: number[] = [];
-  try {
-    if (existsSync(PI_RESTART_HISTORY_FILE)) {
-      const raw = readFileSync(PI_RESTART_HISTORY_FILE, "utf-8").trim();
-      history = raw ? raw.split("\n").map(Number).filter((n) => Number.isFinite(n)) : [];
-    }
-  } catch {
-    // 静默
-  }
-
-  history = history.filter((ts) => ts >= windowStart);
-  history.push(now);
-
-  try {
-    writeFileSync(PI_RESTART_HISTORY_FILE, history.join("\n") + "\n");
-  } catch {
-    // 静默——history 写失败不影响 spawn
-  }
-}
+// 进程级 restart history 文件由 scripts/lark-bot/interactive/session-manager.ts 写入
+// （per-session pi 子进程重启事件，appendFileSync 到 /tmp/lark-bot.pi-restart-history）。
+// PR-1-cleanup：原 `recordPiRestartHistoryLegacy()` 全局函数已删除。
+// 如需查看 per-process 重启历史，使用 systemd journalctl 或 /tmp/lark-bot.pi-restart-history。

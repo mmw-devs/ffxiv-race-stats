@@ -181,6 +181,62 @@ PR-1 (extension 化)
 - `settings.json` 新增 `larkBot.useExtensionMode`（默认 `false` → 启用旧路径回滚）
 - `larkBot.autoStart` 保留兼容（旧版默认 `false`）
 
+### 3.1.4 PR-1 收尾清理（实补后补）
+
+> 本节为 PR-1 合并后第一轮清理，修复 PR-1 合并后遗留的 11 项问题。
+
+**问题修复清单**：
+
+| 问题 | 严重度 | 修复 |
+|------|--------|------|
+| typebox 软链接断裂风险 | 🔴 严重 | 删除软链接 + `extensions/lark-bot/package.json` 声明依赖 + `vitest.config.mjs` 用 createRequire 动态定位 typebox 入口 |
+| `recordPiRestartHistoryLegacy` 死代码 | 🔴 严重 | 删除函数 + main.ts 调用点 |
+| main.ts `installLarkBotLifecycle` 死代码 | 🔴 严重 | 删除函数（进程级防护全部移交 systemd） |
+| `larkbot_fetch_pending_events` 占位误导 | 🟡 中等 | 删除 registerTool，PR-2 实装时再加 |
+| `autoStart` / `useExtensionMode` 语义不清 | 🟡 中等 | index.ts / SKILL.md 增组合行为表 |
+| config.ts 9 个死常量 + LARK_PARENT_PID | 🟡 中等 | 删除全部死代码 |
+| `spawn-helper.ts` 孤岛 API | 🟢 较轻 | 加 @deprecated JSDoc 标注 |
+| 文档同步 | 🟢 较轻 | N4 §3.1.4 本节 |
+| `session-cleanup.test.ts` 空壳 | 🟢 较轻 | 简化为 smoke test |
+| `index.test.ts` 分支覆盖盲区 | 🟢 较轻 | 补 useExtensionMode=true / autoStart=true 测试 |
+
+**新增文件**：
+
+- `extensions/lark-bot/package.json`（声明 typebox 依赖）
+
+**删除**：
+
+- `extensions/lark-bot/node_modules/typebox`（软链接）
+- `extensions/lark-bot/node_modules/`（空目录）
+- `extensions/lark-bot/index.ts` 中 `larkbot_fetch_pending_events` registerTool
+- `extensions/lark-bot/process/spawn-helper.ts` 中 `recordPiRestartHistoryLegacy`
+- `scripts/lark-bot/main.ts` 中 `installLarkBotLifecycle`
+- `scripts/lark-bot/config.ts` 中 9 个死常量（PID_FILE / CRASH_LOG_PREFIX / HEARTBEAT_INTERVAL_MS / HEAP_PRESSURE_MB / HEAP_HARD_LIMIT_MB / RESTART_HISTORY_FILE / RESTART_STORM_WINDOW_MS / RESTART_STORM_MAX / RESTART_STORM_COOLDOWN_MS）
+- `extensions/lark-bot/index.ts` 中 `LARK_PARENT_PID` 环境变量设置
+
+**修改文件**：
+
+- `extensions/lark-bot/index.ts`（删除 larkbot_fetch_pending_events + LARK_PARENT_PID + feature flag 组合行为表）
+- `extensions/lark-bot/process/spawn-helper.ts`（删除 recordPiRestartHistoryLegacy + 孤岛 API @deprecated）
+- `extensions/lark-bot/__tests__/index.test.ts`（补 useExtensionMode=true / autoStart=true 测试）
+- `extensions/lark-bot/__tests__/process/session-cleanup.test.ts`（简化为 smoke test）
+- `scripts/lark-bot/main.ts`（删除 installLarkBotLifecycle + recordPiRestartHistoryLegacy 调用）
+- `scripts/lark-bot/config.ts`（删除 9 个死常量 + 重组注释）
+- `skills/lark-bot-protocol/SKILL.md`（registerTool 表改为 7 个 + feature flag 语义说明）
+- `vitest.config.mjs`（resolve.alias 用 createRequire 动态定位 typebox 入口，无硬编码绝对路径）
+- `agent-src/.gitignore`（删除 typebox 软链接例外）
+
+**回滚路径**：
+
+- typebox 软链接删除 → CI 全新 checkout 不再依赖软链接；typebox 通过 npm 自动从 `.pi/npm/node_modules/typebox` 解析
+- 进程级防护函数删除 → systemd 接管已生效
+- larkbot_fetch_pending_events 删除 → PR-2 实装时恢复
+
+**验证**：
+
+- 现有 195 测试 + PR-1 50 测试 + cleanup 补充分支测试 = 245+ 全过
+- typecheck / build / lint 干净
+
 ### 3.2 删除项
 
 | 类别 | 具体项 |
