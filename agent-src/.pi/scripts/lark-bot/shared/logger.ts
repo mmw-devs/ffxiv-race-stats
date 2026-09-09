@@ -4,17 +4,17 @@
  * SSOT 原则：所有 lark-bot 内部模块的日志输出必须经过本模块，
  * 保证统一 ISO 时间戳 + 自动轮转 + 文件 /tmp/lark-bot.log 持久化。
  *
- * 设计：纯函数模块，process.ts 负责轮转 + 文件 IO，
+ * 设计：纯函数模块，extensions/lark-bot/process/log-rotate.ts 负责轮转 + 文件 IO，
  * 其他模块只调用 log() / emitTaskJournal()。
  *
- * 注意：本模块不导入 process.ts（被 process.ts 间接引用 rotateLogIfNeeded），
+ * 注意：本模块不导入 process.ts（PR-1 起 process.ts 已删除，迁出到 extensions/lark-bot/process/），
  * 避免循环依赖。
  */
 
 import { appendFileSync } from "node:fs";
 
 import { LOG_FILE, TASK_JOURNAL_FILE } from "../config.js";
-import { rotateLogIfNeeded, rotateTaskJournalIfNeeded } from "../process.js";
+import { rotateLogIfNeeded, rotateTaskJournalIfNeeded } from "../../../extensions/lark-bot/process/log-rotate.js";
 import type { PendingTask, TaskJournalEntry } from "./types.js";
 
 export function log(msg: string): void {

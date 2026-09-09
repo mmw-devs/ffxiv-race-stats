@@ -92,7 +92,8 @@ export function addReaction(msgId: string, emoji: string): string | null {
   }
 }
 
-function delReaction(msgId: string, reactionId: string): void {
+// PR-1 起改为 export：registerTool feishu_remove_reaction 需要
+export function delReaction(msgId: string, reactionId: string): void {
   if (!reactionId) return;
   // delReaction 是 best-effort，熔断期直接跳过
   if (Date.now() < circuitOpenUntil) return;
