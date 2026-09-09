@@ -99,11 +99,24 @@ PR-1 (extension 化)
 
 理由：PI Agent 实际 API（types.d.ts L246-289）不支持 per-chat 并发隔离 sub-session（详见 issue #168 comment 5592358044），唯一可落地的 per-chat LLM 上下文隔离方案是 per-chat spawn，与 doubao 建议一致。
 
+### 3.1.1 实测验证（PR-171 后补遗）
+
+基于实测 1-6 结果（详见 review-report-pr171-followup.md）：
+
+| 实测 | 结论 | 对方案 G 影响 |
+|------|------|------------|
+| 实测 1（ctx 探针）| ctx.chatId 不存在；ctx.sessionManager 可访问但不含 chatId | ⚠️ chatId 改用 Map 反查 |
+| 实测 2（PI RPC）| spawn `pi --mode rpc` NDJSON 协议稳定（33 种命令） | ✅ spawn 模式保留 |
+| 实测 3（lark-cli）| lark-cli event consume 输出在 stderr；session_shutdown 不自动清理 | ⚠️ 同时监听 stderr + stdout；手动清理子进程 |
+| 实测 4（SKILL.md）| 实测命令参数错误，按官方机制走 | ✅ 不做特殊处理 |
+| 实测 5（并发）| 原子操作安全；同 turn 多工具有陈旧读竞态 | ⚠️ 禁止 check-then-act 跨 await |
+| 实测 6（6 处修正验证）| 6 处修正全部 PASS（修正 5 取消） | ✅ 6 处修正落实 |
+
 ### 3.2 删除项
 
 | 类别 | 具体项 |
 |------|-------|
-| 进程管理 | `process.ts` 全部（PID / 看门狗 / 双层 restart storm / 心跳 / 内存监控 / stdin shutdown） |
+| 进程管理 | **保留**：spawn helper / spawn mutex / PID 管理 / stdin shutdown / restart 防护（**实测 6-3 确认**：session_shutdown 不会自动清理子进程）<br>**删除**：看门狗 / 双层 restart storm / 心跳 / 内存监控（移交 systemd） |
 | 进程管理 | `extensions/lark-bot/index.ts` 的 spawn 逻辑（**保留 spawn，但精简为 optimization helper**——不消除 spawn） |
 | NDJSON 协议 | `session-manager.ts` `handlePiEvent` NDJSON 解析循环（**改为 lark-bot module-level 事件队列 + registerTool 拉取模式**） |
 | NDJSON 协议 | `task-state-machine.ts` 中 pi.stdin.write / pi.stdout 读取（**改为 lark-bot module-level 转发**） |
@@ -132,6 +145,7 @@ PR-1 (extension 化)
 |------|-------|
 | Extension 主入口 | `extensions/lark-bot/index.ts` 改为 registerTool 集合 |
 | Module-level 状态 | `sessions Map<chatId, PiSession>` / `authorizedSlots` / `circuitBreaker state` / `groups Map<chatId, GroupInfo>` / `members Map<chatId, Set<openId>>` / `identityCache Map<openId, CacheValue>` |
+| **Module-level 业务状态（按 chatId 路由，实测 1 修正）** | `chatToSession: Map<chatId, SessionManager>` ← 实测 1 缺口 3 修正方案——chatId 不依赖 ctx.chatId<br>`pendingEvents: Map<chatId, LarkEvent[]>` ← 原子读+删除必须单步（实测 5）<br>`taskJournals: Map<chatId, TaskJournal>`<br>`children: Set<ChildProcess>` ← 实测 6-3 修正——手动 kill 子进程 |
 | 飞书 WS 桥接 | module-level 异步队列：飞书事件 → LLM 上下文注入 / 鉴权触发 |
 | registerTool | feishu_add_reaction / feishu_remove_reaction / feishu_send_reply / feishu_get_group_info / feishu_list_group_members / feishu_send_group_message / feishu_list_bot_groups |
 
@@ -147,10 +161,20 @@ export default function (pi: ExtensionAPI) {
     if (event.reason !== "startup") return;
     await initLarkBotModule();           // 启动群组冷启动 + EventKey 订阅
     // 不再 spawn lark-bot 主进程
+    // 实测 3 修正：lark-cli 输出在 stderr，需同时监听 stderr + stdout
+    const larkCli = spawn(larkCliPath, ["event", "consume", "im.message.receive_v1"], { ... });
+    larkCli.stdout?.on("data", onStdoutNdjson);
+    larkCli.stderr?.on("data", onStderrNdjson);  // 主要输出方向
+    children.add(larkCli);  // 实测 6-3：手动追踪，便于 session_shutdown 时 kill
   });
 
   // ── 关闭期：清理 module-level 状态
   pi.on("session_shutdown", async (event, ctx) => {
+    // 实测 6-3 修正：session_shutdown 不会自动清理子进程，必须手动遍历 kill
+    for (const child of children) {
+      child.kill("SIGTERM");
+    }
+    children.clear();
     cleanupLarkBotModule();
   });
 
@@ -207,6 +231,12 @@ export default function (pi: ExtensionAPI) {
 ```
 
 （其他 5 个 registerTool 契约按相同模式展开，本节不重复）
+
+**registerTool description / promptSnippet 设计原则（实测 4 修正）**：
+
+- 完整描述工具语义（LLM 需理解工具 API）
+- **不**做特殊机制处理 SKILL.md——按 PI Agent 官方机制自动加载
+- SKILL.md（如 lark-bot-protocol）描述协议语义；registerTool 描述 API——**分工不重叠**
 
 ### 3.7 飞书 WS 桥接（PR-1 关键设计点）
 
@@ -307,6 +337,64 @@ function onLarkEvent(event: LarkEvent) {
 | registerTool execute 越界 | 每次 execute 从 ctx 取 chatId，与 `pendingEvents` / `sessions` / `taskJournals` Map 路由对齐 |
 | OPERATOR_REGISTRY 校验 | 最终业务操作需 `validateOperatorPermission`（PR-4 落地），保证 user_id 在注册表内 |
 
+**实测 1 修正（chatId 来源）**：
+
+实测发现 `ctx.chatId` 在 PI Agent Extension API 中**不存在**。修正方案：
+
+- **方案 G-v2（采用）**：lark-bot module-level 维护 `chatToSession: Map<chatId, SessionManager>`
+- larkbot_fetch_pending_events 接受 chatId 参数，从 Map 反查
+- **不依赖 ctx.chatId**（实测确认 NOT FOUND）
+
+```typescript
+// 实测 1 修正后的 larkbot_fetch_pending_events 实现
+registerTool("larkbot_fetch_pending_events", {
+  description: "拉取当前 chat 的待处理飞书事件（chatId 必需参数）",
+  parameters: Type.Object({
+    chatId: Type.String({ description: "飞书 chat_id，来自飞书事件" }),
+  }),
+  execute: async ({ chatId }, ctx) => {
+    // 1. 从 Map 反查 sessionManager（实测 1：ctx.chatId 不存在）
+    const session = chatToSession.get(chatId);
+    if (!session) {
+      return { error: "unknown_chat", events: [] };
+    }
+    // 2. 原子读+删除（实测 5：陈旧读竞态防护）
+    const events = pendingEvents.get(chatId) ?? [];
+    pendingEvents.delete(chatId);
+    return { events };
+  },
+});
+
+// 飞书事件到达时建立映射（不依赖 LLM 主动调用）
+function onLarkEvent(event: LarkEvent) {
+  // 建立 chatId → SessionManager 映射
+  if (!chatToSession.has(event.chat_id)) {
+    chatToSession.set(event.chat_id, createSessionManager(event.chat_id));
+  }
+  // 原子推入事件队列
+  const queue = pendingEvents.get(event.chat_id) ?? [];
+  queue.push(event);
+  pendingEvents.set(event.chat_id, queue);
+}
+```
+
+**实测 5 修正（并发安全约束）**：
+
+registerTool.execute 内**禁止** check-then-act 跨 await：
+
+```typescript
+// ❌ 错误：同 turn 多工具有陈旧读竞态
+if (pendingEvents.has(chatId)) {
+  const events = pendingEvents.get(chatId);
+  await someAsyncWork();  // ← 此处其他工具可修改 pendingEvents
+  pendingEvents.delete(chatId);
+}
+
+// ✅ 正确：单步原子操作
+const events = pendingEvents.get(chatId) ?? [];
+pendingEvents.delete(chatId);  // 单步，无 await
+```
+
 ### 3.8 测试覆盖（PR-1）
 
 | 测试类型 | 覆盖点 |
@@ -320,6 +408,19 @@ function onLarkEvent(event: LarkEvent) {
 | 回归测试 | `spawn 'pi --mode rpc'` 调用次数 ≥ 1（per-chat spawn，方案 G 保留） |
 | 回归测试 | `session-manager.ts` 中 per-chat sessionDir 格式（`bot-p2p-<chatId>`）正确性 |
 | 回归测试 | process.ts 中 PID / 看门狗 / 重启风暴相关代码不再被引用（**但 spawn 本身保留**） |
+
+### 3.8.1 实测验证矩阵（PR-171 后补遗）
+
+6 处修正的实测验证状态：
+
+| 修正 | 实测验证 | 状态 |
+|------|---------|------|
+| chatId Map 反查 | 实测 6-1 PASS | ✅ 采纳 |
+| stderr/stdout 监听 | 实测 6-2 partial（实测 3 确认） | ✅ 采纳 |
+| session_shutdown 清理 | 实测 6-3 PASS | ✅ 采纳 |
+| check-then-act 禁止 | 实测 6-4 PASS | ✅ 采纳 |
+| SKILL.md 特殊处理 | 实测 4 命令错误 + 实测 6-5 still fail | ❌ 取消——按官方机制走 |
+| NDJSON 协议保留 | 实测 6-6 PASS | ✅ 采纳 |
 
 ### 3.9 回滚方案（PR-1）
 
