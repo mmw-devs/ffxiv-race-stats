@@ -74,7 +74,7 @@ interface ExtensionUIContext {
 
 - 飞书 WS 事件接收**必须**通过 spawn lark-cli 子进程（PI Agent 无飞书通道 API）
 - 飞书消息 → lark-bot 的事件流仍保留 stdin/stdout NDJSON（lark-cli event consume）
-- **lark-cli 子进程层无法消除**；**PI Agent 子进程层可消除**（与 extension host 合一）
+- **lark-cli 子进程层无法消除**（飞书 I/O 必须）；**PI Agent 子进程层不消除**（方案 G——保留 per-chat spawn，详见 §6.4 PR-1 修订与 N6 §2.7）
 
 ## 2. lark-bot 现有"双重架构"
 
@@ -126,7 +126,7 @@ extension 本体只做"何时启停 lark-bot 进程"，**不做任何业务逻�
 
 | 维度 | 现有双重架构 | 标准 extension 模式 | 收益 / 代价 |
 |------|------------|------------------|-----------|
-| 进程数 | 1 lark-bot + N PI Agent + N lark-cli | 0 lark-bot + 0 PI Agent 子进程 + N lark-cli | 减少 N 个 PI Agent 子进程 |
+| 进程数 | 1 lark-bot + N PI Agent + N lark-cli | **1 lark-bot + N PI Agent 子进程 + N lark-cli**（方案 G：保留 per-chat spawn 隔离 LLM 上下文） | **进程数不变**（**不减少** PI Agent 子进程；保留 per-chat spawn 隔离 LLM 上下文） |
 | 通信协议 | stdin/stdout NDJSON（私有） | 函数调用（execute 异步） | 消除私有协议维护 |
 | 状态管理 | 全局 Map + 文件 | ExtensionContext + module-level state | 上下文隔离更清晰 |
 | 重启管理 | 双层 restart storm + PID 看门狗 | PI Agent session 生命周期托管 | 消除 L5 进程级防护 |
@@ -204,8 +204,8 @@ extension 本体只做"何时启停 lark-bot 进程"，**不做任何业务逻�
 | `process.ts 信号处理` | 简化（lark-bot extension 自身处理） | |
 | `process.ts installStdinShutdown` | **删除** | |
 | `process.ts startHeartbeat` | **删除** | 由 PI Agent 日志托管 |
-| `session-manager.ts spawnPiProcess` | **删除**（不 spawn PI Agent） | |
-| `session-manager.ts piRestartState` | **删除** | |
+| `session-manager.ts spawnPiProcess` | **精简优化**（每 chat spawn 基础设施精简） | 方案 G 保留 per-chat spawn |
+| `session-manager.ts piRestartState` | **精简优化**（精简为合理的 restart 防护） | 方案 G 保留 |
 | `config.ts restart history 文件` | **删除** | |
 | `config.ts HEAP_PRESSURE_MB / HEAP_HARD_LIMIT_MB` | **删除** | |
 
@@ -265,14 +265,14 @@ extension 本体只做"何时启停 lark-bot 进程"，**不做任何业务逻�
 
 | PR | 内容 | 删除 | 保留 |
 |----|------|------|------|
-| PR-1 | extension 化（消除 PI Agent 子进程层） | spawn PI Agent 子进程 / stdin/stdout NDJSON / process.ts / 双层 restart storm / piRestartState / spawnPromises / 配置相关常量 | 飞书 lark-cli spawn 子进程 / module-level 状态 / registerTool 飞书 I/O / auth.ts / business/broadcast.ts / ingress.ts 入口 |
+| PR-1 | **优化 spawn 基础设施**（**不消除 spawn**）+ extension 化 registerTool | spawn NDJSON / process.ts 重启风暴 / spawnPromises / 配置相关常量 | 飞书 lark-cli spawn 子进程 / per-chat spawn `pi --session-dir <chatId>` / module-level 状态 / registerTool 飞书 I/O / auth.ts / business/broadcast.ts / ingress.ts 入口 |
 | PR-2 | 鉴权判定迁 LLM | auth.ts substringMatch / agentMatcher 钩子 | larkbot_list_candidate_groups + larkbot_authorize_user（成员资格校验） |
 | PR-3 | 关闭意图删除本地正则 | matchesCloseIntent / parseCloseSessionFromText | 依赖 PI Agent emit close_session NDJSON |
 | PR-4 | 任务日志对象接入 OPERATOR_LOG | 无（缺失路径补齐） | larkbot_record_change + larkbot_commit_changes + larkbot_close_business_session + larkbot_query_journal + task_journal buffer + LogEntry 转换 |
 
 **每 PR 的可观察性**：
 
-- PR-1：进程数从 N+2 减到 N+1（PI Agent 子进程消失）；spawn `pi --mode rpc` 调用次数 = 0
+- PR-1：进程数 N+2 → N+2（**不变**，方案 G 保留 per-chat spawn）；spawn `pi --mode rpc` 调用次数 = N（每 chat 一次）；spawnNDJSON 通信去除（改为 module-level 事件队列 + registerTool 拉取）
 - PR-2：substringMatch 调用次数 = 0；agentMatcher 钩子类型声明删除
 - PR-3：matchesCloseIntent 调用次数 = 0；parseCloseSessionFromText 调用次数 = 0；close_session 路径数 = 1（仅 NDJSON）
 - PR-4：task_journal buffer 命中次数；LogEntry 嵌入 commit message 次数
@@ -304,7 +304,9 @@ extension 本体只做"何时启停 lark-bot 进程"，**不做任何业务逻�
 **方案**：
 - 飞书 WS 事件仍走 lark-cli event consume spawn 子进程（保留）
 - 事件接收在 module-level 异步队列
-- 事件触发时：若对应 chat_id 已有 active session → 把事件作为 LLM 上下文注入；若无 → 触发鉴权流程（registerTool larkbot_authorize_user）
+- 事件接收：按 chatId 路由到 `pendingEvents Map<chatId, LarkEvent[]>`（module-level 异步队列）
+- LLM 主动拉取：通过 `larkbot_fetch_pending_events` registerTool 按 ctx 提供的 chatId 拉取（不接受 LLM 参数）
+- chatId 路由：ctx 提供当前 chatId，与 `pendingEvents` / `sessions` / `taskJournals` Map 路由对齐
 - 注：这不是 registerTool 的标准用法，是 lark-bot extension 特有的"事件 → 业务总线"桥接
 
 ### 7.4 LLM 调用 registerTool 的成本
