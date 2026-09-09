@@ -112,6 +112,31 @@ PR-1 (extension 化)
 | 实测 5（并发）| 原子操作安全；同 turn 多工具有陈旧读竞态 | ⚠️ 禁止 check-then-act 跨 await |
 | 实测 6（6 处修正验证）| 6 处修正全部 PASS（修正 5 取消） | ✅ 6 处修正落实 |
 
+### 3.1.2 PR-1 最终边界（基于 Q0 修订 + 实测 1-6）
+
+**PR-1 必须包含**：
+
+| # | 内容 | 实测依据 |
+|---|------|---------|
+| 1 | `extensions/lark-bot/index.ts` 全新实现（按方案 G + 6 处实测修正） | 实测 1-6 综合 |
+| 2 | `chatToSession: Map<chatId, SessionManager>` 新增 | 实测 1 + 6-1（ctx.chatId NOT FOUND） |
+| 3 | `pendingEvents: Map<chatId, LarkEvent[]>` 新增 | 实测 5 + 6-4（陈旧读竞态防护） |
+| 4 | `children: Set<ChildProcess>` 新增 | 实测 3 + 6-3（手动清理子进程） |
+| 5 | **保留** spawn `pi --mode rpc --session-dir <chatId>` | 实测 2 + 6-6（NDJSON 协议稳定） |
+| 6 | **保留** stdin/stdout NDJSON 协议 | 实测 2 + 6-6 |
+| 7 | **同时监听 stderr + stdout**（lark-cli event consume） | 实测 3 + 6-2 |
+| 8 | `pi.on("session_shutdown")` 手动遍历 children kill | 实测 6-3 |
+
+**PR-1 不包含**（推迟到后续 PR）：
+
+| 内容 | 推迟到 | 理由 |
+|------|--------|------|
+| process.ts 拆分（spawn-helper.ts + crash-protection.ts） | PR-2 | Q4 拆分方案——独立 PR 更安全 |
+| OPERATOR_REGISTRY 校验 | PR-4 | 业务规则——非 PR-1 范围 |
+| 鉴权缓存 + 工作留痕 + 群组 API 业务逻辑 | PR-2/PR-4 | 非 PR-1 范围 |
+| NDJSON 协议解析重构（仅 stdin/stdout NDJSON 解析保留） | PR-2 | 拆分方案——独立 PR |
+| spawn helper / mutex 阈值细化 | PR-2 | 实测后调整 |
+
 ### 3.2 删除项
 
 | 类别 | 具体项 |
@@ -124,6 +149,30 @@ PR-1 (extension 化)
 | 持久化 | `/tmp/lark-bot.pid` / `/tmp/lark-bot.restart-history` / `/tmp/lark-bot.pi-restart-history` |
 | 保留 | `session-manager.ts` `spawnPiProcess` / `spawnPromises` / `piRestartState`（**精简优化而非删除**，方案 G 保留 per-chat spawn） |
 | 保留 | `config.ts` PI_RESTART_* 常量（精简为更合理的 restart 策略） |
+
+### 3.2.1 process.ts 拆分方案（基于 Q4 修订 + 实测 2 + 6-3 + 6-6）
+
+**实测依据**：
+
+- **实测 2 + 6-6**：spawn `pi --mode rpc` NDJSON 协议稳定（33 种命令），stdin.end() 触发干净退出（exitCode: 0）——**必须保留**
+- **实测 6-3**：session_shutdown 不会自动清理 spawn 子进程——**必须手动遍历 children kill**
+
+**拆分方案**：
+
+| 路径 | 状态 | 内容 | 备注 |
+|------|------|------|------|
+| `process/spawn-helper.ts` | **保留** | spawn / PID 管理 / stdin shutdown / NDJSON 解析 / spawn mutex / restart 防护 | 实测 2 + 6-6 确认 |
+| `process/children-registry.ts` | **新增** | `Set<ChildProcess>` 跟踪 + session_shutdown 时手动 kill | 实测 6-3 强制要求 |
+| ~~`process/crash-protection.ts`~~ | **删除** | 看门狗 / 双层 restart storm / 心跳 / 内存监控 | 移交 systemd（实测 6-3 确认手动清理足够） |
+| `shared/logger.ts` | **保留** | （不变） | — |
+| `shared/resource-manager.ts` | **保留** | spawn mutex + restart 防护 | 不变 |
+
+**关键约束**：
+
+- ❌ **不删除** NDJSON 协议解析（实测 2 + 6-6 确认协议稳定）
+- ❌ **不删除** stdin shutdown（实测 2 + 6-6 确认干净退出）
+- ✅ **新增** `children-registry.ts`（实测 6-3 强制要求）
+- ✅ **删除** 进程级崩溃防护（移交 systemd）
 
 ### 3.3 保留项
 
@@ -394,6 +443,73 @@ if (pendingEvents.has(chatId)) {
 const events = pendingEvents.get(chatId) ?? [];
 pendingEvents.delete(chatId);  // 单步，无 await
 ```
+
+### 3.7.1 飞书 WS 桥接剩余修订（基于 Q7 修订 + 实测 3 + 6-2 + 6-3）
+
+**实测 3 + 6-2 修订（lark-cli 监听）**：
+
+lark-cli event consume 的**结构化输出主要在 stderr**（不是 stdout），实测 3 已确认。修正方案：
+
+```typescript
+// ❌ 错误：只监听 stdout（实测 3 确认丢数据）
+larkCli.stdout?.on("data", onLarkEvent);
+
+// ✅ 正确：同时监听 stderr + stdout
+larkCli.stdout?.on("data", onStdoutNdjson);  // 兜底
+larkCli.stderr?.on("data", onStderrNdjson);  // 主输出方向
+```
+
+**实测 6-3 修订（session_shutdown 清理）**：
+
+PI Agent session_shutdown **不会自动清理** spawn 的 lark-cli 子进程——必须手动遍历 kill。修正方案：
+
+```typescript
+// children Set<ChildProcess>（实测 6-3 强制要求）
+const children: Set<ChildProcess> = new Set();
+
+pi.on("session_start", async (event, ctx) => {
+  if (event.reason !== "startup") return;
+
+  // spawn lark-cli event consume
+  const child = spawn(larkCliPath, ["event", "consume", ...]);
+  children.add(child);  // 注册
+  child.on("exit", () => children.delete(child));  // 退出时清理
+});
+
+pi.on("session_shutdown", async (event, ctx) => {
+  // 手动遍历 kill 所有子进程（实测 6-3 强制要求）
+  for (const child of children) {
+    if (child.exitCode === null) {
+      child.kill("SIGTERM");
+    }
+  }
+  children.clear();
+});
+```
+
+**实测 1 + 6-1 修订（chatId 来源）**：见 §3.7 实测 1 修正部分（PR-172 已合并）
+
+**实测 5 + 6-4 修订（并发安全）**：见 §3.7 实测 5 修正部分（PR-172 已合并）
+
+**最终飞书 WS 桥接路径**：
+
+```
+飞书事件 → lark-cli event consume (stderr + stdout)
+  → onStderrNdjson / onStdoutNdjson
+  → chatToSession: Map<chatId, SessionManager>.set(chatId, ...)
+  → pendingEvents: Map<chatId, LarkEvent[]>.push(event)
+  → spawn(pi --mode rpc --session-dir <chatId>)
+  → children.add(child)
+  → stdin.write({type:"prompt", message:...})
+  → stdout NDJSON 接收 → LLM 决策
+```
+
+**约束（实测综合）**：
+
+- ❌ **不依赖** ctx.chatId（实测 1 确认 NOT FOUND）
+- ❌ **不** check-then-act 跨 await（实测 5 + 6-4 确认竞态）
+- ✅ **同时监听 stderr + stdout**（实测 3 + 6-2）
+- ✅ **手动 kill 子进程**（实测 6-3 强制要求）
 
 ### 3.8 测试覆盖（PR-1）
 
