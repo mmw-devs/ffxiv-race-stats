@@ -252,6 +252,172 @@ describe("sendGroupMessage — 失败路径", () => {
   });
 });
 
+
+// ══════════════════════════════════════════════════════════════
+// PR#163 边界测试（issue#168 第三阶段）
+//
+// 溯源机制：每条测试顶部注明 PR#163 bug 来源、触发场景、当前行为。
+// 测试反映"当前代码实际行为"（A 哲学）——即使有 bug 也如实记录。
+// 未来修复 bug 时改测试即可（增量变更）。
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * PR#163 边界测试 #1：listGroupMembers 响应 `data.items` 字段（旧 lark-cli 版本）
+ *
+ * 来源: PR#163 bug `data.items` vs `data.users+bots` 字段差异
+ * 触发场景: lark-cli 旧版本返回 `{"data": {"items": [...]}}` 而非 `{"data": {"users": [...]}}`
+ * 当前行为: 当前代码只读 `data.users`；旧版本响应会因 `data.users` 不存在而返回 null
+ *   （或解析失败）。测试如实记录此行为。
+ *   如未来 lark-cli 版本兼容需支持 `data.items`，可在本测试新增 `data.items` 断言。
+ */
+describe("PR#163 #1 listGroupMembers — data.items 旧字段（当前不支持）", () => {
+  it("响应含 data.items（无 data.users）→ 返回 null（当前行为）", async () => {
+    mockedExecFileSync.mockReturnValueOnce(
+      JSON.stringify({ data: { items: [{ member_id: VALID_USER_OPEN_ID }] } }),
+    );
+    const tool = makeTool();
+    const result = await tool.listGroupMembers(VALID_CHAT_ID);
+    expect(result).toBeNull();
+  });
+});
+
+/**
+ * PR#163 边界测试 #2：listGroupMembers 响应 `data.users + data.bots` 双字段
+ *
+ * 来源: PR#163 bug `data.items` vs `data.users+bots` 字段差异
+ * 触发场景: lark-cli 返回 `{"data": {"users": [...], "bots": [...]}}`
+ * 当前行为: 当前代码只读 `data.users`；bots 字段被忽略。测试记录此行为。
+ *   如未来需同时支持 users + bots，在本测试新增 bots 断言。
+ */
+describe("PR#163 #2 listGroupMembers — data.users + data.bots 双字段（当前忽略 bots）", () => {
+  it("响应含 users + bots → 只返回 users 的 member_id（bots 被忽略）", async () => {
+    mockedExecFileSync.mockReturnValueOnce(
+      JSON.stringify({
+        data: {
+          users: [{ member_id: VALID_USER_OPEN_ID }],
+          bots: [{ member_id: "ou_bot_xxx" }],
+        },
+      }),
+    );
+    const tool = makeTool();
+    const result = await tool.listGroupMembers(VALID_CHAT_ID);
+    expect(result).toEqual([VALID_USER_OPEN_ID]);
+  });
+});
+
+/**
+ * PR#163 边界测试 #3：sendGroupMessage 无 replyToMessageId → 走 +messages-send
+ *
+ * 来源: PR#163 bug `+messages-reply` 与 `+messages-send` 参数差异
+ * 触发场景: 群发消息（不引用回复）—— 调用 `im +messages-send --chat-id <chatId>`
+ * 当前行为: 参数构造正确（包含 --chat-id，不含 --message-id）。
+ */
+describe("PR#163 #3 sendGroupMessage — 无 replyTo（走 +messages-send + --chat-id）", () => {
+  it("构造参数包含 --chat-id，不含 --message-id", async () => {
+    mockedExecFileSync.mockReturnValueOnce(
+      JSON.stringify({ data: { message_id: "om_outgoing" } }),
+    );
+    const tool = makeTool();
+    await tool.sendGroupMessage(VALID_CHAT_ID, { text: "hello" });
+    const callArgs = mockedExecFileSync.mock.calls[0][1] as string[];
+    expect(callArgs).toContain("+messages-send");
+    expect(callArgs).toContain("--chat-id");
+    expect(callArgs).toContain(VALID_CHAT_ID);
+    expect(callArgs).not.toContain("--message-id");
+  });
+});
+
+/**
+ * PR#163 边界测试 #4：sendGroupMessage 有 replyToMessageId → 走 +messages-reply
+ *
+ * 来源: PR#163 bug `+messages-reply` 与 `+messages-send` 参数差异
+ * 触发场景: 群消息引用回复 —— 调用 `im +messages-reply --message-id <replyTo>`
+ *   （无需 --chat-id，lark-cli 通过 message-id 自动定位父消息）
+ * 当前行为: 参数构造正确（包含 --message-id，不含 --chat-id）。
+ */
+describe("PR#163 #4 sendGroupMessage — 有 replyTo（走 +messages-reply + --message-id）", () => {
+  it("构造参数包含 --message-id，不含 --chat-id", async () => {
+    mockedExecFileSync.mockReturnValueOnce(
+      JSON.stringify({ data: { message_id: "om_outgoing_reply" } }),
+    );
+    const tool = makeTool();
+    await tool.sendGroupMessage(VALID_CHAT_ID, {
+      text: "reply",
+      replyToMessageId: "om_parent",
+    });
+    const callArgs = mockedExecFileSync.mock.calls[0][1] as string[];
+    expect(callArgs).toContain("+messages-reply");
+    expect(callArgs).toContain("--message-id");
+    expect(callArgs).toContain("om_parent");
+    expect(callArgs).not.toContain("--chat-id");
+  });
+});
+
+/**
+ * PR#163 边界测试 #5：sendGroupMessage chat_id 非法 → fail-closed
+ *
+ * 来源: 防御性 fail-closed 设计（PR#163 上下文）
+ * 触发场景: chat_id 不符合 `oc_<32 hex>` 格式
+ * 当前行为: 返回 `{ok: false, error: 'invalid chat_id'}`，不调 lark-cli。
+ */
+describe("PR#163 #5 sendGroupMessage — chat_id 非法格式（fail-closed）", () => {
+  it("返回 ok=false + error，不调 execFileSync", async () => {
+    const tool = makeTool();
+    const result = await tool.sendGroupMessage("invalid-chat-id", { text: "x" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("invalid chat_id");
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
+  });
+});
+
 // 缓存：groupTool 不再缓存任何群组/成员数据（事件驱动版）。
 // 群组/成员实时性由 AuthModule 内部 Map + 飞书事件维护。
 // 调用 groupTool.getGroupInfo / listGroupMembers 每次都实时调 lark-cli（无缓存语义）。
+// ══════════════════════════════════════════════════════════════
+// PR#163 边界测试 #2（续） — listGroupMembers / listAllBotGroups JSON 行污染
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * PR#163 边界测试 #9：listGroupMembers 处理 stdout JSON 行污染（回归测试）
+ *
+ * 来源: PR#163 bug #2 "JSON 行污染"
+ * 当前行为: listGroupMembers 用 `out.indexOf("{")` 找到 JSON 起点，跳过非 JSON 前缀（line 134-138）。
+ *   这是修复后的回归测试——确保未来重构不会引入此 bug。
+ */
+describe("PR#163 #9 listGroupMembers — stdout JSON 行污染（已修复，回归）", () => {
+  it("stdout 含 lark-cli 提示行 + JSON → 正确解析 members", async () => {
+    mockedExecFileSync.mockReturnValueOnce(
+      "[page 1] fetching...\nFound 6 user(s) and 1 bot(s)\n" +
+        JSON.stringify({
+          data: { users: [{ member_id: VALID_USER_OPEN_ID }] },
+        }),
+    );
+    const tool = makeTool();
+    const result = await tool.listGroupMembers(VALID_CHAT_ID);
+    expect(result).toEqual([VALID_USER_OPEN_ID]);
+  });
+});
+
+/**
+ * PR#163 边界测试 #10：listAllBotGroups 处理 stdout JSON 行污染（回归测试）
+ *
+ * 来源: PR#163 bug #2 "JSON 行污染"
+ * 当前行为: listAllBotGroups 当前用 `JSON.parse(out)` 整体解析（line 230+）。
+ *   测试反映当前行为——若 stdout 含非 JSON 前缀，parse 失败 → 返回 null。
+ *   如未来修复（参考 listGroupMembers 的 indexOf 处理），改为断言成功。
+ */
+describe("PR#163 #10 listAllBotGroups — stdout JSON 行污染（当前解析失败）", () => {
+  it("stdout 含非 JSON 前缀 + JSON → 当前返回 null（与 listGroupMembers 行为不同）", async () => {
+    mockedExecFileSync.mockReturnValueOnce(
+      "Loading chat list...\n" +
+        JSON.stringify({
+          data: { chats: [{ chat_id: VALID_CHAT_ID, name: "Test Group", description: "x" }] },
+        }),
+    );
+    const tool = makeTool();
+    const result = await tool.listAllBotGroups();
+    // 当前行为：JSON.parse 整体失败，返回 null
+    expect(result).toBeNull();
+    // 注：listGroupMembers 已用 indexOf 处理；listAllBotGroups 未处理（行为不一致）
+  });
+});

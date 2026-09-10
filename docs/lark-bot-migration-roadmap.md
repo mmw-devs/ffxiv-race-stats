@@ -391,6 +391,43 @@ PR-1 (extension 化)
 - 无新增/修改测试（content-pr skill 是 markdown 文档）
 - typecheck / build / lint 干净
 
+### 3.1.9 第三阶段：边界测试覆盖（issue#168 验收要求）
+
+> 本节为 issue#168 第三阶段：PR#163 中发现的 3 类 bug 针对性回归测试。
+> 依据你的原则：测试反映当前代码实际行为（A 哲学）——即使有 bug 也如实记录，溯源注释标明 bug 来源。
+
+**核心原则**：
+
+- **SSOT**：每个边界测试归属产生 bug 的模块（broadcast / protocol / session-manager）
+- **可溯源性**：每条测试顶部 JSDoc 标注 PR#163 bug 来源 + 触发场景 + 当前行为 + 未来修复路径
+- **不修复 bug**：仅添加回归测试；bug 修复留独立 PR
+- **简洁性**：直接用 vi.fn() / mock stdout，避免引入 spy 框架
+
+**11 条边界测试**：
+
+| # | 文件 | 测试场景 | 类别 |
+|---|------|---------|------|
+| 1 | broadcast/group-tool.test.ts | listGroupMembers 响应 data.items 字段（旧版本） | 数据 items vs users+bots |
+| 2 | broadcast/group-tool.test.ts | listGroupMembers 响应 data.users + data.bots 双字段 | 数据 items vs users+bots |
+| 3 | broadcast/group-tool.test.ts | sendGroupMessage 无 replyTo → +messages-send + --chat-id | 参数差异 |
+| 4 | broadcast/group-tool.test.ts | sendGroupMessage 有 replyTo → +messages-reply + --message-id | 参数差异 |
+| 5 | broadcast/group-tool.test.ts | sendGroupMessage chat_id 非法 → fail-closed | 防御性 |
+| 6 | protocol/feishu.test.ts | sendReplyGetId stdout 含非 JSON 前缀 | JSON 行污染 |
+| 7 | protocol/feishu.test.ts | sendReplyGetId stdout 纯 JSON（回归） | JSON 行污染 |
+| 8 | protocol/feishu.test.ts | sendReplyGetId stdout 完全非 JSON | JSON 行污染 |
+| 9 | broadcast/group-tool.test.ts | listGroupMembers stdout 含 lark-cli 提示行（已修复） | JSON 行污染 |
+| 10 | broadcast/group-tool.test.ts | listAllBotGroups stdout 含非 JSON 前缀（当前解析失败） | JSON 行污染 |
+| 11 | session-manager-integration.test.ts | handlePiEvent stdout 多行含非 JSON 行 → close_session 仍处理 | JSON 行污染 |
+
+**测试结果**：11/11 全过（测试反映当前实际行为，不修复 bug）。
+
+**未来修复 PR 模板**：修改某条 PR#163 边界测试时，把 `// 当前行为：<bug 描述>` 改为 `// 当前行为：<fix 描述>`，把 `expect(...).toBe(<bug 值>)` 改为正确期望。
+
+**验证**：
+
+- 261 测试全过（17 文件：250 + 11 新增）
+- typecheck / build / lint 干净
+
 ### 3.1.6 PR-3 编码落地状态（实补）
 
 > 本节为 PR-3 实际编码后追加的状态说明。
