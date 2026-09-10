@@ -3,6 +3,9 @@ name: content-pr
 description: >
   通用 content PR 提交流程。当 lark-bot 解析完 Operator 身份后，调用此 Skill 完成分支创建、推送、PR 创建和合并。
   触发词：提交 PR、合并、merge。
+
+  PR-4 起：commit message 来源由 larkbot_commit_changes registerTool 返回（buffer → LogEntry → commitMessage），
+  LLM 必须原样使用，不得自行构造。
 ---
 
 # content-pr
@@ -17,7 +20,7 @@ description: >
 
 1. 确认分支名：`content/<操作>-<目标>`，后缀 ≤ 20 ASCII 字符
 2. 获取 App token，创建 content 分支，修改 data.json，commit
-   - **commit message 强制格式**：
+   - **commit message 强制格式（PR-4 之前由 LLM 构造；PR-4 起由 larkbot_commit_changes 自动生成）**：
      ```
      content: <简短描述>
 
@@ -36,6 +39,26 @@ description: >
    - `timestamp` 使用 ISO 8601 UTC 格式
    - `changes` 数组每项包含 `field`（点分隔路径）、`from`（旧值）、`to`（新值）
    - 如果一次 commit 修改多个字段，在 `changes` 数组中列出所有变更
+
+#### commit message 来源（PR-4 起）
+
+- **主路径（推荐）**：调 `larkbot_commit_changes` registerTool 获取 `commitMessage`（已含 `shortDesc` + LogEntry JSON 块）
+- LLM 拿到 `commitMessage` 后**直接用于** `git commit -m "$commitMessage"`，**不得修改 message 内容**
+- 如需修改 shortDesc：重新调 `larkbot_commit_changes` 重新生成（buffer.changes 在调用后已清空，可继续 `larkbot_record_change` 累积）
+- 如不调 `larkbot_commit_changes`：必须遵循下方"commit message 强制格式"手动构造（不推荐；存在与 lark-bot 状态不一致风险）
+
+#### 历史路径（PR-4 之前）
+
+PR-4 之前版本由 LLM 自行构造 commit message，遵循下方"commit message 强制格式"。CI 校验保持一致。
+
+#### PR-4 关键约束
+
+- **不得手动构造或修改 commit message**（PR-4 已用 `op-log-schema.ts formatCommitMessage` 生成完整格式）
+- 不得调整 shortDesc / 字段顺序 / JSON 缩进 / 反引号数量
+- commit message **必须 100% 来自 larkbot_commit_changes 返回值**
+- LLM 不得以"便于阅读"为由调整 message 格式
+- 如需修改 → 重新调 `larkbot_commit_changes`（不修改返回结果）
+
 3. Push 到 GitHub，`gh pr create --base main`（以 `race-ops-bot[bot]` 身份）
 
 #### operator 强制约束
