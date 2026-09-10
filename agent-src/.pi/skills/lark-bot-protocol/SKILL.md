@@ -138,7 +138,90 @@ compatibility: 依赖 lark-bot 私聊接入；要求 prompt header 含 promptId�
 - `LARK_BOT_USE_AGENT_MATCHER=false` — 临时关闭 LLM 鉴权（PR-2 回滚诊断）
 - `LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE=true` — 临时恢复本地 matchesCloseIntent 兑底（PR-3 回滚诊断）
 
-## 6. 引用
+## 6. PR-4 任务日志协议
+
+### 6.1 任务日志生命周期
+
+```
+鉴权 matched（PR-2 → PR-4）→ 创建 task_journal buffer
+  ↓
+业务执行中 → larkbot_record_change 追加 ChangeEntry（顺序 = LLM 决策顺序）
+  ↓
+提交 PR → larkbot_commit_changes（buffer → LogEntry → commit message）
+  ↓
+关闭会话 → larkbot_close_business_session（清理 buffer + ended 广播）
+```
+
+### 6.2 4 个 registerTool
+
+| registerTool | 用途 | 关键参数 |
+|--------------|------|---------|
+| `larkbot_record_change` | 追加字段级变更到 buffer | chatId, field, from, to |
+| `larkbot_commit_changes` | buffer → LogEntry → commit message | chatId, shortDesc |
+| `larkbot_close_business_session` | 关闭会话 + ended 广播 + buffer 清理 | chatId |
+| `larkbot_query_journal` | 查询 buffer 状态（调试） | chatId |
+
+### 6.3 业务场景调用流
+
+**场景 A：提交 PR（不关闭会话）**
+
+1. LLM 调 `larkbot_commit_changes({chatId, shortDesc})` — buffer 非空校验 + operator 在 OPERATOR_REGISTRY 校验
+2. lark-bot 返回 commitMessage + journalReset=true
+3. LLM 拿到 commitMessage 调 content-pr skill 完成：git commit / push / gh pr create / 等待合并 / gh pr merge
+4. 会话保持，业务变更继续累积到 buffer
+
+**场景 B：结束任务（不提交 PR）**
+
+1. LLM 调 `larkbot_close_business_session({chatId})`
+2. lark-bot 触发 ended 广播（引用回复 matched 消息）+ 释放授权槽位 + 清理 buffer
+3. 返回 `{status: 'closed', broadcastMessageId}`
+
+**场景 C：提交并结束**
+
+1. LLM 先调 `larkbot_commit_changes`（场景 A 步骤 1-2）
+2. LLM 调 content-pr skill 提交 git
+3. LLM 调 `larkbot_close_business_session`（场景 B 步骤 1-2）
+
+**场景 D：无变更提交**
+
+1. LLM 调 `larkbot_commit_changes` — buffer 为空 → 拒绝，返回 `{error: 'no_changes'}`
+2. LLM 向用户回复“本次会话无业务变更，无需提交 PR”
+
+### 6.4 commit message 格式
+
+`larkbot_commit_changes` 内部调用 `op-log-schema.ts formatCommitMessage(shortDesc, logEntry)`，输出格式：
+
+```
+content: <shortDesc>
+
+````json
+{
+  "operator": "<user_id>",
+  "timestamp": "<ISO 8601>",
+  "changes": [
+    { "field": "<JSONPath-like>", "from": <from>, "to": <to> }
+  ]
+}
+````
+```
+
+LLM 拿到后必须调用 content-pr skill 用该 commitMessage 提交 PR（不修改 message 内容）。
+
+### 6.5 校验机制
+
+- `larkbot_commit_changes` 校验 buffer.operator 在 OPERATOR_REGISTRY（避免 buffer 创建后注册表变化导致脏数据）
+- ops CI 在 PR 合并前再次通过 `validate-op-log.ts` 校验
+- 校验失败 → PR 不合并
+
+### 6.6 buffer 清理时机
+
+| 时机 | 行为 |
+|------|------|
+| `larkbot_commit_changes` | buffer.changes 清空，会话元数据保留（支持多次 PR） |
+| `larkbot_close_business_session` | buffer 整体删除（业务会话生命周期结束） |
+| `session_shutdown` | 所有 taskJournals 清空（PI Agent 关闭） |
+
+## 7. 引用
 
 - `agent-src/.pi/extensions/lark-bot/index.ts` — registerTool 注册点 + feature flag 说明
 - `agent-src/.pi/scripts/lark-bot/protocol/feishu.ts` — 飞书 I/O 实现（registerTool 底层调用）
@@ -146,5 +229,7 @@ compatibility: 依赖 lark-bot 私聊接入；要求 prompt header 含 promptId�
 - `agent-src/.pi/scripts/lark-bot/business/auth.ts` — AuthModule 实现（PR-2 后仅做成员资格校验）
 - `agent-src/.pi/scripts/lark-bot/business/broadcast.ts` — 工作留痕广播
 - `agent-src/.pi/scripts/lark-bot/identity-resolver.ts` — open_id → user_id 解析（PR-2 registerTool 包装）
+- `agent-src/scripts/op-log-schema.ts` — OPERATOR_LOG 模块（generateLog / formatCommitMessage / OPERATOR_REGISTRY，PR-4 任务日志底层）
+- `agent-src/scripts/validate-op-log.ts` — ops CI 校验脚本（PR 合并前）
 - `agent-src/.pi/extensions/lark-bot/process/children-registry.ts` — 子进程注册表（实测 6-3）
 - `docs/lark-bot-migration-roadmap.md` — N4 渐进迁移路线图
