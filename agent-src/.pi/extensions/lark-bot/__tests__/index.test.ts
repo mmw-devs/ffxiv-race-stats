@@ -106,7 +106,7 @@ function createMockPi(): MockPi {
 
 // ═══════════════ Tests ═══════════════
 
-describe("extension — 11 个 registerTool 注册（PR-1 + PR-2）", () => {
+describe("extension — 15 个 registerTool 注册（PR-1 + PR-2 + PR-4）", () => {
   let mockPi: MockPi;
 
   beforeEach(() => {
@@ -114,8 +114,8 @@ describe("extension — 11 个 registerTool 注册（PR-1 + PR-2）", () => {
     extensionFn(mockPi as any);
   });
 
-  it("注册 11 个 registerTool（7 个 feishu_* + 4 个 larkbot_*）", () => {
-    expect(mockPi.tools.size).toBe(11);
+  it("注册 15 个 registerTool（7 个 feishu_* + 8 个 larkbot_*）", () => {
+    expect(mockPi.tools.size).toBe(15);
     const expectedTools = [
       // PR-1：feishu_* 7 个
       "feishu_add_reaction",
@@ -125,11 +125,16 @@ describe("extension — 11 个 registerTool 注册（PR-1 + PR-2）", () => {
       "feishu_list_group_members",
       "feishu_send_group_message",
       "feishu_list_bot_groups",
-      // PR-2：larkbot_* 4 个
+      // PR-2：larkbot_* 鉴权 4 个
       "larkbot_list_candidate_groups",
       "larkbot_authorize_user",
       "larkbot_resolve_operator",
       "larkbot_get_chat_auth_state",
+      // PR-4：larkbot_* 任务日志 4 个
+      "larkbot_record_change",
+      "larkbot_commit_changes",
+      "larkbot_close_business_session",
+      "larkbot_query_journal",
     ];
     for (const name of expectedTools) {
       expect(mockPi.tools.has(name)).toBe(true);
@@ -146,9 +151,9 @@ describe("extension — 11 个 registerTool 注册（PR-1 + PR-2）", () => {
     }
   });
 
-  it("registerTool.description 含 PR-1 或 PR-2 标识", () => {
+  it("registerTool.description 含 PR-1/PR-2/PR-3/PR-4 标识", () => {
     for (const [name, tool] of mockPi.tools) {
-      expect(tool.description, `${name} description`).toMatch(/PR-(1|2)/);
+      expect(tool.description, `${name} description`).toMatch(/PR-(1|2|3|4)/);
     }
   });
 });
