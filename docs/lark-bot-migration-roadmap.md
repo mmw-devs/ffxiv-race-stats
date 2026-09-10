@@ -296,6 +296,77 @@ PR-1 (extension 化)
 - 245 测试全过（保持不变——auth.test.ts 减少 5 个 + auth-tool.test.ts 增加 12 个 - index.test.ts 调整 2 个 ≈ 持平）
 - typecheck / build / lint 干净
 
+### 3.1.7 PR-4 编码落地状态（实补）
+
+> 本节为 PR-4 实际编码后追加的状态说明。
+
+**变更表**：
+
+| 类别 | 具体变更 |
+|------|---------|
+| **新增** | `TaskJournal` 接口 + `taskJournals: Map<chatId, TaskJournal>` module-level |
+| **新增** | `ChangeEntryLike` 接口（PR-4 轻量定义，避免跨模块导入） |
+| **新增** | `createTaskJournal(input)` 辅助函数 |
+| **新增** | `taskJournalToLogEntry(journal)` 转换函数（N4 §6.4 明确为独立函数） |
+| **扩展** | `larkbot_authorize_user` matched 分支：增加 operator 解析 + OPERATOR_REGISTRY 校验 + task_journal buffer 创建 |
+| **新增** | 4 个 registerTool：`larkbot_record_change` / `larkbot_commit_changes` / `larkbot_close_business_session` / `larkbot_query_journal` |
+| **session_shutdown** | 增加 `taskJournals.clear()` |
+| **import** | 新增 `op-log-schema.ts`（generateLog / formatCommitMessage / isOperatorAllowed / getOperatorName）+ `shared/logger.ts emitTaskJournal` |
+| **修订** | SKILL.md §6 PR-4 任务日志协议（4 个工具 + 4 个业务场景 + commit message 格式 + 校验机制 + buffer 清理时机） |
+
+**registerTool 总数**：PR-3 后 11 个 → PR-4 后 15 个（7 feishu_* + 8 larkbot_*）。
+
+**task_journal buffer 初始化时机**（N5 §6.3 + N4 §6.6）：
+
+`larkbot_authorize_user` matched 分支内部同步执行：
+1. 占用授权槽位（tryReserveAuthorizedSlot）
+2. 触发广播（matched）
+3. 缓存 chatAuthStates
+4. **PR-4 新增**：调 `extensionIdentityResolver.resolveOperator(openId)` 拿 user_id
+5. **PR-4 新增**：校验 `isOperatorAllowed(user_id)` 为 true（fail-closed；不通过则释放槽位 + 清理 chatAuthStates + 拒绝）
+6. **PR-4 新增**：创建 task_journal buffer + 存入 taskJournals.set(chatId, journal)
+
+**OPERATOR_REGISTRY 校验双重保险**：
+- buffer 创建时（`isOperatorAllowed` 校验）
+- `larkbot_commit_changes` 提交时（防御性二次校验，防 OPERATOR_REGISTRY 变化导致脏数据）
+
+**审计日志双写**（N5 §7）：
+- `larkbot_commit_changes` → emitTaskJournal state=`awaiting_review` + shortDesc + changesCount
+- `larkbot_close_business_session` → emitTaskJournal state=`terminated` + reason（区分 session_closed / session_closed_with_pending_changes）
+
+**回滚策略**：
+- PR-4 registerTool 一旦注册即生效（无 feature flag 开关）
+- 回滚通过 git revert 或独立 PR 移除 4 个 registerTool
+- 旧路径（main.ts + ingress.ts）继续走 close_session NDJSON + cleanupSessionForClose——**不受 PR-4 影响**
+
+**实际落地 vs 文档规划**：
+
+| # | 文档规划 | 实际落地 | 说明 |
+|---|---------|---------|------|
+| 1 | 4 个 registerTool（record_change / commit_changes / close_business_session / query_journal） | ✓ | 与规划一致 |
+| 2 | taskJournals Map<chatId, TaskJournal> | ✓ | 模块级单例 |
+| 3 | taskJournalToLogEntry 独立函数 | ✓ | 独立函数 + 调用 generateLog |
+| 4 | buffer 初始化在 larkbot_authorize_user matched 分支 | ✓ | 扩展 PR-2 代码 |
+| 5 | OPERATOR_REGISTRY 校验双重保险 | ✓ | 创建时 + 提交时 |
+| 6 | audit journal 双写 | ✓ | commit_changes + close_business_session |
+| 7 | content-pr skill 同步修订 | **不在 PR-4 范围** | 决策点 7：独立 PR |
+
+**测试覆盖**：
+
+- `extensions/lark-bot/__tests__/task-journal-tool.test.ts`（新建，15 测试）：
+  - larkbot_record_change：追加变更 + 多次累积 + 未鉴权拒绝
+  - larkbot_commit_changes：buffer → LogEntry + 清空 + 空 buffer 拒绝 + 未鉴权拒绝 + operator 拒绝
+  - larkbot_close_business_session：未鉴权拒绝 + 工具结构
+  - larkbot_query_journal：未鉴权 + 有 buffer + 工具结构
+  - 扩展 larkbot_authorize_user：matched 时 buffer 创建 + operator 拒绝
+- `extensions/lark-bot/__tests__/index.test.ts`（修改）：registerTool 计数 11 → 15 + description 标识 PR-(1|2|3|4)
+- `scripts/lark-bot/__tests__/interactive/session-manager-integration.test.ts`（修改）：删除 PR-3 孤儿变量（getPiSession / VALID_CHAT_ID_C）
+
+**验证**：
+
+- 250 测试全过（16 文件：235 + 15 新增）
+- typecheck / build / lint 干净
+
 ### 3.1.6 PR-3 编码落地状态（实补）
 
 > 本节为 PR-3 实际编码后追加的状态说明。
