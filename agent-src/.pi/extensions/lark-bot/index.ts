@@ -725,6 +725,8 @@ export default function (pi: any) {
     description:
       "把 task_journal buffer 转换为 LogEntry，生成 commit message 返回给 LLM。" +
       "LLM 拿到 commitMessage 后必须调用 content-pr skill 完成 git 操作。" +
+      "**commitMessage 必须 100% 原样使用，不得修改任何字符**（content-pr skill 负责 git 操作；" +
+      "LLM 不构造或修改 commit message）。" +
       "提交成功后 buffer.changes 清空，会话元数据保留（支持多次 PR）。" +
       "（PR-4: registerTool 替代 task_journal → LogEntry → commit message 手工拼接）",
     parameters: Type.Object({

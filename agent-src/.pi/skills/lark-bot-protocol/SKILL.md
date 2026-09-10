@@ -168,6 +168,8 @@ compatibility: 依赖 lark-bot 私聊接入；要求 prompt header 含 promptId�
 1. LLM 调 `larkbot_commit_changes({chatId, shortDesc})` — buffer 非空校验 + operator 在 OPERATOR_REGISTRY 校验
 2. lark-bot 返回 commitMessage + journalReset=true
 3. LLM 拿到 commitMessage 调 content-pr skill 完成：git commit / push / gh pr create / 等待合并 / gh pr merge
+   - **commitMessage 必须 100% 原样使用，不得修改任何字符**（包括 shortDesc / 字段顺序 / JSON 缩进 / 反引号数量）
+   - content-pr skill 负责 git 操作；LLM 不负责构造或修改 commit message
 4. 会话保持，业务变更继续累积到 buffer
 
 **场景 B：结束任务（不提交 PR）**
