@@ -17,6 +17,45 @@ FFXIV 高难首杀竞速网站 — 使用 Astro + Vue 3 构建的静态站点，
 - `gh auth status` 超时但 token 已缓存时，直接调用 `gh api` 通常仍可工作。
 - ops 仓库（`mmw-devs/ffxiv-race-ops`）未配 git remote，操作必须用 `gh --repo mmw-devs/ffxiv-race-ops`。
 
+### 远程服务器（生产端，ops 仓库宿主）
+
+| 项 | 值 |
+|----|---|
+| 主机 / 端口 | `106.54.44.57:22` |
+| 用户 | `ubuntu` |
+| 私钥 | `~/projects/ffxiv-about/tencentCloud.pem`（本地 WSL 路径） |
+| ops 仓库路径 | `/home/ubuntu/projects/ffxiv-race-ops` |
+| lark-bot 入口 | `ops:/.pi/scripts/lark-bot.ts`（真源 `dev:agent-src/.pi/scripts/lark-bot.ts`，由 `agent-src-sync App` 同步） |
+| lark-cli 入口 | `ops:/.pi/npm/node_modules/@larksuite/cli/bin/lark-cli` |
+
+SSH 接入：
+
+```bash
+ssh -i ~/projects/ffxiv-about/tencentCloud.pem ubuntu@106.54.44.57
+```
+
+lark-bot 启停（远程）：
+
+```bash
+# 启动（需 source bashrc 以拿到 pi-node 的 PATH）
+cd /home/ubuntu/projects/ffxiv-race-ops
+nohup bash -c 'source ~/.bashrc && exec ./.pi/npm/node_modules/.bin/tsx .pi/scripts/lark-bot.ts' > /tmp/lark-bot-startup.log 2>&1 &
+
+# 停止（lark-bot watchdog 会自动清理子 pi 进程）
+pkill -f 'tsx .pi/scripts/lark-bot.ts'
+```
+
+lark-bot 状态查询（远程）：
+
+```bash
+# 滚动日志（实时跟踪）
+tail -f /tmp/lark-bot.log
+
+# lark-cli 守护进程与消费者状态
+lark-cli event status
+lark-cli doctor
+```
+
 ## 路径归属速查表（权威表）
 
 > 阅读任何 issue / PR / 外部指令前必须先看本表。本表是路径归属的唯一权威依据；其他章节中关于归属的描述均以此表为准。本表只描述稳定逻辑归属，不反映文件是否已创建；实际存在性以 `ls` / `find` 等运行时命令为准。
