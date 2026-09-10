@@ -17,8 +17,9 @@
  *   - 匹配是纯函数（输入确定 → 输出确定）
  *
  * 演进：
- *   - 临时替代：归一化子串（本期 PR）
- *   - 最终方案：agentMatcher 钩子（PI Agent prompt 综合判定）
+ *   - 临时阶段：归一化子串（PR-2 之前）
+ *   - PR-2 起：LLM 决策（registerTool larkbot_authorize_user）；substringMatch / normalizeForMatch
+ *     保留为函数但不再调用，供回滚路径使用。
  */
 
 import type { GroupTool } from "../broadcast/group-tool.js";
@@ -27,14 +28,18 @@ import type { GroupInfo } from "../broadcast/group-tool.js";
 // ═══════════════════ 类型定义 ═══════════════════
 
 /**
- * AuthModule 输入：用户身份 + 业务描述
- * 注意：移除 authorizedGroupIds（PR4+ 演进）—— 群组列表改为内部缓存
+ * AuthModule 输入：用户身份 + 鉴权目标群组
+ *
+ * PR-2 改造：原 `businessDescription` 字段被移除。
+ * 鉴权决策（业务描述 → chatId 匹配）改由 PI Agent LLM 通过
+ * `larkbot_authorize_user` registerTool 完成。AuthModule 仅做成员资格校验。
+ * 因此输入只需 openId + chatId（LLM 已决策的 chatId）。
  */
 export type AuthInput = {
   /** 飞书 open_id（飞书稳定用户标识）*/
   openId: string;
-  /** 用户的业务描述（来自 p2p 消息原文去命令前缀） */
-  businessDescription: string;
+  /** LLM 决策的目标群组 chat_id */
+  chatId: string;
 };
 
 export type AuthResult =
@@ -44,20 +49,15 @@ export type AuthResult =
   | { status: "auth_module_error"; reason: string };
 
 /**
- * 方案 D 钩子：PI Agent 综合判定（本期未实现，保留接口）
- * 输入：归一化后的业务描述 + 候选群组列表（按 description 非空过滤）
- * 输出：匹配的 chat_id 或 null
+ * AuthModule 选项（PR-2 简化）
+ *
+ * PR-2 起移除 `agentMatcher` 字段。鉴权决策改由 PI Agent LLM
+ * 通过 `larkbot_authorize_user` registerTool 完成，不再需要本地 LLM 钩子。
+ * 保留 substringMatch / normalizeForMatch 函数供回滚路径使用（feature flag）。
  */
-export type AgentMatcher = (
-  businessDescription: string,
-  candidates: GroupInfo[],
-) => Promise<string | null>;
-
 export interface AuthModuleOptions {
   groupTool: GroupTool;
   log: (msg: string) => void;
-  /** 方案 D 钩子：可空；为空时降级到归一化子串匹配 */
-  agentMatcher?: AgentMatcher;
 }
 
 export interface AuthModule {
@@ -160,7 +160,7 @@ export function substringMatch(userDesc: string, groupDesc: string): boolean {
 // ═══════════ 实现 ═══════════
 
 export function createAuthModule(opts: AuthModuleOptions): AuthModule {
-  const { groupTool, log, agentMatcher } = opts;
+  const { groupTool, log } = opts;
 
   /** 群组元数据缓存（chat_id → GroupInfo，含 description） */
   const groups = new Map<string, GroupInfo>();
@@ -202,7 +202,11 @@ export function createAuthModule(opts: AuthModuleOptions): AuthModule {
   // ─────────────── 鉴权判定（纯内存） ───────────────
 
   async function authorize(input: AuthInput): Promise<AuthResult> {
-    const { openId, businessDescription } = input;
+    const { openId, chatId } = input;
+
+    // PR-2：原 substringMatch 逻辑已移除。鉴权决策（业务描述 → chatId）
+    // 改由 PI Agent LLM 通过 larkbot_authorize_user registerTool 完成。
+    // 本函数仅做成员资格校验（openId 是否在 chatId 对应群组成员列表中）。
 
     // 1. openId 格式校验
     if (!isValidOpenId(openId)) {
@@ -210,81 +214,52 @@ export function createAuthModule(opts: AuthModuleOptions): AuthModule {
       return { status: "auth_module_error", reason: "invalid open_id format" };
     }
 
-    // 2. 过滤候选群组：description 非空
-    const candidates = [...groups.values()].filter((g) => g.description && g.description.trim());
-
-    if (candidates.length === 0) {
-      log(`⚠ [auth] no_match: openId=${openId.slice(-8)} (无 description 候选群组)`);
-      return { status: "no_match" };
+    // 2. chatId 格式校验
+    if (!isValidChatId(chatId)) {
+      log(`⚠️ [auth] chat_id 格式非法: ${chatId.slice(0, 12)}...`);
+      return { status: "auth_module_error", reason: "invalid chat_id format" };
     }
 
-    // 3. 匹配策略：先 agentMatcher（如果存在），降级到归一化子串
-    let matchedGroup: GroupInfo | null = null;
-
-    if (agentMatcher) {
-      try {
-        const matchedId = await agentMatcher(businessDescription, candidates);
-        if (matchedId) {
-          matchedGroup = groups.get(matchedId) ?? null;
-          if (matchedGroup) {
-            log(`✓ [auth] agentMatcher matched: group=${matchedId}`);
-          }
-        }
-      } catch (e) {
-        log(`⚠️ [auth] agentMatcher 异常，降级到子串匹配: ${(e as Error).message?.slice(0, 200)}`);
-        matchedGroup = null;
-      }
-    }
-
+    // 3. 查找群组（必须在缓存中）
+    const matchedGroup = groups.get(chatId);
     if (!matchedGroup) {
-      for (const g of candidates) {
-        if (substringMatch(businessDescription, g.description)) {
-          matchedGroup = g;
-          break;
-        }
-      }
-    }
-
-    if (!matchedGroup) {
-      log(
-        `⚠ [auth] no_match: openId=${openId.slice(-8)} desc="${businessDescription.slice(0, 30)}"`,
-      );
+      log(`⚠ [auth] no_match: openId=${openId.slice(-8)} chatId=${chatId.slice(-12)} (chatId 不在缓存)`);
       return { status: "no_match" };
     }
 
     // 4. 成员资格校验
-    let memberSet = members.get(matchedGroup.chatId);
+    let memberSet = members.get(chatId);
     if (!memberSet) {
       // Cache 缺失（冷启动拉取失败 / 未收到 im.chat.member.* 事件）——主动重试一次
-      log(`⚠️ [auth] 成员列表缺失: group=${matchedGroup.chatId}，主动重试拉取`);
+      log(`⚠️ [auth] 成员列表缺失: group=${chatId}，主动重试拉取`);
       try {
-        const m = await groupTool.listGroupMembers(matchedGroup.chatId);
+        const m = await groupTool.listGroupMembers(chatId);
         if (m && m.length > 0) {
           memberSet = new Set(m);
-          members.set(matchedGroup.chatId, memberSet);
-          log(`✓ [auth] 重试拉取成功: group=${matchedGroup.chatId} members=${memberSet.size}`);
+          members.set(chatId, memberSet);
+          log(`✓ [auth] 重试拉取成功: group=${chatId} members=${memberSet.size}`);
         } else {
-          log(`⚠️ [auth] 重试拉取仍为空: group=${matchedGroup.chatId}`);
+          log(`⚠️ [auth] 重试拉取仍为空: group=${chatId}`);
           return { status: "auth_module_error", reason: "members cache missing (retry failed)" };
         }
       } catch (e) {
-        log(`⚠️ [auth] 重试拉取异常: group=${matchedGroup.chatId} err=${(e as Error).message?.slice(0, 200)}`);
+        log(`⚠️ [auth] 重试拉取异常: group=${chatId} err=${(e as Error).message?.slice(0, 200)}`);
         return { status: "auth_module_error", reason: "members cache missing (retry error)" };
       }
     }
 
     if (memberSet.has(openId)) {
-      log(`✓ [auth] matched: openId=${openId.slice(-8)} group=${matchedGroup.chatId} "${matchedGroup.name}"`);
+      log(`✓ [auth] matched: openId=${openId.slice(-8)} group=${chatId} "${matchedGroup.name}"`);
       return {
         status: "matched",
-        groupId: matchedGroup.chatId,
+        groupId: chatId,
         groupName: matchedGroup.name,
         description: matchedGroup.description,
       };
     }
 
-    log(`⚠ [auth] matched desc but not member: openId=${openId.slice(-8)} group=${matchedGroup.chatId}`);
-    return { status: "not_member", groupId: matchedGroup.chatId, groupName: matchedGroup.name };
+    log(`⚠ [auth] not_member: openId=${openId.slice(-8)} group=${chatId}`);
+    return { status: "not_member", groupId: chatId, groupName: matchedGroup.name };
   }
 
   // ─────────────── 事件处理 ───────────────
