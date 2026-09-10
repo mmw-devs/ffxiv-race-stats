@@ -291,17 +291,8 @@ function cleanupSessionForClose(pi: PiSession, reason: string): void {
   }
 }
 
-/** 从 PI Agent 文本中解析 close_session JSON（兜底）。返回 reason 或 undefined */
-function parseCloseSessionFromText(text: string): string | undefined {
-  // 匹配 {"type":"close_session", ...} 跨多行
-  const match = text.match(/\{[\s\S]*?"type"\s*:\s*"close_session"[\s\S]*?\}/);
-  if (!match) return undefined;
-  try {
-    const obj = JSON.parse(match[0]);
-    if (obj?.type === "close_session") return obj.reason ?? "unspecified";
-  } catch {}
-  return undefined;
-}
+// PR-3：parseCloseSessionFromText 已删除。PI Agent 需在 NDJSON 中 emit close_session。
+// 原函数体从 PR-3 前 commit 可恢复（git log -p）。
 
 /** 外部注册的 close_session 广播 handler。注册后，closeSessionFromAgent 内部调用 */
 type CloseBroadcastContext = {
@@ -322,6 +313,12 @@ export function setCloseBroadcastHandler(fn: CloseBroadcastHandler | null): void
 /** 用户自然语言关闭会话（lark-bot ingress.ts 检测"结束"/"done"等语义时调用）。
  * 复用 closeSessionFromAgent 的清理逻辑，但 reason 标为 user_natural_language，
  * 广播 handler 也会被触发（与 PI Agent close_session 路径一致）。 */
+/**
+ * 复用 closeSessionFromAgent 的清理逻辑，但 reason 标为 user_natural_language。
+ *
+ * @deprecated PR-3 起默认不调用。close_session 由 PI Agent emit NDJSON 触发。
+ * 函数保留供 feature flag LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE=true 回滚使用。
+ */
 export function closeSessionFromUserIntent(sessionKey: string, reason: string = "user_natural_language"): void {
   const pi = sessions.get(sessionKey);
   if (!pi) return;
@@ -609,14 +606,7 @@ function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void
             if (id === undefined || id === fetch.expectedId) {
               log(`📥 [${fetch.task.promptId}] 收到 get_last_assistant_text id=${id ?? "(无)"} text.len=${text?.length ?? 0}`);
               fetch.resolve(text);
-              // 兜底：PI Agent 经常把 close_session JSON 当回复内容输出（不 emit NDJSON）→ 解析文本触发关闭
-              if (text) {
-                const reason = parseCloseSessionFromText(text);
-                if (reason !== undefined) {
-                  log(`🔍 [${fetch.task.promptId}] 文本中检测到 close_session，触发关闭 (reason=${reason})`);
-                  closeSessionFromAgent(sessionKey, reason);
-                }
-              }
+              // PR-3：文本兑底解析 close_session 已删除。PI Agent 需在 NDJSON 中 emit close_session。
             } else {
               log(`⚠ get_last_assistant_text id 不匹配: 期望=${fetch.expectedId} 收到=${id}`);
             }

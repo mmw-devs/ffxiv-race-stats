@@ -41,15 +41,21 @@ compatibility: 依赖 lark-bot 私聊接入；要求 prompt header 含 promptId�
 - ✅ `添加新队伍 BACKSTAGE`
 - ❌ `更新数据`（太抽象）
 
-## 2. 关闭会话
+## 2. 关闭会话（必走 NDJSON）
 
-当用户表示"结束任务"、"done"、"再见"等意图时，向 stdout 输出一行 JSON：
+当用户表示"结束任务"、"done"、"再见"等意图时，**必须**向 stdout 输出一行 JSON NDJSON：
 
+```json
 {"type":"close_session","reason":"<可选原因>"}
+```
+
+**PR-3 关键变更**：lark-bot 不再做本地 matchesCloseIntent 正则检测，不做文本兑底解析。会话关闭**仅**依赖 PI Agent emit close_session NDJSON。
 
 `reason` 可选。reason 为业务上下文（如 "user_said_done"）。
 
 这条 JSON 必须直接输出到 stdout，不要放在聊天回复中。
+
+**调试点**：如 PI Agent 协议不稳定，可设置环境变量 `LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE=true` 临时恢复本地 matchesCloseIntent 兑底（生产环境保持 false）。
 
 ## 3. PR-1 registerTool 桥接契约（飞书 I/O）
 
@@ -123,11 +129,14 @@ compatibility: 依赖 lark-bot 私聊接入；要求 prompt header 含 promptId�
 
 **注意**：LLM 不需要为鉴权过程 emit close_session——鉴权是 registerTool 同步副作用。
 
-## 5. Feature flag 启用条件
+## 5. Feature flag 与环境变量启用条件
 
 `settings.json larkBot.useExtensionMode=true` 时 registerTool 可用。**默认 false** 走旧路径（spawn 独立 lark-bot 进程）。详见 `extensions/lark-bot/index.ts` 顶部注释的组合行为表。
 
-`LARK_BOT_USE_AGENT_MATCHER=false` 环境变量临时关闭 LLM 鉴权（仅用于 PR-2 回滚诊断）。
+环境变量：
+
+- `LARK_BOT_USE_AGENT_MATCHER=false` — 临时关闭 LLM 鉴权（PR-2 回滚诊断）
+- `LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE=true` — 临时恢复本地 matchesCloseIntent 兑底（PR-3 回滚诊断）
 
 ## 6. 引用
 

@@ -55,8 +55,9 @@ import { enqueueTask, startImmediate } from "./interactive/task-state-machine.js
 import {
   cleanupSeenMessageIds,
   closeSession,
-  closeSessionFromUserIntent,
   ensureSession,
+  // PR-3 起默认不调用 closeSessionFromUserIntent；保留作为 feature flag 回滚路径
+  closeSessionFromUserIntent,
   hasSeen,
   markSeen,
   markActive,
@@ -171,7 +172,13 @@ function formatPrompt(event: LarkEvent, pi: PiSession, promptId: string): string
 
 
 
-/** 检测用户自然语言"结束"意图（中文/英文混合） */
+/**
+ * 检测用户自然语言"结束"意图（中文/英文混合）
+ *
+ * @deprecated PR-3 起不调用。PI Agent 负责 emit close_session NDJSON。
+ * 函数保留供 feature flag `LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE=true` 回滚使用。
+ * 如启用，请重新调用本函数（需手动处理调用点）。
+ */
 export function matchesCloseIntent(content: string): boolean {
   const text = content.trim();
   if (!text) return false;
@@ -282,17 +289,23 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
     }
     markSeen(pi, event.message_id);
 
-    // 8a. 自然语言关闭检测（仅 authorized=true 时生效）——lark-bot 自己处理，不依赖 PI Agent 协议
-    {
+    // PR-3：本地 matchesCloseIntent 关闭检测已删除。
+    // 会话关闭由 PI Agent emit close_session NDJSON 触发（见 session-manager.ts handlePiEvent case "close_session"）。
+    // matchesCloseIntent 函数保留供 feature flag LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE 回滚。
+
+    // 8a. Feature flag 回滚路径（PR-3 默认不启用）
+    // LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE=true → 临时恢复本地 matchesCloseIntent 兑底
+    // 仅用于 PI Agent 协议不稳定期间观察；生产环境请保持 false。
+    if (process.env.LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE === "true") {
       const stripped = stripMention(event.content);
       const closeMatched = matchesCloseIntent(stripped);
-      log(`🔍 [${key.slice(-12)}] close-intent check: raw="${event.content.slice(0, 50)}" stripped="${stripped.slice(0, 50)}" matched=${closeMatched} authorized=${pi.authorized}`);
-    }
-    if (pi.authorized && matchesCloseIntent(stripMention(event.content))) {
-      log(`🔒 [${key.slice(-12)}] 检测到自然语言关闭意图，触发 close_session: content="${stripMention(event.content).slice(0, 100)}"`);
-      closeSessionFromUserIntent(key, "user_natural_language");
-      sendReply(event.message_id, "好的，任务已结束 👋");
-      return;
+      log(`🔍 [${key.slice(-12)}] close-intent check (feature flag=true): stripped="${stripped.slice(0, 50)}" matched=${closeMatched}`);
+      if (pi.authorized && closeMatched) {
+        log(`🔒 [${key.slice(-12)}] feature flag 路径：检测到自然语言关闭意图`);
+        closeSessionFromUserIntent(key, "user_natural_language");
+        sendReply(event.message_id, "好的，任务已结束 👋");
+        return;
+      }
     }
 
     if (pi.waitingTasks.length >= MAX_QUEUE_DEPTH) {
