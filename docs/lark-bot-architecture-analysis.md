@@ -288,18 +288,19 @@ settings.json 示例：
 | 验收项 | 状态 | 落地文档 / PR |
 |-------|------|--------------|
 | 第一阶段产出架构分析文档，包含现有 spawn 模式 vs 标准 extension 模式的对比结论 | ✅ 已完成 | 本文档 + N3 |
-| 第二阶段重构基于第一阶段产出，每步 PR 可独立 review / 合入 | ✅ PR-1 + PR-1-cleanup + PR-2 已完成 | N4 §3.1.3 + §3.1.4 + §3.1.5 |
+| 第二阶段重构基于第一阶段产出，每步 PR 可独立 review / 合入 | ✅ PR-1 + PR-1-cleanup + PR-2 + PR-3 已完成 | N4 §3.1.3 + §3.1.4 + §3.1.5 + §3.1.6 |
 | PI Agent 不可靠点有清晰兜底策略（无论是集中还是分散） | ✅ 已完成 | N2 §8 + 本文档 §7 |
-| SKILL.md 注入问题得到解决，PI Agent 真正看到协议 | ✅ PR-1 + PR-2 已完成 | N4 §3.1.3 + §3.1.5 + lark-bot-protocol/SKILL.md §3 §4 |
-| PR#163 中发现的边界 bug 都有针对性回归测试 | ✅ PR-1 + PR-2 已完成边界回归 | N4 §9 + PR-1/PR-2 新增测试 |
-| 现有 195 测试 + 重构期间新增测试全过 | ✅ PR-1 + PR-2 验证通过（245 测试） | N4 §9 + 各 PR 单测 |
-| typecheck 干净 | ✅ PR-1 + PR-2 验证通过 | 各 PR CI 检查 |
+| SKILL.md 注入问题得到解决，PI Agent 真正看到协议 | ✅ PR-1 + PR-2 + PR-3 已完成 | N4 §3.1.3 + §3.1.5 + §3.1.6 + lark-bot-protocol/SKILL.md §2 §3 §4 |
+| PR#163 中发现的边界 bug 都有针对性回归测试 | ✅ PR-1 + PR-2 + PR-3 已完成边界回归 | N4 §9 + PR-1/PR-2/PR-3 新增测试 |
+| 现有 195 测试 + 重构期间新增测试全过 | ✅ PR-1 + PR-2 + PR-3 验证通过（237 测试） | N4 §9 + 各 PR 单测 |
+| typecheck 干净 | ✅ PR-1 + PR-2 + PR-3 验证通过 | 各 PR CI 检查 |
 
-> **PR-1 + PR-1-cleanup + PR-2 落地说明**：
+> **PR-1 + PR-1-cleanup + PR-2 + PR-3 落地说明**：
 > - PR-1：extensions/lark-bot/process/ 拆分（4 文件）+ index.ts 重写（7 registerTool + useExtensionMode）+ process.ts 删除 + 4 个新测试。
 > - PR-1-cleanup：typebox 软链接修复 + 11 项遗留清理（autoStart 语义表 / 9 个死常量 / 死代码删除 / 测试补全）。
 > - PR-2：鉴权判定迁 PI Agent LLM（4 registerTool：list_candidate_groups / authorize_user / resolve_operator / get_chat_auth_state）+ auth.ts authorize 改为仅做成员资格校验 + 11 个新测试。
-> 详见 `docs/lark-bot-migration-roadmap.md` §3.1.3 / §3.1.4 / §3.1.5。
+> - PR-3：关闭意图删除本地正则 + 文本兑底。matchesCloseIntent / parseCloseSessionFromText 函数保留 + `@deprecated`，feature flag `LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE` 默认 false。
+> 详见 `docs/lark-bot-migration-roadmap.md` §3.1.3 / §3.1.4 / §3.1.5 / §3.1.6。
 
 ## 9. 范围与限制
 

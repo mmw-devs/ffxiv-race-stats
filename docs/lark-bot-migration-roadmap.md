@@ -296,6 +296,58 @@ PR-1 (extension 化)
 - 245 测试全过（保持不变——auth.test.ts 减少 5 个 + auth-tool.test.ts 增加 12 个 - index.test.ts 调整 2 个 ≈ 持平）
 - typecheck / build / lint 干净
 
+### 3.1.6 PR-3 编码落地状态（实补）
+
+> 本节为 PR-3 实际编码后追加的状态说明。
+
+**变更表**：
+
+| 类别 | 具体变更 |
+|------|---------|
+| **删除调用点** | `ingress.ts` 中 matchesCloseIntent 调用（2 处）+ closeSessionFromUserIntent 调用 |
+| **删除调用点** | `session-manager.ts` handlePiEvent 中 parseCloseSessionFromText 调用（1 处） |
+| **保留+标注** | `matchesCloseIntent` 函数（`@deprecated`）— feature flag 回滚路径 |
+| **保留+标注** | `closeSessionFromUserIntent` 函数（`@deprecated`）— feature flag 回滚路径 |
+| **保留+标注** | `parseCloseSessionFromText` 函数（`@deprecated`）— 作为辅助函数（未来其它场景可复用） |
+| **删除** | `__tests__/business/ingress-close-intent.test.ts`（完整文件） |
+| **新增** | ingress.ts `LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE=true` 回滚块（feature flag 默认 false） |
+| **修订** | SKILL.md §2 close_session 措辞：明确必走 NDJSON；§5 增 `LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE` 说明 |
+
+**保留项**（N4 §5.3）：
+
+- `cleanupSessionForClose` 六步清单
+- `closeSessionFromAgent`（仅 NDJSON 路径）
+- `closeBroadcastHandler`
+- `task-state-machine.ts completeActiveTask` 后清理
+
+**Feature flag**：
+
+- 环境变量 `LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE=true` — 临时恢复本地 matchesCloseIntent 兑底
+- 默认 `false`（仅依赖 PI Agent NDJSON）
+
+**实际落地 vs 文档规划**：
+
+| # | 文档规划 | 实际落地 | 说明 |
+|---|---------|---------|------|
+| 1 | matchesCloseIntent 调用点删除 | ✓ | 2 处全部删除 |
+| 2 | matchesCloseIntent 函数保留（回滚保障） | ✓ | 函数保留 + `@deprecated` |
+| 3 | closeSessionFromUserIntent 调用点删除 | ✓ | 调用点删除；函数保留 + `@deprecated` |
+| 4 | parseCloseSessionFromText 删除 | 函数保留（`@deprecated`） | 作为辅助函数保留供未来复用（决策点 3） |
+| 5 | 测试覆盖（matchesCloseIntent 调用 = 0） | ✓ | grep 验证 |
+| 6 | feature flag LARK_BOT_USE_NATURAL_LANGUAGE_CLOSE | ✓ | 环境变量形式（PR-3 代码中实现） |
+
+**测试覆盖**：
+
+- 删除 `ingress-close-intent.test.ts`（matchesCloseIntent 函数级测试）
+- `session-manager-integration.test.ts` 不动（close_session NDJSON 路径测试已在 PR#162 时建立）
+- 现有测试 + auth-tool.test.ts 保持通过
+
+**验证**：
+
+- 245 - 8（ingress-close-intent 测试）+ 0（PR-3 无新增）= 237 测试
+- typecheck / build / lint 干净
+- `matchesCloseIntent` / `parseCloseSessionFromText` 调用次数 = 0（grep 验证）
+
 ### 3.2 删除项
 
 | 类别 | 具体项 |
