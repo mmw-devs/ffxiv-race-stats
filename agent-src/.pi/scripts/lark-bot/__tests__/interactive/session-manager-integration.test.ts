@@ -276,3 +276,41 @@ describe("close_session 事件（PI Agent stdout NDJSON）", () => {
     expect(pi1).not.toBe(pi2);
   });
 });
+
+// ══════════════════════════════════════════════════════════════
+// PR#163 边界测试（issue#168 第三阶段）
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * PR#163 边界测试 #11：handlePiEvent 处理 stdout 多行响应（JSON 行污染）
+ *
+ * 来源: PR#163 bug #2 "JSON 行污染"
+ * 触发场景: PI Agent stdout 输出混杂非 JSON 行（如启动日志 "pi initializing..."
+ *   或缓存写入消息），handlePiEvent 用 `buf.split("\n")` 逐行解析。
+ * 当前行为: 非 JSON 行被 `JSON.parse(line)` 抛错 → catch 静默吞掉（session-manager.ts line 497）。
+ *   后续真 JSON 行正常解析。这是设计预期行为——单行错误不影响整体流。
+ *   测试反映当前"静默跳过 + 后续正常处理"行为。
+ */
+describe("PR#163 #11 handlePiEvent — stdout 多行响应（含非 JSON 行污染）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedSpawn.mockClear();
+  });
+
+  it("stdout 含非 JSON 前缀 + 有效 close_session NDJSON → close_session 仍被处理", async () => {
+    const pi = await ensureSessionWithAuthSlot("session-key-A", VALID_CHAT_ID_A);
+    pi.authorized = true;
+    expect(countAuthorized()).toBe(1);
+
+    // 模拟 PI Agent stdout 输出：
+    //   - 第一行：pi 启动日志（不是 JSON）
+    //   - 第二行：有效 close_session NDJSON
+    const fakeStdout = (pi.proc as any).stdout;
+    fakeStdout.emit("data", Buffer.from("pi initializing...\n"));
+    fakeStdout.emit("data", Buffer.from(JSON.stringify({ type: "close_session" }) + "\n"));
+
+    // 验证：close_session 仍被处理（会话关闭 + 槽位释放）
+    expect(countAuthorized()).toBe(0);
+    expect(getAllSessions().find(s => s.key === "session-key-A")).toBeUndefined();
+  });
+});
