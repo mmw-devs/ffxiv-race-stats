@@ -237,6 +237,65 @@ PR-1 (extension 化)
 - 现有 195 测试 + PR-1 50 测试 + cleanup 补充分支测试 = 245+ 全过
 - typecheck / build / lint 干净
 
+### 3.1.5 PR-2 编码落地状态（实补）
+
+> 本节为 PR-2 实际编码后追加的状态说明。
+
+**变更表**：
+
+| 类别 | 具体变更 |
+|------|---------|
+| **删除** | `auth.ts` 中 `substringMatch` 内部调用（函数保留为后备）；`AgentMatcher` 类型与 factory 调用 |
+| **改造** | `auth.ts` `authorize(input)` 接收 `chatId`（不再接收 `businessDescription`）；仅做成员资格校验 |
+| **改造** | `ingress.ts` 删除本地 substringMatch 调用块；增加 `useAgentMatcher` env 判断（默认 true）；formatPrompt header 增加 `pendingAuth=true` 标记 |
+| **新增** | `extensions/lark-bot/index.ts` 4 个 registerTool：`larkbot_list_candidate_groups` / `larkbot_authorize_user` / `larkbot_resolve_operator` / `larkbot_get_chat_auth_state` |
+| **新增** | `extensionAuthModule` / `extensionBroadcastModule` / `extensionIdentityResolver` 单例（与回滚路径隔离） |
+| **新增** | `chatAuthStates: Map<chatId, ChatAuthState>` module-level 缓存 |
+| **简化** | `main.ts` 删除 `cleanup` 函数（未被调用）；删除未使用 import |
+| **修订** | `SKILL.md` §4 PR-2 鉴权协议（4 个工具 + LLM 决策流） |
+| **修订** | `auth.test.ts` 删除 substringMatch 决策测试；新增 chatId 接口测试 |
+
+**registerTool 契约总览**（PR-2 后合计 11 个）：
+
+| 工具 | 用途 | PR |
+|------|------|-----|
+| `feishu_*` 7 个 | 飞书 I/O | PR-1 |
+| `larkbot_list_candidate_groups` | 返回候选群组 | PR-2 |
+| `larkbot_authorize_user` | 校验成员资格 | PR-2 |
+| `larkbot_resolve_operator` | open_id → user_id | PR-2 |
+| `larkbot_get_chat_auth_state` | 查询鉴权状态 | PR-2 |
+
+**Feature flag 接入**：
+
+- `LARK_BOT_USE_AGENT_MATCHER=false` 环境变量临时关闭 LLM 鉴权（PR-2 回滚诊断）
+- `LARK_BOT_USE_AGENT_MATCHER=true`（默认）走 LLM 鉴权决策
+
+**回滚策略**：
+
+- `substringMatch` / `normalizeForMatch` 函数保留——`auth.ts` 中仍可作为函数引用（未调用）
+- 回滚路径（main.ts + ingress.ts 旧逻辑）保留——`useExtensionMode=false` 时使用旧 spawn lark-bot 进程模式
+- `auth_decision` NDJSON 事件未启用——PR-2 registerTool 是同步调用，无需 NDJSON
+
+**实际落地 vs 文档规划的差异**：
+
+| # | 文档规划 | 实际落地 | 说明 |
+|---|---------|---------|------|
+| 1 | auth.ts 仅做成员资格校验 | ✓ | 删除 substringMatch 内部调用，保留函数作后备 |
+| 2 | 4 个 registerTool | ✓ | 与规划一致 |
+| 3 | extension 自治 authModule | ✓ | 新建 extensionAuthModule 单例（与回滚路径隔离） |
+| 4 | N4 §4.6 LLM 决策流 | ✓ | 通过 registerTool 同步执行（不走 NDJSON） |
+
+**测试覆盖（PR-2 新增）**：
+
+- `extensions/lark-bot/__tests__/auth-tool.test.ts`（新建）：4 个 registerTool × 4 种 status 路径 + 配额已满 + 已/未鉴权场景
+- `extensions/lark-bot/__tests__/index.test.ts`（修改）：registerTool 计数 7 → 11 + 新 mock（auth/broadcast/identity-resolver/session-manager）
+- `scripts/lark-bot/__tests__/business/auth.test.ts`（修改）：删除 substringMatch 决策测试；保留成员资格校验 + 事件增量更新测试
+
+**验证**：
+
+- 245 测试全过（保持不变——auth.test.ts 减少 5 个 + auth-tool.test.ts 增加 12 个 - index.test.ts 调整 2 个 ≈ 持平）
+- typecheck / build / lint 干净
+
 ### 3.2 删除项
 
 | 类别 | 具体项 |

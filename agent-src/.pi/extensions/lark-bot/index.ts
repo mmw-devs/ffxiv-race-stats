@@ -15,9 +15,10 @@
  * 与 PR-1 之前的关键差异：
  *   1. PR-1 起 lark-bot 即当前 extension 进程（不再 spawn 独立 lark-bot 进程）
  *   2. 保留「spawn per-chat PI Agent 子进程」（方案 G）
- *   3. 新增 7 个 registerTool（feishu_* 7 个）
- *   4. children-registry.ts 跟踪所有子进程（实测 6-3）
- *   5. session_shutdown 手动 kill（实测 6-3）
+ *   3. PR-1 新增 7 个 registerTool（feishu_*）
+ *   4. PR-2 新增 4 个 registerTool（larkbot_* 鉴权 + identity）
+ *   5. children-registry.ts 跟踪所有子进程（实测 6-3）
+ *   6. session_shutdown 手动 kill（实测 6-3）
  *
  * Feature flag（settings.json larkBot.*）：
  *   - autoStart：主开关，默认 false。false → 本 extension 不启动任何 lark-bot 逻辑。
@@ -60,6 +61,23 @@ import {
 } from "../../scripts/lark-bot/broadcast/group-tool.js";
 import { CLI } from "../../scripts/lark-bot/config.js";
 
+// PR-2：鉴权模块（PR-2 起，鉴权决策迁 PI Agent LLM）
+import {
+  createAuthModule,
+} from "../../scripts/lark-bot/business/auth.js";
+import type { AuthModule } from "../../scripts/lark-bot/business/auth.js";
+import {
+  createBroadcastModule,
+} from "../../scripts/lark-bot/business/broadcast.js";
+import type { BroadcastModule } from "../../scripts/lark-bot/business/broadcast.js";
+import {
+  createIdentityResolver,
+} from "../../scripts/lark-bot/identity-resolver.js";
+import type { IdentityResolver } from "../../scripts/lark-bot/identity-resolver.js";
+import { PROJECT_DIR } from "../../scripts/lark-bot/config.js";
+import { log as sharedLog } from "../../scripts/lark-bot/shared/logger.js";
+import { tryReserveAuthorizedSlot, releaseAuthorizedSlot } from "../../scripts/lark-bot/interactive/session-manager.js";
+
 // 子进程注册表（实测 6-3 强制要求）
 import { trackChild, killAllChildren } from "./process/children-registry.js";
 
@@ -92,6 +110,50 @@ const groupTool = createGroupTool({
   log: (msg: string) => console.error(`[group-tool] ${msg}`),
 });
 
+/**
+ * PR-2：extension 自治的鉴权模块。
+ *
+ * 设计原因：
+ *   - 与旧 ingress.ts 的 authModule 单例隔离，避免双重冷启动。
+ *   - registerTool 调用时使用本实例的 groups / members Map。
+ *   - 回滚路径（main.ts + ingress.ts）的 authModule 不受影响。
+ */
+const extensionAuthModule: AuthModule = createAuthModule({
+  groupTool,
+  log: (msg: string) => sharedLog(msg),
+});
+
+/**
+ * PR-2：extension 自治的工作留痕广播模块。
+ */
+const extensionBroadcastModule: BroadcastModule = createBroadcastModule({
+  groupTool,
+  log: (msg: string) => sharedLog(msg),
+});
+
+/**
+ * PR-2：extension 自治的 identity resolver（open_id → user_id）。
+ */
+const extensionIdentityResolver: IdentityResolver = createIdentityResolver({
+  projectDir: PROJECT_DIR,
+  cliPath: CLI,
+  log: (msg: string) => sharedLog(msg),
+});
+
+/**
+ * PR-2：per-chatId 授权状态缓存。
+ *
+ * registerTool larkbot_authorize_user 内部修改本 Map，PI Agent LLM 通过 registerTool
+ * 返回值间接感知鉴权结果。chatId 为 key，值为 {authorized, groupId, groupName, broadcastMessageId}。
+ */
+interface ChatAuthState {
+  authorized: boolean;
+  groupId: string | null;
+  groupName: string | null;
+  broadcastMessageId: string | null;
+}
+const chatAuthStates = new Map<string, ChatAuthState>();
+
 // ═══════════════ Extension 主入口 ═══════════════
 
 export default function (pi: any) {
@@ -120,15 +182,19 @@ export default function (pi: any) {
     // ── 分支 2：useExtensionMode=true ── 当前进程即 lark-bot（PR-1 新增）
     console.error("[lark-bot ext] useExtensionMode=true，lark-bot 即当前 extension 进程");
 
-    // 启动群组冷启动（PR-2 复用 auth.ts 的 initBoot）
-    // PR-1 仅占位：暂不实装冷启动，留 PR-2 处理
-    // await initGroupsCache();
+    // PR-2：启动鉴权冷启动（拉全量群组 + 各群成员）。失败 → fail-fast。
+    try {
+      await extensionAuthModule.initBoot();
+    } catch (err: any) {
+      console.error(`[lark-bot ext] auth 冷启动失败: ${err?.message?.slice(0, 200)}`);
+      throw err;
+    }
 
     // 启动 lark-cli event consume 子进程（实测 3：同时监听 stderr + stdout）
     const larkCli = spawnLarkCliEventConsume();
     trackChild(larkCli); // 实测 6-3
 
-    console.error("[lark-bot ext] 启动完成，registerTool 已注册（7 个）");
+    console.error("[lark-bot ext] 启动完成，registerTool 已注册（7+4 个）");
   });
 
   // ── 关闭期（实测 6-3：手动遍历 children kill） ──
@@ -144,6 +210,8 @@ export default function (pi: any) {
     // 清空 module-level 状态
     chatToSession.clear();
     pendingEvents.clear();
+    chatAuthStates.clear();
+    extensionIdentityResolver.clearCache();
   });
 
   // ═══════════════ registerTool 注册（PR-1: 8 个） ═══════════════
@@ -332,6 +400,173 @@ export default function (pi: any) {
       return {
         content: [{ type: "text", text: `✅ 共 ${groups.length} 个群组：\n${summary}` }],
         details: { ok: true, groups },
+      };
+    },
+  });
+
+  // ═══════════════ PR-2：鉴权 registerTool ═══════════════
+  // 业务描述 → chatId 决策由 PI Agent LLM 完成，lark-bot 仅做成员资格校验。
+  // 参考 N4 §4.5 registerTool 契约 + 实测 1-6 修正。
+
+  // ── 8. larkbot_list_candidate_groups ──
+  pi.registerTool({
+    name: "larkbot_list_candidate_groups",
+    label: "列出候选鉴权群组",
+    description:
+      "返回 Bot 所在的有 description 的群组列表（含 chatId/name/description）。" +
+      "鉴权判定（PR-2）的候选群组数据源。LLM 拿到 candidates 后根据用户业务描述决策 chatId。" +
+      "决策后调用 larkbot_authorize_user 验证成员资格。" +
+      "（PR-2: registerTool 替代 business/auth.ts candidates 过滤逻辑）",
+    parameters: Type.Object({}),
+    execute: async (_toolCallId: string, _params: {}) => {
+      // 委托给 authModule.getCandidates（扩展内部接口）
+      // PR-2：auth.ts authorize 不再返回 candidates；这里直接调 groupTool.listAllBotGroups
+      // 复用冷启动的 groups Map（groupCount() 验证）
+      const allGroups = await groupTool.listAllBotGroups();
+      if (allGroups === null) {
+        return {
+          content: [{ type: "text", text: `❌ 列出群组失败：lark-cli 错误` }],
+          details: { ok: false, candidates: null },
+          isError: true,
+        };
+      }
+      const candidates = allGroups.filter((g) => g.description?.trim());
+      const summary = candidates.map((g) => `- ${g.name} (${g.chatId}): ${g.description.slice(0, 80)}`).join("\n");
+      return {
+        content: [{ type: "text", text: `✅ 共 ${candidates.length} 个候选群组：\n${summary}` }],
+        details: { ok: true, candidates },
+      };
+    },
+  });
+
+  // ── 9. larkbot_authorize_user ──
+  pi.registerTool({
+    name: "larkbot_authorize_user",
+    label: "授权用户业务私聊",
+    description:
+      "校验用户是否在指定群组成员列表中。LLM 决策 chatId 后调用。返回 matched / not_member / no_match / auth_module_error。" +
+      "matched 时自动占用授权槽位 + 广播到群组 + 缓存 chatAuthStates。" +
+      "（PR-2: registerTool 替代 business/auth.ts authorize / substringMatch）",
+    parameters: Type.Object({
+      openId: Type.String({ description: "飞书用户 open_id" }),
+      chatId: Type.String({ description: "LLM 决策的群组 chat_id" }),
+    }),
+    execute: async (_toolCallId: string, params: { openId: string; chatId: string }) => {
+      const authResult = await extensionAuthModule.authorize({
+        openId: params.openId,
+        chatId: params.chatId,
+      });
+
+      // matched 时占用授权槽位 + 广播到群组 + 缓存 chatAuthStates
+      if (authResult.status === "matched") {
+        if (!tryReserveAuthorizedSlot()) {
+          console.error(`[lark-bot ext] larkbot_authorize_user: 已鉴权会话配额已满 chatId=${params.chatId.slice(-12)}`);
+          return {
+            content: [{ type: "text", text: `❌ 鉴权通过但已鉴权会话配额已满` }],
+            details: { status: "auth_module_error", reason: "authorized quota full" },
+            isError: true,
+          };
+        }
+        const broadcast = await extensionBroadcastModule.announce({
+          openId: params.openId,
+          groupId: authResult.groupId,
+          groupName: authResult.groupName,
+          outcome: "matched",
+        });
+        chatAuthStates.set(params.chatId, {
+          authorized: true,
+          groupId: authResult.groupId,
+          groupName: authResult.groupName,
+          broadcastMessageId: broadcast.ok ? (broadcast.messageId ?? null) : null,
+        });
+        return {
+          content: [{ type: "text", text: `✅ 鉴权通过：group=${authResult.groupName} (${authResult.groupId})${broadcast.ok && broadcast.messageId ? ` broadcast=${broadcast.messageId.slice(-12)}...` : ""}` }],
+          details: {
+            status: "matched",
+            groupId: authResult.groupId,
+            groupName: authResult.groupName,
+            broadcastMessageId: broadcast.messageId ?? null,
+          },
+        };
+      }
+
+      // not_member 时广播到群组
+      if (authResult.status === "not_member") {
+        await extensionBroadcastModule.announce({
+          openId: params.openId,
+          groupId: authResult.groupId,
+          groupName: authResult.groupName,
+          outcome: "not_member",
+        });
+        return {
+          content: [{ type: "text", text: `❌ 你不在授权群组 "${authResult.groupName}" 中` }],
+          details: { status: "not_member", groupId: authResult.groupId, groupName: authResult.groupName },
+          isError: true,
+        };
+      }
+
+      // no_match / auth_module_error 直接返回
+      const errMsg =
+        authResult.status === "no_match"
+          ? `⚠ 未找到匹配的业务群组（chatId=${params.chatId.slice(-12)}）`
+          : `❌ 鉴权模块异常：${authResult.reason}`;
+      return {
+        content: [{ type: "text", text: errMsg }],
+        details: authResult,
+        isError: authResult.status === "auth_module_error",
+      };
+    },
+  });
+
+  // ── 10. larkbot_resolve_operator ──
+  pi.registerTool({
+    name: "larkbot_resolve_operator",
+    label: "解析飞书 user_id",
+    description:
+      "把飞书 open_id 解析为稳定 user_id。LRU 缓存（成功 TTL 1h，失败 30s）。" +
+      "校验 user_id 是否在 OPERATOR_REGISTRY。PR-4 task_journal buffer 初始化时调用。" +
+      "（PR-2: registerTool 包装 identity-resolver.ts resolveOperator）",
+    parameters: Type.Object({
+      openId: Type.String({ description: "飞书 open_id" }),
+    }),
+    execute: async (_toolCallId: string, params: { openId: string }) => {
+      const ctx = await extensionIdentityResolver.resolveOperator(params.openId);
+      if (ctx === null) {
+        return {
+          content: [{ type: "text", text: `❌ 解析失败：open_id=${params.openId.slice(-12)} 不在 OPERATOR_REGISTRY 或 lark-cli 错误` }],
+          details: { ok: false, operator: null },
+          isError: true,
+        };
+      }
+      return {
+        content: [{ type: "text", text: `✅ 解析成功：${ctx.operator} (${ctx.name ?? "未知"})` }],
+        details: { ok: true, operator: ctx.operator, name: ctx.name },
+      };
+    },
+  });
+
+  // ── 11. larkbot_get_chat_auth_state（PR-2 辅助工具）──
+  pi.registerTool({
+    name: "larkbot_get_chat_auth_state",
+    label: "查询 chat 鉴权状态",
+    description:
+      "查询指定 chatId 的鉴权状态（authorized / groupId / groupName / broadcastMessageId）。" +
+      "PR-2 辅助工具：LLM 在处理业务消息时可调用，确认当前 chat 是否已鉴权。" +
+      "（chatId 来源：飞书事件。PR-2 起 chatId 由调用方传入。）",
+    parameters: Type.Object({
+      chatId: Type.String({ description: "飞书 chat_id" }),
+    }),
+    execute: async (_toolCallId: string, params: { chatId: string }) => {
+      const state = chatAuthStates.get(params.chatId);
+      if (!state) {
+        return {
+          content: [{ type: "text", text: `⚠️ chatId=${params.chatId.slice(-12)} 未鉴权` }],
+          details: { authorized: false, groupId: null, groupName: null, broadcastMessageId: null },
+        };
+      }
+      return {
+        content: [{ type: "text", text: `✅ chatId=${params.chatId.slice(-12)} 已鉴权：${state.groupName}` }],
+        details: state,
       };
     },
   });

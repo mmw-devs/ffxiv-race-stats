@@ -1,5 +1,12 @@
-// business/auth.test.ts — AuthModule 模块单元测试（事件驱动版）
-// 覆盖：openId 校验、归一化子串匹配、内存缓存、事件增量更新、agentMatcher 钩子降级
+// business/auth.test.ts — AuthModule 模块单元测试（PR-2 改造版）
+//
+// PR-2 改造：
+//   - AuthInput 移除 businessDescription，新增 chatId（LLM 决策的 chatId）
+//   - authorize() 改为仅做成员资格校验（不再做 substringMatch 决策）
+//   - substringMatch / normalizeForMatch 函数保留作回滚路径后备，仍测试其行为
+//   - 删除所有 substring 匹配决策相关测试
+//
+// 覆盖：openId 校验、chatId 校验、群组缓存、成员资格校验、事件增量更新
 import { describe, expect, it, vi } from "vitest";
 
 import type { GroupTool } from "../../broadcast/group-tool.js";
@@ -34,17 +41,17 @@ function makeMockGroupTool(): GroupTool & {
   } as any;
 }
 
-function makeAuth(tool: GroupTool, opts?: { agentMatcher?: any }): AuthModule {
-  return createAuthModule({ groupTool: tool, log: () => {}, ...opts });
+function makeAuth(tool: GroupTool): AuthModule {
+  return createAuthModule({ groupTool: tool, log: () => {} });
 }
 
 function makeGroup(chatId: string, name: string, description: string): GroupInfo {
   return { chatId, name, description };
 }
 
-// ═══════════════════ 归一化工具函数 ═══════════════════
+// ═══════════════════ 归一化工具函数（PR-2 后保留作回滚后备） ═══════════════════
 
-describe("normalizeForMatch", () => {
+describe("normalizeForMatch（回滚后备）", () => {
   it("全角转半角", () => {
     expect(normalizeForMatch("ＭＭＷ攻略组")).toBe("mmw攻略组");
   });
@@ -65,7 +72,7 @@ describe("normalizeForMatch", () => {
   });
 });
 
-describe("substringMatch", () => {
+describe("substringMatch（回滚后备）", () => {
   it("精确匹配", () => {
     expect(substringMatch("mmw攻略组", "mmw攻略组")).toBe(true);
   });
@@ -88,326 +95,167 @@ describe("substringMatch", () => {
   });
 });
 
-// ═══════════════════ openId 格式校验 ═══════════════════
+// ═══════════════════ PR-2：authorize() 成员资格校验 ═══════════════════
 
-describe("openId 格式校验", () => {
+describe("authorize() 成员资格校验", () => {
   it("非法 open_id → auth_module_error", async () => {
     const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([]);
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-    const result = await auth.authorize({
-      openId: "invalid-open-id",
-      businessDescription: "赛事运营",
-    });
-    expect(result.status).toBe("auth_module_error");
-  });
-
-  it("空字符串 → auth_module_error", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([]);
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-    const result = await auth.authorize({ openId: "", businessDescription: "" });
-    expect(result.status).toBe("auth_module_error");
-  });
-});
-
-// ═══════════════════ 初始化 ═══════════════════
-
-describe("initBoot", () => {
-  it("成功冷启动 → 群组缓存填充", async () => {
-    const tool = makeMockGroupTool();
     tool.listAllBotGroups.mockResolvedValueOnce([
-      makeGroup(VALID_CHAT_ID_A, "A 组", "赛事运营"),
-      makeGroup(VALID_CHAT_ID_B, "B 组", ""),  // 空 description
+      makeGroup(VALID_CHAT_ID_A, "MMW", "mmw攻略组智能体开发者群"),
     ]);
-    tool.listGroupMembers
-      .mockResolvedValueOnce([VALID_OPEN_ID])
-      .mockResolvedValueOnce([VALID_OPEN_ID_2]);
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-    expect(auth.groupCount()).toBe(2);
-    expect(tool.listGroupMembers).toHaveBeenCalledTimes(2);
-  });
-
-  it("listAllBotGroups 失败 → 抛错（fail-fast）", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce(null);
-    const auth = makeAuth(tool);
-    await expect(auth.initBoot()).rejects.toThrow();
-  });
-
-  it("listGroupMembers 失败 → 跳过该群成员缓存，继续", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "赛事运营")]);
-    tool.listGroupMembers.mockResolvedValueOnce(null);
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-    expect(auth.groupCount()).toBe(1);
-  });
-});
-
-// ═══════════════════ 归一化子串匹配 — matched ═══════════════════
-
-describe("归一化子串匹配 → matched", () => {
-  it("用户描述 = 群组描述", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "运营组", "mmw攻略组智能体开发者群")]);
     tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
     const auth = makeAuth(tool);
     await auth.initBoot();
+    const result = await auth.authorize({ openId: "invalid-open-id", chatId: VALID_CHAT_ID_A });
+    expect(result.status).toBe("auth_module_error");
+  });
 
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "mmw攻略组智能体开发者群",
-    });
-    expect(result.status).toBe("matched");
-    if (result.status === "matched") {
-      expect(result.groupId).toBe(VALID_CHAT_ID_A);
-      expect(result.groupName).toBe("运营组");
+  it("非法 chat_id → auth_module_error", async () => {
+    const tool = makeMockGroupTool();
+    tool.listAllBotGroups.mockResolvedValueOnce([
+      makeGroup(VALID_CHAT_ID_A, "MMW", "mmw攻略组智能体开发者群"),
+    ]);
+    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
+    const auth = makeAuth(tool);
+    await auth.initBoot();
+    const result = await auth.authorize({ openId: VALID_OPEN_ID, chatId: "invalid-chat-id" });
+    expect(result.status).toBe("auth_module_error");
+    if (result.status === "auth_module_error") {
+      expect(result.reason).toMatch(/invalid chat_id format/);
     }
   });
 
-  it("用户描述是群组描述的子串", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "运营组", "mmw攻略组智能体开发者群")]);
-    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "mmw攻略",
-    });
-    expect(result.status).toBe("matched");
-  });
-
-  it("归一化后子串匹配（用户描述加全角空格）", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "运营组", "mmw攻略组智能体开发者群")]);
-    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "  ＭＭＷ攻略  ",
-    });
-    expect(result.status).toBe("matched");
-  });
-
-  it("归一化后子串匹配（用户描述加标点）", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "运营组", "mmw攻略组智能体开发者群")]);
-    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "ＭＭＷ攻略，组！",
-    });
-    expect(result.status).toBe("matched");
-  });
-});
-
-// ═══════════════════ matched → not_member / no_match ═══════════════════
-
-describe("matched desc 但用户不在成员列表 → not_member", () => {
-  it("返回 not_member + 群组信息", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "运营组", "赛事运营")]);
-    tool.listGroupMembers.mockResolvedValueOnce(["ou_other_user_open_id_xxxxxxxxxxxxxxxx"]);
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "赛事运营",
-    });
-    expect(result).toEqual({
-      status: "not_member",
-      groupId: VALID_CHAT_ID_A,
-      groupName: "运营组",
-    });
-  });
-});
-
-describe("无群组匹配 → no_match", () => {
-  it("所有群组 description 都不匹配", async () => {
+  it("chatId 不在缓存 → no_match", async () => {
     const tool = makeMockGroupTool();
     tool.listAllBotGroups.mockResolvedValueOnce([
-      makeGroup(VALID_CHAT_ID_A, "A", "A 描述"),
-      makeGroup(VALID_CHAT_ID_B, "B", "B 描述"),
+      makeGroup(VALID_CHAT_ID_A, "MMW", "mmw攻略组智能体开发者群"),
     ]);
-    tool.listGroupMembers.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
     const auth = makeAuth(tool);
     await auth.initBoot();
-
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "完全不匹配",
-    });
+    const result = await auth.authorize({ openId: VALID_OPEN_ID, chatId: VALID_CHAT_ID_B });
     expect(result.status).toBe("no_match");
   });
 
-  it("所有群组 description 都为空 → no_match", async () => {
+  it("openId 不在群成员列表 → not_member", async () => {
     const tool = makeMockGroupTool();
     tool.listAllBotGroups.mockResolvedValueOnce([
-      makeGroup(VALID_CHAT_ID_A, "A", ""),
-      makeGroup(VALID_CHAT_ID_B, "B", ""),
+      makeGroup(VALID_CHAT_ID_A, "MMW", "mmw攻略组智能体开发者群"),
     ]);
-    tool.listGroupMembers.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID_2]); // 不包含 VALID_OPEN_ID
     const auth = makeAuth(tool);
     await auth.initBoot();
+    const result = await auth.authorize({ openId: VALID_OPEN_ID, chatId: VALID_CHAT_ID_A });
+    expect(result.status).toBe("not_member");
+    if (result.status === "not_member") {
+      expect(result.groupId).toBe(VALID_CHAT_ID_A);
+      expect(result.groupName).toBe("MMW");
+    }
+  });
 
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "任意描述",
-    });
-    expect(result.status).toBe("no_match");
+  it("matched 路径", async () => {
+    const tool = makeMockGroupTool();
+    tool.listAllBotGroups.mockResolvedValueOnce([
+      makeGroup(VALID_CHAT_ID_A, "MMW", "mmw攻略组智能体开发者群"),
+    ]);
+    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
+    const auth = makeAuth(tool);
+    await auth.initBoot();
+    const result = await auth.authorize({ openId: VALID_OPEN_ID, chatId: VALID_CHAT_ID_A });
+    expect(result.status).toBe("matched");
+    if (result.status === "matched") {
+      expect(result.groupId).toBe(VALID_CHAT_ID_A);
+      expect(result.groupName).toBe("MMW");
+    }
+  });
+
+  it("成员缓存缺失 → 主动重试拉取", async () => {
+    const tool = makeMockGroupTool();
+    tool.listAllBotGroups.mockResolvedValueOnce([
+      makeGroup(VALID_CHAT_ID_A, "MMW", "mmw攻略组智能体开发者群"),
+    ]);
+    tool.listGroupMembers
+      .mockResolvedValueOnce(null) // 冷启动时拉取失败
+      .mockResolvedValueOnce([VALID_OPEN_ID]); // 重试成功
+    const auth = makeAuth(tool);
+    await auth.initBoot();
+    const result = await auth.authorize({ openId: VALID_OPEN_ID, chatId: VALID_CHAT_ID_A });
+    expect(result.status).toBe("matched");
+    expect(tool.listGroupMembers).toHaveBeenCalledTimes(2);
+  });
+
+  it("成员缓存缺失且重试失败 → auth_module_error", async () => {
+    const tool = makeMockGroupTool();
+    tool.listAllBotGroups.mockResolvedValueOnce([
+      makeGroup(VALID_CHAT_ID_A, "MMW", "mmw攻略组智能体开发者群"),
+    ]);
+    tool.listGroupMembers.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    const auth = makeAuth(tool);
+    await auth.initBoot();
+    const result = await auth.authorize({ openId: VALID_OPEN_ID, chatId: VALID_CHAT_ID_A });
+    expect(result.status).toBe("auth_module_error");
+    if (result.status === "auth_module_error") {
+      expect(result.reason).toMatch(/members cache missing/);
+    }
   });
 });
 
-// ═══════════════════ 事件处理：增量更新内存 ═══════════════════
+// ═══════════════════ 事件增量更新 ═══════════════════
 
-describe("事件处理：bot 加入群", () => {
-  it("onChatAdded → 调 +chat-get 补 description + +chat-members-list 补成员", async () => {
+describe("事件增量更新", () => {
+  it("onChatAdded 补 description + members", async () => {
     const tool = makeMockGroupTool();
-    // initBoot 返回空（初始无群组）
     tool.listAllBotGroups.mockResolvedValueOnce([]);
-    // onChatAdded 触发的 +chat-get
-    tool.getGroupInfo.mockResolvedValueOnce(makeGroup(VALID_CHAT_ID_A, "新群", "新群描述"));
-    // onChatAdded 触发的 +chat-members-list
+    tool.getGroupInfo.mockResolvedValueOnce(makeGroup(VALID_CHAT_ID_A, "MMW", "mmw攻略组"));
     tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
     const auth = makeAuth(tool);
     await auth.initBoot();
-
-    const payload: ChatAddedPayload = { chat_id: VALID_CHAT_ID_A, name: "新群" };
-    await auth.onChatAdded(payload);
-
+    await auth.onChatAdded({ chat_id: VALID_CHAT_ID_A } as ChatAddedPayload);
     expect(auth.groupCount()).toBe(1);
-    // 现在可以用 authorize 匹配
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "新群描述",
-    });
-    expect(result.status).toBe("matched");
   });
 
-  it("onChatAdded：+chat-get 失败 → 仅记录空 description", async () => {
+  it("onChatAdded: getGroupInfo 失败 → 仍记录（description 空）", async () => {
     const tool = makeMockGroupTool();
     tool.listAllBotGroups.mockResolvedValueOnce([]);
     tool.getGroupInfo.mockResolvedValueOnce(null);
-    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
+    tool.listGroupMembers.mockResolvedValueOnce([]);
     const auth = makeAuth(tool);
     await auth.initBoot();
-
-    const payload: ChatAddedPayload = { chat_id: VALID_CHAT_ID_A, name: "新群" };
-    await auth.onChatAdded(payload);
-
-    // 空 description → 跳过 → no_match
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "任意描述",
-    });
-    expect(result.status).toBe("no_match");
+    await auth.onChatAdded({ chat_id: VALID_CHAT_ID_A } as ChatAddedPayload);
+    expect(auth.groupCount()).toBe(1);
   });
-});
 
-describe("事件处理：bot 离开群 / 群解散", () => {
-  it("onChatDeleted → 删除群组 + 成员缓存", async () => {
+  it("onChatDeleted 清空缓存", async () => {
     const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "A 描述")]);
+    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "MMW", "x")]);
     tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
     const auth = makeAuth(tool);
     await auth.initBoot();
     expect(auth.groupCount()).toBe(1);
-
     auth.onChatDeleted(VALID_CHAT_ID_A);
     expect(auth.groupCount()).toBe(0);
   });
 
-  it("onChatDisbanded → 等同 onChatDeleted", async () => {
+  it("onUserAdded / onUserDeleted 增量更新成员", async () => {
     const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "A 描述")]);
+    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "MMW", "x")]);
     tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
     const auth = makeAuth(tool);
     await auth.initBoot();
 
-    auth.onChatDisbanded(VALID_CHAT_ID_A);
-    expect(auth.groupCount()).toBe(0);
-  });
-});
+    auth.onUserAdded({ chat_id: VALID_CHAT_ID_A, user_id_list: [{ open_id: VALID_OPEN_ID_2 }] } as UserMembershipPayload);
+    let r = await auth.authorize({ openId: VALID_OPEN_ID_2, chatId: VALID_CHAT_ID_A });
+    expect(r.status).toBe("matched");
 
-describe("事件处理：用户加入/离开群", () => {
-  it("onUserAdded → 内存加入成员", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "A 描述")]);
-    tool.listGroupMembers.mockResolvedValueOnce([]); // 初始无成员
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-
-    // 之前鉴权 → not_member（用户不在）
-    let result = await auth.authorize({ openId: VALID_OPEN_ID, businessDescription: "A 描述" });
-    expect(result.status).toBe("not_member");
-
-    // 事件推送：用户加入群
-    auth.onUserAdded({
-      chat_id: VALID_CHAT_ID_A,
-      user_id_list: [{ open_id: VALID_OPEN_ID }],
-    } as UserMembershipPayload);
-
-    // 再次鉴权 → matched
-    result = await auth.authorize({ openId: VALID_OPEN_ID, businessDescription: "A 描述" });
-    expect(result.status).toBe("matched");
+    auth.onUserDeleted({ chat_id: VALID_CHAT_ID_A, user_id_list: [{ open_id: VALID_OPEN_ID_2 }] } as UserMembershipPayload);
+    r = await auth.authorize({ openId: VALID_OPEN_ID_2, chatId: VALID_CHAT_ID_A });
+    expect(r.status).toBe("not_member");
   });
 
-  it("onUserDeleted → 内存删除成员", async () => {
+  it("onChatUpdated 更新 description", async () => {
     const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "A 描述")]);
+    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "MMW", "原描述")]);
     tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-
-    let result = await auth.authorize({ openId: VALID_OPEN_ID, businessDescription: "A 描述" });
-    expect(result.status).toBe("matched");
-
-    auth.onUserDeleted({
-      chat_id: VALID_CHAT_ID_A,
-      user_id_list: [{ open_id: VALID_OPEN_ID }],
-    } as UserMembershipPayload);
-
-    result = await auth.authorize({ openId: VALID_OPEN_ID, businessDescription: "A 描述" });
-    expect(result.status).toBe("not_member");
-  });
-});
-
-describe("事件处理：群信息更新（description 变更）", () => {
-  it("onChatUpdated payload 含 description → 内存更新", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "旧描述")]);
-    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-
-    auth.onChatUpdated({
-      chat_id: VALID_CHAT_ID_A,
-      after_change: { name: "A", description: "新描述" },
-    } as ChatUpdatedPayload);
-
-    // 现在用新描述能匹配
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "新描述",
-    });
-    expect(result.status).toBe("matched");
-  });
-
-  it("onChatUpdated：chat_id 不在缓存 → 忽略", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([]);
     const auth = makeAuth(tool);
     await auth.initBoot();
 
@@ -415,100 +263,19 @@ describe("事件处理：群信息更新（description 变更）", () => {
       chat_id: VALID_CHAT_ID_A,
       after_change: { description: "新描述" },
     } as ChatUpdatedPayload);
+    let r = await auth.authorize({ openId: VALID_OPEN_ID, chatId: VALID_CHAT_ID_A });
+    expect(r.status).toBe("matched");
 
+    // 注：PR-2 改造后 authorize 不再依赖 description，但 description 仍保留在 GroupInfo
+  });
+
+  it("onChatDisbanded 走 onChatDeleted", async () => {
+    const tool = makeMockGroupTool();
+    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "MMW", "x")]);
+    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
+    const auth = makeAuth(tool);
+    await auth.initBoot();
+    auth.onChatDisbanded(VALID_CHAT_ID_A);
     expect(auth.groupCount()).toBe(0);
-  });
-});
-
-// ═══════════════════ agentMatcher 钩子（方案 D） ═══════════════════
-
-describe("agentMatcher 钩子（方案 D）", () => {
-  it("agentMatcher 返回 chat_id → matched", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "智能体开发")]);
-    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
-    const agentMatcher = vi.fn().mockResolvedValue(VALID_CHAT_ID_A);
-    const auth = makeAuth(tool, { agentMatcher });
-    await auth.initBoot();
-
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "我们的开发群",
-    });
-    expect(result.status).toBe("matched");
-    expect(agentMatcher).toHaveBeenCalledTimes(1);
-    expect(agentMatcher).toHaveBeenCalledWith("我们的开发群", expect.any(Array));
-  });
-
-  it("agentMatcher 返回 null → 降级到子串匹配", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "智能体开发")]);
-    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
-    const agentMatcher = vi.fn().mockResolvedValue(null);
-    const auth = makeAuth(tool, { agentMatcher });
-    await auth.initBoot();
-
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "智能体开发",
-    });
-    expect(result.status).toBe("matched");
-    expect(agentMatcher).toHaveBeenCalled();
-  });
-
-  it("agentMatcher 抛异常 → 降级到子串匹配", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "智能体开发")]);
-    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
-    const agentMatcher = vi.fn().mockRejectedValue(new Error("PI Agent timeout"));
-    const auth = makeAuth(tool, { agentMatcher });
-    await auth.initBoot();
-
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "智能体开发",
-    });
-    expect(result.status).toBe("matched");
-  });
-
-  it("agentMatcher 返回不存在的 chat_id → 降级到子串匹配", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "智能体开发")]);
-    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
-    const agentMatcher = vi.fn().mockResolvedValue("oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
-    const auth = makeAuth(tool, { agentMatcher });
-    await auth.initBoot();
-
-    const result = await auth.authorize({
-      openId: VALID_OPEN_ID,
-      businessDescription: "智能体开发",
-    });
-    expect(result.status).toBe("matched");  // 降级成功
-  });
-});
-
-// ═══════════════════ 边界 ═══════════════════
-
-describe("边界", () => {
-  it("业务描述为空 → no_match", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "A 描述")]);
-    tool.listGroupMembers.mockResolvedValueOnce([VALID_OPEN_ID]);
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-
-    const result = await auth.authorize({ openId: VALID_OPEN_ID, businessDescription: "" });
-    expect(result.status).toBe("no_match");
-  });
-
-  it("成员缓存缺失（事件尚未推送）→ auth_module_error", async () => {
-    const tool = makeMockGroupTool();
-    tool.listAllBotGroups.mockResolvedValueOnce([makeGroup(VALID_CHAT_ID_A, "A", "A 描述")]);
-    tool.listGroupMembers.mockResolvedValueOnce(null);  // 冷启动时失败，成员缓存缺失
-    const auth = makeAuth(tool);
-    await auth.initBoot();
-
-    const result = await auth.authorize({ openId: VALID_OPEN_ID, businessDescription: "A 描述" });
-    expect(result.status).toBe("auth_module_error");
   });
 });

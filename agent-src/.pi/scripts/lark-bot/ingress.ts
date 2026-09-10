@@ -61,7 +61,6 @@ import {
   markSeen,
   markActive,
   nextPromptId,
-  tryReserveAuthorizedSlot,
 } from "./interactive/session-manager.js";
 import { sessionKey } from "./routing.js";
 import type { AuthModule } from "./business/auth.js";
@@ -161,7 +160,7 @@ function formatPrompt(event: LarkEvent, pi: PiSession, promptId: string): string
     }
   } catch {}
   return [
-    `[私聊 | promptId=${promptId} | authorized=${pi.authorized} | openId=${event.sender_id}]`,
+    `[私聊 | promptId=${promptId} | authorized=${pi.authorized} | openId=${event.sender_id}${pi.authorized ? "" : " | pendingAuth=true"}]`,
     `[协议] 以下为 lark-bot-protocol skill 全文。处理本任务时必须严格遵守：`,
     "```",
     skillContent,
@@ -256,98 +255,26 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
     }
 
     // 3. 群组鉴权判定（仅在未鉴权时触发）
-    if (!pi.authorized) {
-      const authResult = await authModule.authorize({
-        openId: event.sender_id,
-        businessDescription: content,
-      });
+    //
+    // PR-2：本地 substringMatch 已删除。鉴权决策由 PI Agent LLM 通过
+    // larkbot_authorize_user registerTool 完成（见 extensions/lark-bot/index.ts）。
+    // 旧路径仅在 feature flag useAgentMatcher=false 时启用（PR-2 回滚）。
+    // 回滚策略：git revert PR-2 commit，或从 PR-2 之前的历史 commit 恢复 ingress.ts。
+    const useAgentMatcher = process.env.LARK_BOT_USE_AGENT_MATCHER !== "false"; // 默认 true（PR-2 LLM 决策）
 
-      if (authResult.status === "matched") {
-        // 鉴权成功 → 占用槽位 + 标记已鉴权
-        if (!tryReserveAuthorizedSlot()) {
-          log(`⛔ [${key.slice(-12)}] 鉴权通过但已鉴权会话配额已满`);
-          addReaction(event.message_id, EMOJI_ERROR);
-          sendReply(event.message_id, "⛔ 已鉴权会话配额已满，无法创建会话。请稍后再试。");
-          closeSession(key, "authorized_quota_full");
-          emitTaskJournal({
-            eventTime: new Date().toISOString(),
-            promptId: "n/a",
-            operator: "unknown",
-            operatorName: null,
-            state: "terminated",
-            reason: "authorized_quota_full",
-          });
-          return;
-        }
-        pi.authorized = true;
-        pi.authedGroupId = authResult.groupId;
-        pi.authedGroupName = authResult.groupName;
-        pi.openId = event.sender_id;
-        log(`✅ [${key.slice(-12)}] 鉴权通过: group=${authResult.groupId} "${authResult.groupName}"`);
-        // 工作留痕：广播到对应群组（拿到 message_id 后记录，用于 close 时引用回复）
-        const broadcastResult = await broadcastModule.announce({
-          openId: event.sender_id,
-          groupId: authResult.groupId,
-          groupName: authResult.groupName,
-          outcome: "matched",
-        });
-        if (broadcastResult.ok && broadcastResult.messageId) {
-          pi.matchedBroadcastMessageId = broadcastResult.messageId;
-          log(`📌 [${key.slice(-12)}] 记录 matched broadcast message_id=${broadcastResult.messageId.slice(-12)}`);
-        }
-      } else if (authResult.status === "no_match") {
-        log(`⚠ [${key.slice(-12)}] 鉴权失败: no_match desc="${content.slice(0, 30)}"`);
-        addReaction(event.message_id, EMOJI_ERROR);
-        sendReply(event.message_id, "⚠ 未找到匹配的业务群组。请确认业务描述。");
-        closeSession(key, "no_match");
-        emitTaskJournal({
-          eventTime: new Date().toISOString(),
-          promptId: "n/a",
-          operator: "unknown",
-          operatorName: null,
-          state: "terminated",
-          reason: "no_match",
-        });
-        return;
-      } else if (authResult.status === "not_member") {
-        log(`⚠ [${key.slice(-12)}] 鉴权失败: not_member group=${authResult.groupId}`);
-        addReaction(event.message_id, EMOJI_ERROR);
-        sendReply(event.message_id, `⚠ 你不在授权群组 "${authResult.groupName}" 中，无法创建业务会话。`);
-        // 工作留痕：广播到对应群组
-        await broadcastModule.announce({
-          openId: event.sender_id,
-          groupId: authResult.groupId,
-          groupName: authResult.groupName,
-          outcome: "not_member",
-        });
-        closeSession(key, "not_member");
-        emitTaskJournal({
-          eventTime: new Date().toISOString(),
-          promptId: "n/a",
-          operator: "unknown",
-          operatorName: null,
-          state: "terminated",
-          reason: "not_member",
-        });
-        return;
-      } else {
-        // auth_module_error
-        log(`⛔ [${key.slice(-12)}] 鉴权模块错误: ${authResult.reason}`);
-        addReaction(event.message_id, EMOJI_ERROR);
-        sendReply(event.message_id, "⛔ 鉴权模块异常，请稍后再试。");
-        closeSession(key, "auth_module_error");
-        emitTaskJournal({
-          eventTime: new Date().toISOString(),
-          promptId: "n/a",
-          operator: "unknown",
-          operatorName: null,
-          state: "terminated",
-          reason: "auth_module_error",
-        });
-        return;
-      }
+    if (!pi.authorized && !useAgentMatcher) {
+      // ── 旧路径：substringMatch（PR-2 起不启用；保留仅为参照）──
+      // PR-2 起 authModule.authorize 改为仅校验成员资格 + 接收 chatId。
+      // 旧 substringMatch 逻辑不在本文件中保留——回滚请通过 git 操作。
+      console.error("[ingress] useAgentMatcher=false（回滚路径），但 PR-2 已删除 substringMatch 逻辑。请 git revert 或恢复 ingress.ts 历史版本。");
+      return;
     }
 
+    // ── PR-2 新路径：跳过本地鉴权，把决策权交给 PI Agent LLM ──
+    // 不再调用 authModule.authorize；registerTool larkbot_authorize_user 内部完成
+    // 成员资格校验 + 占用槽位 + 广播到群组。
+    // pi.authorized 在 registerTool matched 时通过 chatAuthStates.set 标记。
+    // 当前 lark-bot 模块仅做"pendingAuth"标记，让 PI Agent 知道需要鉴权。
     // 8. 业务私聊阶段：去重 + 反压 + 创建 task
     if (hasSeen(pi, event.message_id)) {
       log(`⏭ [${key.slice(-12)}] 重复消息跳过: msgId=${event.message_id.slice(-8)}`);
