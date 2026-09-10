@@ -12,6 +12,11 @@ Thumbs.db
 # ⚠ 受 .githooks/ 保护：误删后自动从 .git/safe/ 恢复
 .claude/
 
+# AGENTS.md — PI Agent / 开发工具的项目级上下文，每个开发者的本地副本可能不同（路径、私钥、个人约定等），不入仓
+AGENTS.md
+AGENTS.md.bak-*
+
+
 # Backup files
 *.bak
 
