@@ -35,6 +35,41 @@ vi.mock("../../../scripts/lark-bot/broadcast/group-tool.js", () => ({
   })),
 }));
 
+// PR-2：Mock auth.ts / broadcast.ts / identity-resolver.ts / session-manager.ts
+// 这些是 index.ts 新增的依赖；不 mock 会触发实际模块加载（包含 fs / lark-cli 调用）
+vi.mock("../../../scripts/lark-bot/business/auth.js", () => ({
+  createAuthModule: vi.fn(() => ({
+    initBoot: vi.fn(),
+    authorize: vi.fn(async () => ({ status: "matched", groupId: "oc_test", groupName: "Test Group", description: "desc" })),
+    onChatAdded: vi.fn(),
+    onChatDeleted: vi.fn(),
+    onUserAdded: vi.fn(),
+    onUserDeleted: vi.fn(),
+    onChatUpdated: vi.fn(),
+    onChatDisbanded: vi.fn(),
+    groupCount: vi.fn(() => 1),
+  })),
+}));
+
+vi.mock("../../../scripts/lark-bot/business/broadcast.js", () => ({
+  createBroadcastModule: vi.fn(() => ({
+    announce: vi.fn(async () => ({ ok: true, messageId: "msg-broadcast-test" })),
+  })),
+}));
+
+vi.mock("../../../scripts/lark-bot/identity-resolver.js", () => ({
+  createIdentityResolver: vi.fn(() => ({
+    resolveOperator: vi.fn(async () => ({ operator: "38a32652", claim: "user_id", name: "weunimix" })),
+    clearCache: vi.fn(),
+    cacheSize: vi.fn(() => 0),
+  })),
+}));
+
+vi.mock("../../../scripts/lark-bot/interactive/session-manager.js", () => ({
+  tryReserveAuthorizedSlot: vi.fn(() => true),
+  releaseAuthorizedSlot: vi.fn(),
+}));
+
 // Mock children-registry — 隔离进程管理副作用
 vi.mock("../process/children-registry.js", () => ({
   trackChild: vi.fn(),
@@ -71,7 +106,7 @@ function createMockPi(): MockPi {
 
 // ═══════════════ Tests ═══════════════
 
-describe("extension — 7 个 registerTool 注册", () => {
+describe("extension — 11 个 registerTool 注册（PR-1 + PR-2）", () => {
   let mockPi: MockPi;
 
   beforeEach(() => {
@@ -79,9 +114,10 @@ describe("extension — 7 个 registerTool 注册", () => {
     extensionFn(mockPi as any);
   });
 
-  it("注册 7 个 registerTool（feishu_* 全部）", () => {
-    expect(mockPi.tools.size).toBe(7);
+  it("注册 11 个 registerTool（7 个 feishu_* + 4 个 larkbot_*）", () => {
+    expect(mockPi.tools.size).toBe(11);
     const expectedTools = [
+      // PR-1：feishu_* 7 个
       "feishu_add_reaction",
       "feishu_remove_reaction",
       "feishu_send_reply",
@@ -89,6 +125,11 @@ describe("extension — 7 个 registerTool 注册", () => {
       "feishu_list_group_members",
       "feishu_send_group_message",
       "feishu_list_bot_groups",
+      // PR-2：larkbot_* 4 个
+      "larkbot_list_candidate_groups",
+      "larkbot_authorize_user",
+      "larkbot_resolve_operator",
+      "larkbot_get_chat_auth_state",
     ];
     for (const name of expectedTools) {
       expect(mockPi.tools.has(name)).toBe(true);
@@ -105,9 +146,9 @@ describe("extension — 7 个 registerTool 注册", () => {
     }
   });
 
-  it("registerTool.description 含 PR-1 标识", () => {
+  it("registerTool.description 含 PR-1 或 PR-2 标识", () => {
     for (const [name, tool] of mockPi.tools) {
-      expect(tool.description, `${name} description`).toMatch(/PR-1/);
+      expect(tool.description, `${name} description`).toMatch(/PR-(1|2)/);
     }
   });
 });
