@@ -14,7 +14,6 @@ import {
   countAuthorized,
   ensureSession,
   getAllSessions,
-  getPiSession,
   releaseAuthorizedSlot,
   tryReserveAuthorizedSlot,
 } from "../../interactive/session-manager.js";
@@ -83,7 +82,6 @@ afterEach(() => {
 
 const VALID_CHAT_ID_A = "oc_aaaaaaaa0000000000000000000aaaaa";
 const VALID_CHAT_ID_B = "oc_bbbbbbbb0000000000000000000bbbbb";
-const VALID_CHAT_ID_C = "oc_cccccccc0000000000000000000ccccc";
 
 // ══════════════════════════════════════════════════════════════
 // closeSession — 槽位释放一致性

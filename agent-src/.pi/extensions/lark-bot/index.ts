@@ -77,6 +77,14 @@ import type { IdentityResolver } from "../../scripts/lark-bot/identity-resolver.
 import { PROJECT_DIR } from "../../scripts/lark-bot/config.js";
 import { log as sharedLog } from "../../scripts/lark-bot/shared/logger.js";
 import { tryReserveAuthorizedSlot, releaseAuthorizedSlot } from "../../scripts/lark-bot/interactive/session-manager.js";
+// PR-4：OPERATOR_LOG 模块（任务日志生成 + 校验 + 注册表）
+import {
+  generateLog,
+  formatCommitMessage,
+  isOperatorAllowed,
+  getOperatorName,
+} from "../../../scripts/op-log-schema.js";
+import { emitTaskJournal } from "../../scripts/lark-bot/shared/logger.js";
 
 // 子进程注册表（实测 6-3 强制要求）
 import { trackChild, killAllChildren } from "./process/children-registry.js";
@@ -154,6 +162,76 @@ interface ChatAuthState {
 }
 const chatAuthStates = new Map<string, ChatAuthState>();
 
+/**
+ * PR-4：业务变更累积 buffer。
+ *
+ * 生命周期（4 阶段）：
+ *   - 创建：larkbot_authorize_user matched 分支（PR-4）
+ *   - 累积：larkbot_record_change（LLM 每次业务操作后调）
+ *   - 提交：larkbot_commit_changes（buffer → LogEntry → commitMessage 返回 LLM）
+ *   - 销毁：larkbot_close_business_session 或 session_shutdown
+ *
+ * 提交后 changes 清空，会话元数据保留（支持一次会话多次 PR 提交）。
+ */
+interface TaskJournal {
+  /** OPERATOR_REGISTRY 校验通过的飞书 user_id */
+  operator: string;
+  /** OPERATOR_REGISTRY[operator].name */
+  operatorName: string | null;
+  /** 业务私聊会话开始时刻（ISO 8601） */
+  sessionStartedAt: string;
+  /** 业务私聊会话关联群组 chat_id */
+  groupId: string;
+  /** 群组名 */
+  groupName: string;
+  /** matched broadcast message_id（PR-2 缓存）；close 时用于引用回复 */
+  matchedBroadcastMessageId: string | null;
+  /** 缓存启动时刻的 promptId */
+  promptId: string;
+  /** 累积的字段级变更（顺序 = LLM 决策顺序） */
+  changes: ChangeEntryLike[];
+}
+
+/** PR-4 轻量 ChangeEntry 定义（与 op-log-schema.ts ChangeEntry 等价但避免跨模块导入） */
+interface ChangeEntryLike {
+  field: string;
+  from: unknown;
+  to: unknown;
+}
+
+const taskJournals = new Map<string, TaskJournal>();
+
+/**
+ * PR-4：创建 task_journal buffer（鉴权 matched 时调用）。
+ */
+function createTaskJournal(input: {
+  operator: string;
+  operatorName: string | null;
+  groupId: string;
+  groupName: string;
+  matchedBroadcastMessageId: string | null;
+  promptId: string;
+}): TaskJournal {
+  return {
+    operator: input.operator,
+    operatorName: input.operatorName,
+    sessionStartedAt: new Date().toISOString(),
+    groupId: input.groupId,
+    groupName: input.groupName,
+    matchedBroadcastMessageId: input.matchedBroadcastMessageId,
+    promptId: input.promptId,
+    changes: [],
+  };
+}
+
+/**
+ * PR-4：buffer → LogEntry 转换（larkbot_commit_changes 内部调用）。
+ * N4 §6.4 明确为独立函数，便于单元测试。
+ */
+function taskJournalToLogEntry(journal: TaskJournal): { operator: string; timestamp: string; changes: ChangeEntryLike[] } {
+  return generateLog(journal.operator, journal.changes as any);
+}
+
 // ═══════════════ Extension 主入口 ═══════════════
 
 export default function (pi: any) {
@@ -211,6 +289,7 @@ export default function (pi: any) {
     chatToSession.clear();
     pendingEvents.clear();
     chatAuthStates.clear();
+    taskJournals.clear(); // PR-4
     extensionIdentityResolver.clearCache();
   });
 
@@ -479,6 +558,41 @@ export default function (pi: any) {
           groupName: authResult.groupName,
           broadcastMessageId: broadcast.ok ? (broadcast.messageId ?? null) : null,
         });
+
+        // PR-4：解析 operator + 创建 task_journal buffer
+        const operatorCtx = await extensionIdentityResolver.resolveOperator(params.openId);
+        if (!operatorCtx) {
+          // fail-closed：未在 OPERATOR_REGISTRY，释放槽位并拒绝
+          releaseAuthorizedSlot();
+          chatAuthStates.delete(params.chatId);
+          console.error(`[lark-bot ext] larkbot_authorize_user matched 但 operator 未注册 openId=${params.openId.slice(-12)}`);
+          return {
+            content: [{ type: "text", text: `❌ operator 未在 OPERATOR_REGISTRY 中，拒绝创建任务日志 buffer` }],
+            details: { status: "auth_module_error", reason: "operator_not_in_registry" },
+            isError: true,
+          };
+        }
+        // 双保险：即使 identityResolver 未 fail-closed，这里也再校验一次
+        if (!isOperatorAllowed(operatorCtx.operator)) {
+          releaseAuthorizedSlot();
+          chatAuthStates.delete(params.chatId);
+          return {
+            content: [{ type: "text", text: `❌ operator ${operatorCtx.operator} 未在 OPERATOR_REGISTRY 中` }],
+            details: { status: "auth_module_error", reason: "operator_not_in_registry" },
+            isError: true,
+          };
+        }
+        const taskJournal = createTaskJournal({
+          operator: operatorCtx.operator,
+          operatorName: operatorCtx.name,
+          groupId: authResult.groupId,
+          groupName: authResult.groupName,
+          matchedBroadcastMessageId: broadcast.messageId ?? null,
+          promptId: `auth-${Date.now()}`, // 鉴权时刻 promptId 占位
+        });
+        taskJournals.set(params.chatId, taskJournal);
+        console.error(`[lark-bot ext] PR-4 task_journal buffer created chatId=${params.chatId.slice(-12)} operator=${operatorCtx.operator}`);
+
         return {
           content: [{ type: "text", text: `✅ 鉴权通过：group=${authResult.groupName} (${authResult.groupId})${broadcast.ok && broadcast.messageId ? ` broadcast=${broadcast.messageId.slice(-12)}...` : ""}` }],
           details: {
@@ -567,6 +681,183 @@ export default function (pi: any) {
       return {
         content: [{ type: "text", text: `✅ chatId=${params.chatId.slice(-12)} 已鉴权：${state.groupName}` }],
         details: state,
+      };
+    },
+  });
+
+  // ═══════════════ PR-4：任务日志 registerTool ═══════════════
+
+  // ── 12. larkbot_record_change ──
+  pi.registerTool({
+    name: "larkbot_record_change",
+    label: "记录业务变更",
+    description:
+      "把字段级变更累积到当前 chat 的 task_journal buffer。" +
+      "LLM 在每次业务操作后调用。buffer 会在 larkbot_commit_changes 后清空。" +
+      "（PR-4: registerTool 替代 task-state-machine.ts 手动累积）",
+    parameters: Type.Object({
+      chatId: Type.String({ description: "飞书 chat_id（PR-4 起需传）" }),
+      field: Type.String({ description: "JSONPath-like 字段路径，如 'teams[0].bossHP'" }),
+      from: Type.Optional(Type.Unknown({ description: "操作前值（undefined 表示新增）" })),
+      to: Type.Optional(Type.Unknown({ description: "操作后值（undefined 表示删除）" })),
+    }),
+    execute: async (_toolCallId: string, params: { chatId: string; field: string; from?: unknown; to?: unknown }) => {
+      const journal = taskJournals.get(params.chatId);
+      if (!journal) {
+        return {
+          content: [{ type: "text", text: `❌ chatId=${params.chatId.slice(-12)} 未鉴权或会话不存在` }],
+          details: { ok: false, error: "no_journal" },
+          isError: true,
+        };
+      }
+      journal.changes.push({ field: params.field, from: params.from, to: params.to });
+      return {
+        content: [{ type: "text", text: `✅ 已记录变更：${params.field}（buffer 大小：${journal.changes.length}）` }],
+        details: { ok: true, journalSize: journal.changes.length },
+      };
+    },
+  });
+
+  // ── 13. larkbot_commit_changes ──
+  pi.registerTool({
+    name: "larkbot_commit_changes",
+    label: "提交业务变更（生成 commit message）",
+    description:
+      "把 task_journal buffer 转换为 LogEntry，生成 commit message 返回给 LLM。" +
+      "LLM 拿到 commitMessage 后必须调用 content-pr skill 完成 git 操作。" +
+      "提交成功后 buffer.changes 清空，会话元数据保留（支持多次 PR）。" +
+      "（PR-4: registerTool 替代 task_journal → LogEntry → commit message 手工拼接）",
+    parameters: Type.Object({
+      chatId: Type.String({ description: "飞书 chat_id" }),
+      shortDesc: Type.String({ description: "commit message 第一行简短描述", maxLength: 100 }),
+    }),
+    execute: async (_toolCallId: string, params: { chatId: string; shortDesc: string }) => {
+      const journal = taskJournals.get(params.chatId);
+      if (!journal || journal.changes.length === 0) {
+        return {
+          content: [{ type: "text", text: `❌ buffer 为空或不存在：chatId=${params.chatId.slice(-12)}` }],
+          details: { ok: false, error: "no_changes" },
+          isError: true,
+        };
+      }
+      // 防御性二次校验（避免 buffer 创建后 OPERATOR_REGISTRY 变化）
+      if (!isOperatorAllowed(journal.operator)) {
+        return {
+          content: [{ type: "text", text: `❌ operator ${journal.operator} 未在 OPERATOR_REGISTRY 中` }],
+          details: { ok: false, error: "operator_not_in_registry" },
+          isError: true,
+        };
+      }
+      const logEntry = taskJournalToLogEntry(journal);
+      const commitMessage = formatCommitMessage(params.shortDesc, logEntry as any);
+      const changesCount = journal.changes.length;
+      journal.changes = []; // 清空（保留会话元数据）
+      // 写 audit journal
+      emitTaskJournal({
+        eventTime: new Date().toISOString(),
+        promptId: journal.promptId,
+        operator: journal.operator,
+        operatorName: journal.operatorName,
+        state: "awaiting_review",
+        reason: `shortDesc=${params.shortDesc} changesCount=${changesCount}`,
+      });
+      return {
+        content: [{ type: "text", text: `✅ 已生成 commit message（changes=${changesCount}）。请用 content-pr skill 提交 PR。` }],
+        details: {
+          ok: true,
+          logEntry,
+          commitMessage,
+          journalReset: true,
+        },
+      };
+    },
+  });
+
+  // ── 14. larkbot_close_business_session ──
+  pi.registerTool({
+    name: "larkbot_close_business_session",
+    label: "关闭业务私聊会话",
+    description:
+      "关闭当前业务私聊会话，清理 journal buffer，触发 ended 广播（引用回复 matched 消息）。" +
+      "不提交 PR——如需提交 PR 必须先调 larkbot_commit_changes。" +
+      "不强制 changes 非空（关闭会话与提交 PR 是两个独立事件）。" +
+      "（PR-4: registerTool 替代 cleanupSessionForClose 手工调用 + broadcast ended 联动）",
+    parameters: Type.Object({
+      chatId: Type.String({ description: "飞书 chat_id" }),
+    }),
+    execute: async (_toolCallId: string, params: { chatId: string }) => {
+      const authState = chatAuthStates.get(params.chatId);
+      const journal = taskJournals.get(params.chatId);
+      if (!authState || !authState.authorized) {
+        return {
+          content: [{ type: "text", text: `❌ chatId=${params.chatId.slice(-12)} 未鉴权或会话不存在` }],
+          details: { ok: false, error: "not_authorized" },
+          isError: true,
+        };
+      }
+      // 触发 ended 广播
+      let broadcastMessageId: string | null = null;
+      if (authState.broadcastMessageId) {
+        const broadcast = await extensionBroadcastModule.announce({
+          openId: params.openId ?? "",
+          groupId: authState.groupId,
+          groupName: authState.groupName ?? "",
+          outcome: "ended",
+          replyToMessageId: authState.broadcastMessageId,
+        });
+        if (broadcast.ok && broadcast.messageId) {
+          broadcastMessageId = broadcast.messageId;
+        }
+      }
+      // 释放授权槽位
+      releaseAuthorizedSlot();
+      // 写 audit journal
+      emitTaskJournal({
+        eventTime: new Date().toISOString(),
+        promptId: journal?.promptId ?? "n/a",
+        operator: journal?.operator ?? "unknown",
+        operatorName: journal?.operatorName ?? null,
+        state: "terminated",
+        reason: journal && journal.changes.length > 0 ? "session_closed_with_pending_changes" : "session_closed",
+      });
+      // 清理 buffer 与 state
+      taskJournals.delete(params.chatId);
+      chatAuthStates.delete(params.chatId);
+      return {
+        content: [{ type: "text", text: `✅ 业务私聊会话已关闭${broadcastMessageId ? `（ended 广播已发）` : ""}` }],
+        details: { ok: true, status: "closed", broadcastMessageId },
+      };
+    },
+  });
+
+  // ── 15. larkbot_query_journal（调试用）──
+  pi.registerTool({
+    name: "larkbot_query_journal",
+    label: "查询当前 task_journal",
+    description:
+      "查询指定 chatId 的 task_journal buffer 状态。调试用，不参与业务流程。" +
+      "（PR-4: registerTool 替代 task_journal buffer 手动查询）",
+    parameters: Type.Object({
+      chatId: Type.String({ description: "飞书 chat_id" }),
+    }),
+    execute: async (_toolCallId: string, params: { chatId: string }) => {
+      const journal = taskJournals.get(params.chatId);
+      if (!journal) {
+        return {
+          content: [{ type: "text", text: `⚠️ chatId=${params.chatId.slice(-12)} 无 task_journal buffer` }],
+          details: { empty: true },
+        };
+      }
+      return {
+        content: [{ type: "text", text: `✅ task_journal: operator=${journal.operator} changes=${journal.changes.length}` }],
+        details: {
+          operator: journal.operator,
+          operatorName: journal.operatorName,
+          sessionStartedAt: journal.sessionStartedAt,
+          groupId: journal.groupId,
+          changesCount: journal.changes.length,
+          changes: journal.changes,
+        },
       };
     },
   });
