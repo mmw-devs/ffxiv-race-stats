@@ -367,6 +367,30 @@ PR-1 (extension 化)
 - 250 测试全过（16 文件：235 + 15 新增）
 - typecheck / build / lint 干净
 
+### 3.1.8 content-pr skill 同步修订（PR-4 集成）
+
+> 本节为 content-pr skill 同步修订，与 PR-4 registerTool `larkbot_commit_changes` 集成。
+
+**修订点**：
+
+| 文件 | 改动 |
+|------|------|
+| `agent-src/.pi/skills/content-pr/SKILL.md` | description + §1 步骤 2 增加 PR-4 commitMessage 来源说明 + 关键约束 |
+| `agent-src/.pi/skills/lark-bot-protocol/SKILL.md` | §6.3 场景 A 步骤 3 增加 "原样使用" 约束 |
+| `agent-src/.pi/extensions/lark-bot/index.ts` | `larkbot_commit_changes` description 增加 "100% 原样使用" 约束 |
+
+**核心约束**：
+
+- commit message **必须 100% 来自 `larkbot_commit_changes` 返回值**
+- 不得调整 shortDesc / 字段顺序 / JSON 缩进 / 反引号数量
+- LLM 不负责构造或修改 commit message（content-pr skill 负责 git 操作）
+- 如需修改 → 重新调 `larkbot_commit_changes`（不修改返回结果）
+
+**验证**：
+
+- 无新增/修改测试（content-pr skill 是 markdown 文档）
+- typecheck / build / lint 干净
+
 ### 3.1.9 第三阶段：边界测试覆盖（issue#168 验收要求）
 
 > 本节为 issue#168 第三阶段：PR#163 中发现的 3 类 bug 针对性回归测试。
