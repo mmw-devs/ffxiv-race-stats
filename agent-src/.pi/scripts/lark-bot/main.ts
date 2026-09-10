@@ -27,7 +27,6 @@ import {
   getAllSessions,
   setCloseBroadcastHandler,
   startAllPi,
-  killAllSessions,
 } from "./interactive/session-manager.js";
 import { authModule, broadcastModule, handleLarkEvent } from "./ingress.js";
 import { startLarkEvents } from "./protocol/feishu.js";
@@ -140,12 +139,7 @@ export async function main(): Promise<void> {
 }
 
 // ═══════════════ 生命周期（PR-1-cleanup 已全部移交 systemd） ═══════════════
-
-function cleanup(): void {
-  killAllSessions();
-  log("[main] 清理完毕，退出");
-  process.exit(0);
-}
+// PR-2：旧 cleanup() 函数已删除（未被调用）。session 清理在 idle 周期器中走 killAllSessions。
 
 // ═══════════════ CLI 入口守卫：仅在直接调用本脚本时执行 main()
 // vitest 等工具 import 本模块不会触发 main()（避免写 PID / 启动 session / 装 crash handler 等副作用）
