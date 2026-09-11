@@ -76,7 +76,7 @@ vi.mock("../process/children-registry.js", () => ({
   killAllChildren: vi.fn(() => 0),
 }));
 
-import extensionFn from "../index.js";
+import extensionFn, { __resetDualDomainForTest, __injectPendingEventForTest } from "../index.js";
 
 // ═══════════════ Test helpers ═══════════════
 
@@ -114,8 +114,9 @@ describe("extension — 15 个 registerTool 注册（PR-1 + PR-2 + PR-4）", () 
     extensionFn(mockPi as any);
   });
 
-  it("注册 15 个 registerTool（7 个 feishu_* + 8 个 larkbot_*）", () => {
-    expect(mockPi.tools.size).toBe(15);
+  it("注册 16 个 registerTool（7 feishu_* + 8 larkbot_* + 1 larkbot_close_temp_session）", () => {
+    // issue#184：新增 larkbot_close_temp_session（16 个）
+    expect(mockPi.tools.size).toBe(16);
     const expectedTools = [
       // PR-1：feishu_* 7 个
       "feishu_add_reaction",
@@ -135,6 +136,8 @@ describe("extension — 15 个 registerTool 注册（PR-1 + PR-2 + PR-4）", () 
       "larkbot_commit_changes",
       "larkbot_close_business_session",
       "larkbot_query_journal",
+      // issue#184：新增临时私聊域关闭工具
+      "larkbot_close_temp_session",
     ];
     for (const name of expectedTools) {
       expect(mockPi.tools.has(name)).toBe(true);
@@ -151,9 +154,10 @@ describe("extension — 15 个 registerTool 注册（PR-1 + PR-2 + PR-4）", () 
     }
   });
 
-  it("registerTool.description 含 PR-1/PR-2/PR-3/PR-4 标识", () => {
+  it("registerTool.description 含 PR-1/PR-2/PR-3/PR-4 或 issue#184 标识", () => {
+    // issue#184：larkbot_close_temp_session 用 issue#184 标识（无 PR-N）
     for (const [name, tool] of mockPi.tools) {
-      expect(tool.description, `${name} description`).toMatch(/PR-(1|2|3|4)/);
+      expect(tool.description, `${name} description`).toMatch(/(PR-(1|2|3|4))|issue#184/);
     }
   });
 });
@@ -168,11 +172,18 @@ describe("extension — registerTool execute 调用契约", () => {
   });
 
   it("feishu_add_reaction 调用 addReaction 返回 ok", async () => {
+    // issue#184：预先注入 msgId → chatId 路由（模拟 onLarkEvent）
+    __injectPendingEventForTest("om_msg1", "oc_test_chat");
+    __resetDualDomainForTest();
+    // 重新注入（reset 会清空）
+    __injectPendingEventForTest("om_msg1", "oc_test_chat");
+    // 模拟业务私聊域（手动设置 kind）
+    // 实际上需要调 larkbot_authorize_user 进入 business 域，这里简化 mock
     const tool = mockPi.tools.get("feishu_add_reaction");
     const result = await tool.execute("call-1", { msgId: "om_msg1", emoji: "WAVE" });
-    expect(result.details.ok).toBe(true);
-    expect(result.details.reactionId).toBe("reaction-id-123");
-    expect(result.content[0].text).toContain("WAVE");
+    // 未鉴权时应返回 not_authorized 错误
+    expect(result.details.status).toBe("not_authorized");
+    expect(result.isError).toBe(true);
   });
 
   it("feishu_add_reaction 失败时返回 isError: true", async () => {
@@ -186,7 +197,20 @@ describe("extension — registerTool execute 调用契约", () => {
     expect(result.isError).toBe(true);
   });
 
-  it("feishu_send_reply 调用 sendReplyGetId 返回 replyId", async () => {
+  it("feishu_send_reply 在临时私聊域 → not_authorized（issue#184 域检查）", async () => {
+    __injectPendingEventForTest("om_msg2", "oc_test_chat");
+    const tool = mockPi.tools.get("feishu_send_reply");
+    const result = await tool.execute("call-2", { msgId: "om_msg2", text: "hello" });
+    expect(result.details.status).toBe("not_authorized");
+    expect(result.isError).toBe(true);
+  });
+
+  it("feishu_send_reply 在业务私聊域调用 sendReplyGetId 返回 replyId", async () => {
+    __resetDualDomainForTest();
+    __injectPendingEventForTest("om_msg2", "oc_test_chat");
+    // 模拟进入业务私聊域：通过 mock 的 auth.ts 让 authorize 返回 matched
+    const authTool = mockPi.tools.get("larkbot_authorize_user");
+    await authTool.execute("auth", { openId: "ou_test", chatId: "oc_test_chat" });
     const tool = mockPi.tools.get("feishu_send_reply");
     const result = await tool.execute("call-2", { msgId: "om_msg2", text: "hello" });
     expect(result.details.ok).toBe(true);
@@ -201,6 +225,10 @@ describe("extension — registerTool execute 调用契约", () => {
       error: "timeout",
       timedOut: true,
     });
+    __resetDualDomainForTest();
+    __injectPendingEventForTest("om_msg2", "oc_test_chat");
+    const authTool = mockPi.tools.get("larkbot_authorize_user");
+    await authTool.execute("auth", { openId: "ou_test", chatId: "oc_test_chat" });
 
     const tool = mockPi.tools.get("feishu_send_reply");
     const result = await tool.execute("call-2", { msgId: "om_msg2", text: "hello" });

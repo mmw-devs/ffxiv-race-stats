@@ -17,8 +17,10 @@
  *   2. 保留「spawn per-chat PI Agent 子进程」（方案 G）
  *   3. PR-1 新增 7 个 registerTool（feishu_*）
  *   4. PR-2 新增 4 个 registerTool（larkbot_* 鉴权 + identity）
- *   5. children-registry.ts 跟踪所有子进程（实测 6-3）
- *   6. session_shutdown 手动 kill（实测 6-3）
+ *   5. PR-4 新增 4 个 registerTool（larkbot_* 任务日志）
+ *   6. children-registry.ts 跟踪所有子进程（实测 6-3）
+ *   7. session_shutdown 手动 kill（实测 6-3）
+ *   8. issue#184 恢复双域会话机制：sessionKinds（p2p-temp / p2p-business）+ slot swap + 鉴权窗口 + 60s 周期清理器
  *
  * Feature flag（settings.json larkBot.*）：
  *   - autoStart：主开关，默认 false。false → 本 extension 不启动任何 lark-bot 逻辑。
@@ -36,6 +38,10 @@
  *
  * 推荐配置：autoStart=true + useExtensionMode=true （PR-1 新路径）。
  * 回滚：autoStart=true + useExtensionMode=false （< 5 分钟切换）。
+ *
+ * 环境变量 Feature flag：
+ *   - LARK_BOT_USE_DUAL_DOMAIN=false：临时关闭域检查（issue#184 引入，回滚诊断用）。
+ *     默认 true——所有 feishu_* / larkbot_* 业务工具在临时私聊域调用返回"未鉴权"错误。
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -74,7 +80,20 @@ import {
   createIdentityResolver,
 } from "../../scripts/lark-bot/identity-resolver.js";
 import type { IdentityResolver } from "../../scripts/lark-bot/identity-resolver.js";
-import { PROJECT_DIR } from "../../scripts/lark-bot/config.js";
+import {
+  PROJECT_DIR,
+  P2P_AUTH_TIMEOUT_MS,
+  P2P_AUTH_MAX_ROUNDS,
+  PENDING_EVENTS_MAX_SIZE,
+} from "../../scripts/lark-bot/config.js";
+// issue#184：双域 slot 管理（独立模块供测试 mock）
+import {
+  tryReserveTempSlot,
+  releaseTempSlot,
+  tryReserveBusinessSlot,
+  releaseBusinessSlot,
+  resetSlots,
+} from "../../scripts/lark-bot/business/slots.js";
 import { log as sharedLog } from "../../scripts/lark-bot/shared/logger.js";
 import { tryReserveAuthorizedSlot, releaseAuthorizedSlot } from "../../scripts/lark-bot/interactive/session-manager.js";
 // PR-4：OPERATOR_LOG 模块（任务日志生成 + 校验 + 注册表）
@@ -152,15 +171,162 @@ const extensionIdentityResolver: IdentityResolver = createIdentityResolver({
  * PR-2：per-chatId 授权状态缓存。
  *
  * registerTool larkbot_authorize_user 内部修改本 Map，PI Agent LLM 通过 registerTool
- * 返回值间接感知鉴权结果。chatId 为 key，值为 {authorized, groupId, groupName, broadcastMessageId}。
+ * 返回值间接感知鉴权结果。chatId 为 key，值为 {kind, authorized, groupId, groupName, broadcastMessageId}。
+ *
+ * issue#184：增加 kind 字段标识双域会话分类。
+ *   - kind="p2p-temp"：临时私聊域（未鉴权），authorized=false。
+ *   - kind="p2p-business"：业务私聊域（已鉴权），authorized=true。
+ *   - authorized = (kind === "p2p-business")，保留为冗余字段便于快速判断。
  */
 interface ChatAuthState {
+  kind: "p2p-temp" | "p2p-business";
   authorized: boolean;
   groupId: string | null;
   groupName: string | null;
   broadcastMessageId: string | null;
 }
 const chatAuthStates = new Map<string, ChatAuthState>();
+
+// ═══════════════ issue#184：双域会话机制 Module-level 状态 ═══════════════
+
+/**
+ * 双域 slot 计数器（tempSlots / businessSlots）已迁至独立模块 business/slots.ts，
+ * 便于测试 mock 与未来 main.ts 复用。本文件仅 import 使用，不重新定义。
+ */
+
+/** chatId → 域分类（双域会话机制真源）。与 chatAuthStates[chatId].kind 保持同步。 */
+const sessionKinds = new Map<string, "p2p-temp" | "p2p-business">();
+
+/** chatId → 鉴权窗口截止时间戳（ms）。进入 temp 域时设置 now + P2P_AUTH_TIMEOUT_MS。 */
+const authDeadlines = new Map<string, number>();
+
+/** chatId → larkbot_authorize_user 失败累计次数（no_match / auth_module_error）。超 P2P_AUTH_MAX_ROUNDS → fail-closed。 */
+const authRoundsUsed = new Map<string, number>();
+
+/** chatId → 业务私聊域最后活跃时间戳（ms）。用于 P2P_IDLE_TIMEOUT_MS 3 天空闲检测。 */
+const businessLastActivityAt = new Map<string, number>();
+
+/**
+ * msgId → chatId 反向索引。
+ *
+ * 用于 registerTool execute 入口从 msgId 反查 chatId 做域检查（决策 2b）。
+ * 飞书事件进入 onLarkEvent 时同时写入 pendingEvents 和本 Map。
+ */
+const pendingEventsByMsgId = new Map<string, string>();
+
+/** 飞书 p2p 事件结构（与 scripts/lark-bot/shared/types.ts LarkEvent 等价，但避免跨模块导入） */
+interface ExtLarkEvent {
+  type: string;
+  chat_id: string;
+  chat_type: "p2p";
+  sender_id: string;
+  message_id: string;
+  message_type: string;
+  content: string;
+  create_time: string;
+}
+
+// ═══════════════ Slot 管理 API（issue#184 双域会话机制） ═══════════════
+
+/** 业务私聊域活跃时调用（larkbot_authorize_user matched / 业务消息处理）。防空闲超时。 */
+function markBusinessActive(chatId: string): void {
+  businessLastActivityAt.set(chatId, Date.now());
+}
+
+// ═══════════════ 域检查工具函数（issue#184 双域会话机制） ═══════════════
+
+/**
+ * 域检查：仅业务私聊域放行，临时私聊域拒绝。
+ *
+ * registerTool execute 入口调用——未鉴权时返回"未鉴权"错误，isError: true。
+ * PI Agent LLM 看到 isError 后必须先调 larkbot_authorize_user。
+ *
+ * Feature flag：LARK_BOT_USE_DUAL_DOMAIN=false 时跳过检查（仅供 issue#184 回滚诊断）。
+ *
+ * @returns null = 放行；error 对象 = 拒绝
+ */
+function assertBusinessDomain(chatId: string): null | { error: string; status: string } {
+  if (process.env.LARK_BOT_USE_DUAL_DOMAIN === "false") return null;
+  const kind = sessionKinds.get(chatId);
+  if (kind !== "p2p-business") {
+    return {
+      error: `chatId=${chatId.slice(-12)} 未鉴权（kind=${kind ?? "none"}），请先调 larkbot_authorize_user`,
+      status: "not_authorized",
+    };
+  }
+  return null;
+}
+
+/** msgId → chatId 反查（用于 feishu_add_reaction / feishu_remove_reaction / feishu_send_reply）。 */
+function resolveChatIdByMsgId(msgId: string): string | null {
+  return pendingEventsByMsgId.get(msgId) ?? null;
+}
+
+// ═══════════════ Session 生命周期辅助函数（issue#184 双域会话机制） ═══════════════
+
+/**
+ * 确保临时私聊域 session 存在。
+ *
+ * 飞书事件进入 onLarkEvent 时调用——新 chatId 占 temp slot + 设置鉴权窗口。
+ * 已有 session 仅增加 authRoundsUsed（每条消息触发 larkbot_authorize_user 算一轮）。
+ *
+ * @returns {ok: true} = 允许进入鉴权；{ok: false, error} = 配额已满需拒绝
+ */
+function ensureTempSession(chatId: string, msgId: string): { ok: true } | { ok: false; error: string } {
+  if (sessionKinds.has(chatId)) {
+    // 已有 session：no-op（rounds 由 larkbot_authorize_user 失败路径自行管理）
+    return { ok: true };
+  }
+  // 新 session：检查 temp slot 配额
+  if (!tryReserveTempSlot()) {
+    return { ok: false, error: "temp slot 配额已满，请稍后再试" };
+  }
+  sessionKinds.set(chatId, "p2p-temp");
+  authDeadlines.set(chatId, Date.now() + P2P_AUTH_TIMEOUT_MS);
+  // 初始化 rounds=0（不增加计数）；larkbot_authorize_user 失败路径自行 +1
+  authRoundsUsed.set(chatId, 0);
+  chatAuthStates.set(chatId, {
+    kind: "p2p-temp",
+    authorized: false,
+    groupId: null,
+    groupName: null,
+    broadcastMessageId: null,
+  });
+  return { ok: true };
+}
+
+/**
+ * 关闭临时私聊域会话（fail-closed 统一入口）。
+ *
+ * 释放 temp slot + 清理 sessionKinds / authDeadlines / authRoundsUsed / chatAuthStates / taskJournals。
+ * 调用场景：
+ *   - larkbot_authorize_user matched 时（升级到 business 域后释放 temp slot）
+ *   - larkbot_authorize_user not_member 时（fail-closed）
+ *   - larkbot_close_temp_session registerTool 调用时
+ *   - 60s 周期清理器检测鉴权超时/超轮时
+ */
+function closeTempSession(chatId: string, reason: string): void {
+  releaseTempSlot();
+  sessionKinds.delete(chatId);
+  authDeadlines.delete(chatId);
+  authRoundsUsed.delete(chatId);
+  chatAuthStates.delete(chatId);
+  taskJournals.delete(chatId); // PR-4 buffer 同步清理
+  console.error(`[lark-bot ext] temp session closed: chatId=${chatId.slice(-12)} reason=${reason}`);
+}
+
+/**
+ * 关闭业务私聊域会话（fail-closed 统一入口）。
+ *
+ * 释放 business slot + 清理 sessionKinds / businessLastActivityAt。
+ * chatAuthStates / taskJournals 由调用方决定是否清理（通常是 larkbot_close_business_session）。
+ */
+function closeBusinessSession(chatId: string, reason: string): void {
+  releaseBusinessSlot();
+  sessionKinds.delete(chatId);
+  businessLastActivityAt.delete(chatId);
+  console.error(`[lark-bot ext] business session closed: chatId=${chatId.slice(-12)} reason=${reason}`);
+}
 
 /**
  * PR-4：业务变更累积 buffer。
@@ -291,6 +457,14 @@ export default function (pi: any) {
     chatAuthStates.clear();
     taskJournals.clear(); // PR-4
     extensionIdentityResolver.clearCache();
+    // issue#184：清空双域会话机制状态
+    sessionKinds.clear();
+    authDeadlines.clear();
+    authRoundsUsed.clear();
+    businessLastActivityAt.clear();
+    pendingEventsByMsgId.clear();
+    resetSlots(); // issue#184：重置 slots 模块计数器
+    console.error(`[lark-bot ext] issue#184 双域状态已清空`);
   });
 
   // ═══════════════ registerTool 注册（PR-1: 8 个） ═══════════════
@@ -302,12 +476,30 @@ export default function (pi: any) {
     description:
       "为指定飞书消息添加 emoji 表情反应。返回 reaction_id 用于后续切换或删除。" +
       "常用 emoji: WAVE / THINKING / DONE / ERROR。" +
+      "**issue#184 双域会话机制**：临时私聊域调用返回“未鉴权”错误。须先调 larkbot_authorize_user。" +
       "（PR-1: registerTool 替代 protocol/feishu.ts addReaction）",
     parameters: Type.Object({
       msgId: Type.String({ description: "飞书消息 ID" }),
       emoji: Type.String({ description: "emoji 类型，如 'WAVE'" }),
     }),
     execute: async (_toolCallId: string, params: { msgId: string; emoji: string }) => {
+      // issue#184：域检查（msgId → chatId → 业务私聊域）
+      const chatId = resolveChatIdByMsgId(params.msgId);
+      if (!chatId) {
+        return {
+          content: [{ type: "text", text: `❌ msgId 不在待处理队列（可能已被清理）` }],
+          details: { ok: false, error: "msgId not found" },
+          isError: true,
+        };
+      }
+      const deny = assertBusinessDomain(chatId);
+      if (deny) {
+        return {
+          content: [{ type: "text", text: `❌ ${deny.error}` }],
+          details: { ok: false, status: deny.status },
+          isError: true,
+        };
+      }
       const reactionId = addReaction(params.msgId, params.emoji);
       if (reactionId === null) {
         return {
@@ -329,12 +521,29 @@ export default function (pi: any) {
     label: "删除飞书消息表情",
     description:
       "通过 reaction_id 删除已添加的飞书消息表情。" +
+      "**issue#184 双域会话机制**：临时私聊域调用返回“未鉴权”错误。" +
       "（PR-1: registerTool 替代 protocol/feishu.ts delReaction）",
     parameters: Type.Object({
       msgId: Type.String({ description: "飞书消息 ID" }),
       reactionId: Type.String({ description: "reaction_id（feishu_add_reaction 返回）" }),
     }),
     execute: async (_toolCallId: string, params: { msgId: string; reactionId: string }) => {
+      const chatId = resolveChatIdByMsgId(params.msgId);
+      if (!chatId) {
+        return {
+          content: [{ type: "text", text: `❌ msgId 不在待处理队列` }],
+          details: { ok: false, error: "msgId not found" },
+          isError: true,
+        };
+      }
+      const deny = assertBusinessDomain(chatId);
+      if (deny) {
+        return {
+          content: [{ type: "text", text: `❌ ${deny.error}` }],
+          details: { ok: false, status: deny.status },
+          isError: true,
+        };
+      }
       // delReaction 是 best-effort，不抛错
       delReaction(params.msgId, params.reactionId);
       return {
@@ -351,12 +560,29 @@ export default function (pi: any) {
     description:
       "回复飞书私聊消息。返回新消息 message_id。" +
       "超时 18s（超时返回 timedOut: true）。" +
+      "**issue#184 双域会话机制**：临时私聊域调用返回“未鉴权”错误。须先调 larkbot_authorize_user。" +
       "（PR-1: registerTool 替代 protocol/feishu.ts sendReplyGetId）",
     parameters: Type.Object({
       msgId: Type.String({ description: "飞书消息 ID" }),
       text: Type.String({ description: "回复内容", maxLength: 4000 }),
     }),
     execute: async (_toolCallId: string, params: { msgId: string; text: string }) => {
+      const chatId = resolveChatIdByMsgId(params.msgId);
+      if (!chatId) {
+        return {
+          content: [{ type: "text", text: `❌ msgId 不在待处理队列` }],
+          details: { ok: false, error: "msgId not found" },
+          isError: true,
+        };
+      }
+      const deny = assertBusinessDomain(chatId);
+      if (deny) {
+        return {
+          content: [{ type: "text", text: `❌ ${deny.error}` }],
+          details: { ok: false, status: deny.status },
+          isError: true,
+        };
+      }
       const result = await sendReplyGetId(params.msgId, params.text);
       if (result.ok && result.replyId) {
         return {
@@ -378,11 +604,20 @@ export default function (pi: any) {
     label: "获取飞书群组信息",
     description:
       "获取指定 chatId 的飞书群组信息（名称、描述、成员数等）。失败返回 null。" +
+      "**issue#184 双域会话机制**：临时私聊域调用返回“未鉴权”错误。" +
       "（PR-1: registerTool 替代 broadcast/group-tool.ts getGroupInfo）",
     parameters: Type.Object({
       chatId: Type.String({ description: "飞书群组 chat_id" }),
     }),
     execute: async (_toolCallId: string, params: { chatId: string }) => {
+      const deny = assertBusinessDomain(params.chatId);
+      if (deny) {
+        return {
+          content: [{ type: "text", text: `❌ ${deny.error}` }],
+          details: { ok: false, status: deny.status },
+          isError: true,
+        };
+      }
       const info = await groupTool.getGroupInfo(params.chatId);
       if (info === null) {
         return {
@@ -404,11 +639,20 @@ export default function (pi: any) {
     label: "列出飞书群组成员",
     description:
       "返回指定 chatId 的群组成员 open_id 列表。失败返回 null。" +
+      "**issue#184 双域会话机制**：临时私聊域调用返回“未鉴权”错误。" +
       "（PR-1: registerTool 替代 broadcast/group-tool.ts listGroupMembers）",
     parameters: Type.Object({
       chatId: Type.String({ description: "飞书群组 chat_id" }),
     }),
     execute: async (_toolCallId: string, params: { chatId: string }) => {
+      const deny = assertBusinessDomain(params.chatId);
+      if (deny) {
+        return {
+          content: [{ type: "text", text: `❌ ${deny.error}` }],
+          details: { ok: false, status: deny.status },
+          isError: true,
+        };
+      }
       const members = await groupTool.listGroupMembers(params.chatId);
       if (members === null) {
         return {
@@ -430,6 +674,7 @@ export default function (pi: any) {
     label: "发送飞书群组消息",
     description:
       "向指定 chatId 群组发送消息（可选 @用户 / 回复原消息）。" +
+      "**issue#184 双域会话机制**：临时私聊域调用返回“未鉴权”错误。" +
       "（PR-1: registerTool 替代 broadcast/group-tool.ts sendGroupMessage）",
     parameters: Type.Object({
       chatId: Type.String({ description: "飞书群组 chat_id" }),
@@ -438,6 +683,14 @@ export default function (pi: any) {
       replyTo: Type.Optional(Type.String({ description: "回复消息 message_id（可选）" })),
     }),
     execute: async (_toolCallId: string, params: { chatId: string; text: string; mention?: string; replyTo?: string }) => {
+      const deny = assertBusinessDomain(params.chatId);
+      if (deny) {
+        return {
+          content: [{ type: "text", text: `❌ ${deny.error}` }],
+          details: { ok: false, status: deny.status },
+          isError: true,
+        };
+      }
       const result = await groupTool.sendGroupMessage(params.chatId, {
         text: params.text,
         mentionOpenId: params.mention,
@@ -463,7 +716,7 @@ export default function (pi: any) {
     label: "列出 Bot 所在的所有群组",
     description:
       "返回 Bot 所在的所有飞书群组列表（含 chatId / name / description）。" +
-      "鉴权判定（PR-2）的候选群组数据源。失败返回 null。" +
+      "鉴权判定（PR-2）的候选群组数据源。**issue#184 双域会话机制**：不限域（鉴权辅助工具）。" +
       "（PR-1: registerTool 替代 broadcast/group-tool.ts listAllBotGroups）",
     parameters: Type.Object({}),
     execute: async (_toolCallId: string, _params: {}) => {
@@ -524,35 +777,97 @@ export default function (pi: any) {
     label: "授权用户业务私聊",
     description:
       "校验用户是否在指定群组成员列表中。LLM 决策 chatId 后调用。返回 matched / not_member / no_match / auth_module_error。" +
-      "matched 时自动占用授权槽位 + 广播到群组 + 缓存 chatAuthStates。" +
+      "matched 时自动 slot swap（释放 temp slot → 占用 business slot）+ 广播到群组 + 缓存 chatAuthStates + 升级 kind=p2p-business。" +
+      "not_member 时 fail-closed（closeTempSession）。" +
+      "**issue#184 双域会话机制**：不限域（鉴权工具本身必须可在临时私聊域调用）。" +
+      "**新增参数 msgId**：用于反查 chatId 一致性校验（防 LLM 错传）。" +
       "（PR-2: registerTool 替代 business/auth.ts authorize / substringMatch）",
     parameters: Type.Object({
       openId: Type.String({ description: "飞书用户 open_id" }),
       chatId: Type.String({ description: "LLM 决策的群组 chat_id" }),
+      msgId: Type.Optional(Type.String({ description: "当前处理的飞书消息 msgId（issue#184 新增；用于反查 chatId 一致性）" })),
     }),
-    execute: async (_toolCallId: string, params: { openId: string; chatId: string }) => {
+    execute: async (_toolCallId: string, params: { openId: string; chatId: string; msgId?: string }) => {
+      // issue#184：msgId → chatId 一致性校验（防御 LLM 错传）
+      if (params.msgId) {
+        const expectedChatId = resolveChatIdByMsgId(params.msgId);
+        if (expectedChatId && expectedChatId !== params.chatId) {
+          return {
+            content: [{ type: "text", text: `❌ msgId 反查 chatId=${expectedChatId.slice(-12)} 与传入 chatId=${params.chatId.slice(-12)} 不一致` }],
+            details: { status: "auth_module_error", reason: "msgId_chatId_mismatch" },
+            isError: true,
+          };
+        }
+      }
+
+      // issue#184：防御性 ensureTempSession（允许 LLM 在 onLarkEvent 之前调用 authorize_user）
+      // 生产路径：onLarkEvent 优先调 ensureTempSession → 这里 no-op。
+      // 测试路径：直接调 authorize_user 时这里占 temp slot。
+      if (!sessionKinds.has(params.chatId)) {
+        const ensure = ensureTempSession(params.chatId, params.msgId ?? "");
+        if (!ensure.ok) {
+          return {
+            content: [{ type: "text", text: `❌ ${ensure.error}` }],
+            details: { status: "auth_module_error", reason: "temp_quota_full" },
+            isError: true,
+          };
+        }
+      }
+
+      // issue#184：鉴权窗口/轮次预检查（fail-fast）
+      // 注意：rounds 在 ensureTempSession 后取值。预检查采用 >= 边界：
+      //   rounds = P2P_AUTH_MAX_ROUNDS 表示已失败 MAX 次，下次调用必须 fail-closed
+      const rounds = authRoundsUsed.get(params.chatId) ?? 0;
+      if (rounds >= P2P_AUTH_MAX_ROUNDS) {
+        closeTempSession(params.chatId, "auth_rounds_exceeded");
+        return {
+          content: [{ type: "text", text: `❌ 鉴权轮次超限（${rounds} >= ${P2P_AUTH_MAX_ROUNDS}），session 已关闭` }],
+          details: { status: "auth_module_error", reason: "auth_rounds_exceeded", closed: true },
+          isError: true,
+        };
+      }
+      const deadline = authDeadlines.get(params.chatId);
+      if (deadline && Date.now() > deadline) {
+        closeTempSession(params.chatId, "auth_timeout");
+        return {
+          content: [{ type: "text", text: `❌ 鉴权窗口超时（>${P2P_AUTH_TIMEOUT_MS}ms），session 已关闭` }],
+          details: { status: "auth_module_error", reason: "auth_timeout", closed: true },
+          isError: true,
+        };
+      }
+
       const authResult = await extensionAuthModule.authorize({
         openId: params.openId,
         chatId: params.chatId,
       });
 
-      // matched 时占用授权槽位 + 广播到群组 + 缓存 chatAuthStates
+      // matched 时执行 slot swap（issue#184 核心机制）
       if (authResult.status === "matched") {
-        if (!tryReserveAuthorizedSlot()) {
-          console.error(`[lark-bot ext] larkbot_authorize_user: 已鉴权会话配额已满 chatId=${params.chatId.slice(-12)}`);
+        // ★ Slot swap：释放 temp slot → 占用 business slot
+        releaseTempSlot();
+        if (!tryReserveBusinessSlot()) {
+          // 业务配额满 → 失败回滚（重新占 temp slot 保持状态）
+          tryReserveTempSlot();
+          console.error(`[lark-bot ext] larkbot_authorize_user: 业务私聊配额已满 chatId=${params.chatId.slice(-12)}`);
           return {
-            content: [{ type: "text", text: `❌ 鉴权通过但已鉴权会话配额已满` }],
-            details: { status: "auth_module_error", reason: "authorized quota full" },
+            content: [{ type: "text", text: `❌ 鉴权通过但业务私聊配额已满` }],
+            details: { status: "auth_module_error", reason: "business_quota_full" },
             isError: true,
           };
         }
+        markBusinessActive(params.chatId);
+
         const broadcast = await extensionBroadcastModule.announce({
           openId: params.openId,
           groupId: authResult.groupId,
           groupName: authResult.groupName,
           outcome: "matched",
         });
+
+        // ★ 同步更新两个状态真源
+        sessionKinds.set(params.chatId, "p2p-business");
         chatAuthStates.set(params.chatId, {
+          kind: "p2p-business",
           authorized: true,
           groupId: authResult.groupId,
           groupName: authResult.groupName,
@@ -562,20 +877,28 @@ export default function (pi: any) {
         // PR-4：解析 operator + 创建 task_journal buffer
         const operatorCtx = await extensionIdentityResolver.resolveOperator(params.openId);
         if (!operatorCtx) {
-          // fail-closed：未在 OPERATOR_REGISTRY，释放槽位并拒绝
-          releaseAuthorizedSlot();
+          // fail-closed：未在 OPERATOR_REGISTRY，回滚所有状态
+          releaseBusinessSlot();
+          sessionKinds.delete(params.chatId);
           chatAuthStates.delete(params.chatId);
+          businessLastActivityAt.delete(params.chatId);
+          tryReserveTempSlot(); // 回到 temp 域
+          sessionKinds.set(params.chatId, "p2p-temp");
           console.error(`[lark-bot ext] larkbot_authorize_user matched 但 operator 未注册 openId=${params.openId.slice(-12)}`);
           return {
-            content: [{ type: "text", text: `❌ operator 未在 OPERATOR_REGISTRY 中，拒绝创建任务日志 buffer` }],
+            content: [{ type: "text", text: `❌ operator 未在 OPERATOR_REGISTRY 中` }],
             details: { status: "auth_module_error", reason: "operator_not_in_registry" },
             isError: true,
           };
         }
-        // 双保险：即使 identityResolver 未 fail-closed，这里也再校验一次
+        // 双保险
         if (!isOperatorAllowed(operatorCtx.operator)) {
-          releaseAuthorizedSlot();
+          releaseBusinessSlot();
+          sessionKinds.delete(params.chatId);
           chatAuthStates.delete(params.chatId);
+          businessLastActivityAt.delete(params.chatId);
+          tryReserveTempSlot();
+          sessionKinds.set(params.chatId, "p2p-temp");
           return {
             content: [{ type: "text", text: `❌ operator ${operatorCtx.operator} 未在 OPERATOR_REGISTRY 中` }],
             details: { status: "auth_module_error", reason: "operator_not_in_registry" },
@@ -588,15 +911,23 @@ export default function (pi: any) {
           groupId: authResult.groupId,
           groupName: authResult.groupName,
           matchedBroadcastMessageId: broadcast.messageId ?? null,
-          promptId: `auth-${Date.now()}`, // 鉴权时刻 promptId 占位
+          promptId: `auth-${Date.now()}`,
         });
         taskJournals.set(params.chatId, taskJournal);
-        console.error(`[lark-bot ext] PR-4 task_journal buffer created chatId=${params.chatId.slice(-12)} operator=${operatorCtx.operator}`);
+        console.error(`[lark-bot ext] issue#184 slot swap: chatId=${params.chatId.slice(-12)} temp→business, operator=${operatorCtx.operator}`);
+
+        // ★ 清理鉴权窗口状态（已升级到 business 域，不再需要）
+        authDeadlines.delete(params.chatId);
+        authRoundsUsed.delete(params.chatId);
+
+        // 释放旧路径的 tryReserveAuthorizedSlot（与新 slot swap 二选一）
+        tryReserveAuthorizedSlot(); // 兼容旧 PiSession.authorized 计数
 
         return {
           content: [{ type: "text", text: `✅ 鉴权通过：group=${authResult.groupName} (${authResult.groupId})${broadcast.ok && broadcast.messageId ? ` broadcast=${broadcast.messageId.slice(-12)}...` : ""}` }],
           details: {
             status: "matched",
+            kind: "p2p-business",
             groupId: authResult.groupId,
             groupName: authResult.groupName,
             broadcastMessageId: broadcast.messageId ?? null,
@@ -604,7 +935,7 @@ export default function (pi: any) {
         };
       }
 
-      // not_member 时广播到群组
+      // not_member 时广播到群组 + fail-closed（issue#184 修复：原实现仅广播不关闭）
       if (authResult.status === "not_member") {
         await extensionBroadcastModule.announce({
           openId: params.openId,
@@ -612,21 +943,23 @@ export default function (pi: any) {
           groupName: authResult.groupName,
           outcome: "not_member",
         });
+        closeTempSession(params.chatId, "not_member");
         return {
-          content: [{ type: "text", text: `❌ 你不在授权群组 "${authResult.groupName}" 中` }],
-          details: { status: "not_member", groupId: authResult.groupId, groupName: authResult.groupName },
+          content: [{ type: "text", text: `❌ 你不在授权群组 "${authResult.groupName}" 中，session 已关闭` }],
+          details: { status: "not_member", groupId: authResult.groupId, groupName: authResult.groupName, closed: true },
           isError: true,
         };
       }
 
-      // no_match / auth_module_error 直接返回
+      // no_match / auth_module_error：不立即关闭（保留重试）+ 增加鉴权轮次
+      authRoundsUsed.set(params.chatId, rounds + 1);
       const errMsg =
         authResult.status === "no_match"
           ? `⚠ 未找到匹配的业务群组（chatId=${params.chatId.slice(-12)}）`
           : `❌ 鉴权模块异常：${authResult.reason}`;
       return {
         content: [{ type: "text", text: errMsg }],
-        details: authResult,
+        details: { ...authResult, roundsUsed: rounds + 1, roundsMax: P2P_AUTH_MAX_ROUNDS },
         isError: authResult.status === "auth_module_error",
       };
     },
@@ -694,6 +1027,7 @@ export default function (pi: any) {
     description:
       "把字段级变更累积到当前 chat 的 task_journal buffer。" +
       "LLM 在每次业务操作后调用。buffer 会在 larkbot_commit_changes 后清空。" +
+      "**issue#184 双域会话机制**：临时私聊域调用返回“未鉴权”错误。" +
       "（PR-4: registerTool 替代 task-state-machine.ts 手动累积）",
     parameters: Type.Object({
       chatId: Type.String({ description: "飞书 chat_id（PR-4 起需传）" }),
@@ -702,15 +1036,25 @@ export default function (pi: any) {
       to: Type.Optional(Type.Unknown({ description: "操作后值（undefined 表示删除）" })),
     }),
     execute: async (_toolCallId: string, params: { chatId: string; field: string; from?: unknown; to?: unknown }) => {
+      // issue#184：域检查（业务工具）
+      const deny = assertBusinessDomain(params.chatId);
+      if (deny) {
+        return {
+          content: [{ type: "text", text: `❌ ${deny.error}` }],
+          details: { ok: false, status: deny.status },
+          isError: true,
+        };
+      }
       const journal = taskJournals.get(params.chatId);
       if (!journal) {
         return {
-          content: [{ type: "text", text: `❌ chatId=${params.chatId.slice(-12)} 未鉴权或会话不存在` }],
+          content: [{ type: "text", text: `❌ chatId=${params.chatId.slice(-12)} 会话不存在` }],
           details: { ok: false, error: "no_journal" },
           isError: true,
         };
       }
       journal.changes.push({ field: params.field, from: params.from, to: params.to });
+      markBusinessActive(params.chatId);
       return {
         content: [{ type: "text", text: `✅ 已记录变更：${params.field}（buffer 大小：${journal.changes.length}）` }],
         details: { ok: true, journalSize: journal.changes.length },
@@ -728,12 +1072,22 @@ export default function (pi: any) {
       "**commitMessage 必须 100% 原样使用，不得修改任何字符**（content-pr skill 负责 git 操作；" +
       "LLM 不构造或修改 commit message）。" +
       "提交成功后 buffer.changes 清空，会话元数据保留（支持多次 PR）。" +
+      "**issue#184 双域会话机制**：临时私聊域调用返回“未鉴权”错误。" +
       "（PR-4: registerTool 替代 task_journal → LogEntry → commit message 手工拼接）",
     parameters: Type.Object({
       chatId: Type.String({ description: "飞书 chat_id" }),
       shortDesc: Type.String({ description: "commit message 第一行简短描述", maxLength: 100 }),
     }),
     execute: async (_toolCallId: string, params: { chatId: string; shortDesc: string }) => {
+      // issue#184：域检查
+      const deny = assertBusinessDomain(params.chatId);
+      if (deny) {
+        return {
+          content: [{ type: "text", text: `❌ ${deny.error}` }],
+          details: { ok: false, status: deny.status },
+          isError: true,
+        };
+      }
       const journal = taskJournals.get(params.chatId);
       if (!journal || journal.changes.length === 0) {
         return {
@@ -754,6 +1108,7 @@ export default function (pi: any) {
       const commitMessage = formatCommitMessage(params.shortDesc, logEntry as any);
       const changesCount = journal.changes.length;
       journal.changes = []; // 清空（保留会话元数据）
+      markBusinessActive(params.chatId);
       // 写 audit journal
       emitTaskJournal({
         eventTime: new Date().toISOString(),
@@ -783,16 +1138,26 @@ export default function (pi: any) {
       "关闭当前业务私聊会话，清理 journal buffer，触发 ended 广播（引用回复 matched 消息）。" +
       "不提交 PR——如需提交 PR 必须先调 larkbot_commit_changes。" +
       "不强制 changes 非空（关闭会话与提交 PR 是两个独立事件）。" +
+      "**issue#184 双域会话机制**：临时私聊域调用返回“未鉴权”错误 + closeBusinessSession 释放 business slot。" +
       "（PR-4: registerTool 替代 cleanupSessionForClose 手工调用 + broadcast ended 联动）",
     parameters: Type.Object({
       chatId: Type.String({ description: "飞书 chat_id" }),
     }),
     execute: async (_toolCallId: string, params: { chatId: string }) => {
+      // issue#184：域检查
+      const deny = assertBusinessDomain(params.chatId);
+      if (deny) {
+        return {
+          content: [{ type: "text", text: `❌ ${deny.error}` }],
+          details: { ok: false, status: deny.status },
+          isError: true,
+        };
+      }
       const authState = chatAuthStates.get(params.chatId);
       const journal = taskJournals.get(params.chatId);
       if (!authState || !authState.authorized) {
         return {
-          content: [{ type: "text", text: `❌ chatId=${params.chatId.slice(-12)} 未鉴权或会话不存在` }],
+          content: [{ type: "text", text: `❌ chatId=${params.chatId.slice(-12)} 会话不存在` }],
           details: { ok: false, error: "not_authorized" },
           isError: true,
         };
@@ -811,8 +1176,8 @@ export default function (pi: any) {
           broadcastMessageId = broadcast.messageId;
         }
       }
-      // 释放授权槽位
-      releaseAuthorizedSlot();
+      // issue#184：释放 business slot（slot swap 释放）
+      closeBusinessSession(params.chatId, "user_close_business_session");
       // 写 audit journal
       emitTaskJournal({
         eventTime: new Date().toISOString(),
@@ -838,11 +1203,21 @@ export default function (pi: any) {
     label: "查询当前 task_journal",
     description:
       "查询指定 chatId 的 task_journal buffer 状态。调试用，不参与业务流程。" +
+      "**issue#184 双域会话机制**：临时私聊域调用返回“未鉴权”错误。" +
       "（PR-4: registerTool 替代 task_journal buffer 手动查询）",
     parameters: Type.Object({
       chatId: Type.String({ description: "飞书 chat_id" }),
     }),
     execute: async (_toolCallId: string, params: { chatId: string }) => {
+      // issue#184：域检查
+      const deny = assertBusinessDomain(params.chatId);
+      if (deny) {
+        return {
+          content: [{ type: "text", text: `❌ ${deny.error}` }],
+          details: { ok: false, status: deny.status },
+          isError: true,
+        };
+      }
       const journal = taskJournals.get(params.chatId);
       if (!journal) {
         return {
@@ -863,9 +1238,106 @@ export default function (pi: any) {
       };
     },
   });
+
+  // ═══════════════ issue#184 新增：larkbot_close_temp_session ═══════════════
+
+  // ── 16. larkbot_close_temp_session（issue#184 新增）──
+  pi.registerTool({
+    name: "larkbot_close_temp_session",
+    label: "关闭临时私聊会话（鉴权失败清理）",
+    description:
+      "关闭临时私聊域会话，释放 temp slot，清理 chatAuthStates/taskJournals。" +
+      "PI Agent 在鉴权失败（no_match/not_member/auth_module_error）后调用。" +
+      "60s 周期清理器也会自动调用（鉴权超时/超轮时）。" +
+      "仅在 kind 为 p2p-temp 时操作；其他 kind 视为已关闭（幂等返回）。" +
+      "（issue#184: 鉴权失败 fail-closed）",
+    parameters: Type.Object({
+      chatId: Type.String({ description: "飞书 chat_id" }),
+      reason: Type.String({
+        description: "关闭原因：no_match / not_member / auth_module_error / user_requested / auth_timeout / auth_rounds_exceeded",
+      }),
+    }),
+    execute: async (_toolCallId: string, params: { chatId: string; reason: string }) => {
+      const kind = sessionKinds.get(params.chatId);
+      if (kind !== "p2p-temp") {
+        return {
+          content: [{ type: "text", text: `⚠️ chatId=${params.chatId.slice(-12)} 不在临时私聊域（kind=${kind ?? "none"}），幂等跳过` }],
+          details: { ok: true, alreadyClosed: true, kind: kind ?? null },
+        };
+      }
+      closeTempSession(params.chatId, params.reason);
+      return {
+        content: [{ type: "text", text: `✅ 临时私聊已关闭：${params.reason}` }],
+        details: { ok: true, reason: params.reason },
+      };
+    },
+  });
 }
 
 // ═══════════════ 辅助函数 ═══════════════
+
+/**
+ * issue#184：60s 周期清理器
+ *
+ * 检查三类状态：
+ *   1. 鉴权窗口超时：authDeadlines 超 P2P_AUTH_TIMEOUT_MS → fail-closed（closeTempSession）
+ *   2. 鉴权轮次超限：authRoundsUsed > P2P_AUTH_MAX_ROUNDS → fail-closed（closeTempSession）
+ *   3. 业务私聊空闲超时：businessLastActivityAt 超 P2P_IDLE_TIMEOUT_MS → 仅记录（不主动关闭，
+ *      业务私聊关闭仍由 PI Agent 主动调 larkbot_close_business_session；3 天宽限作为观测期）
+ *
+ * 内存保护：pendingEventsByMsgId 超 PENDING_EVENTS_MAX_SIZE 自动清空（onLarkEvent 内已实现）。
+ *
+ * 设计依据：lark-bot-p2p-business-design.md §7 60s 周期清理器扩展。
+ */
+setInterval(() => {
+  const now = Date.now();
+  // 1. 鉴权窗口超时清理
+  for (const [chatId, deadline] of authDeadlines) {
+    if (now > deadline) {
+      console.error(`[lark-bot ext] auth_timeout fail-closed: chatId=${chatId.slice(-12)}`);
+      closeTempSession(chatId, "auth_timeout");
+    }
+  }
+  // 2. 鉴权轮次超限清理
+  for (const [chatId, rounds] of authRoundsUsed) {
+    if (rounds > P2P_AUTH_MAX_ROUNDS) {
+      console.error(`[lark-bot ext] auth_rounds_exceeded fail-closed: chatId=${chatId.slice(-12)} rounds=${rounds}`);
+      closeTempSession(chatId, "auth_rounds_exceeded");
+    }
+  }
+  // 3. 业务私聊空闲超时仅记录（不主动关闭，避免误杀长时间未发消息的业务会话）
+  // for (const [chatId, lastActivity] of businessLastActivityAt) {
+  //   if (now - lastActivity > P2P_IDLE_TIMEOUT_MS) {
+  //     console.error(`[lark-bot ext] business_idle_timeout observation: chatId=${chatId.slice(-12)} idleMs=${now - lastActivity}`);
+  //   }
+  // }
+}, 60_000);
+
+/**
+ * issue#184：测试专用 helper——清空所有 module-level state。
+ *
+ * 生产环境不调用此函数——session_shutdown handler 自行清理所有 state。
+ * 供 vitest beforeEach 调用以隔离测试间状态。
+ */
+export function __resetDualDomainForTest(): void {
+  sessionKinds.clear();
+  authDeadlines.clear();
+  authRoundsUsed.clear();
+  businessLastActivityAt.clear();
+  pendingEventsByMsgId.clear();
+  chatAuthStates.clear();
+  resetSlots();
+}
+
+/**
+ * issue#184：测试专用 helper——模拟 onLarkEvent 注入 msgId → chatId 路由。
+ *
+ * 模拟飞书事件到达后的状态，绕过 lark-cli 子进程 mock 复杂度。
+ * 供测试 registerTool execute 入口域检查使用。
+ */
+export function __injectPendingEventForTest(msgId: string, chatId: string): void {
+  pendingEventsByMsgId.set(msgId, chatId);
+}
 
 /**
  * 读取 settings.json（本地凭证文件，不入库）
@@ -918,13 +1390,44 @@ function spawnLarkCliEventConsume(): ChildProcess {
 /**
  * 处理 lark-cli 输出。
  *
- * PR-1 占位：仅日志，不入 pendingEvents Map。
- * PR-2 完整实装：解析 NDJSON → 按 chatId 路由 → pendingEvents.set。
+ * issue#184 完整实装：
+ *   - 解析 NDJSON（按行）
+ *   - 按 chatId 路由到 pendingEvents Map
+ *   - msgId → chatId 反向索引（pendingEventsByMsgId）
+ *   - ensureTempSession：占用 temp slot + 设置鉴权窗口
+ *
+ * 内存保护：PENDING_EVENTS_MAX_SIZE 超过时清空整个 Map（防 lark-cli 事件积压）。
  */
 function onLarkEvent(raw: string, source: "stdout" | "stderr"): void {
-  // PR-1 占位：限制日志长度，避免日志爆炸
-  const preview = raw.length > 200 ? raw.slice(0, 200) + "..." : raw;
-  console.error(`[lark-bot ext] lark-cli ${source}: ${preview}`);
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line) as ExtLarkEvent;
+      // 仅处理 p2p text 事件（群聊事件 / 非文本事件不入 pendingEvents）
+      if (event.chat_type !== "p2p") continue;
+      if (event.message_type !== "text") continue;
+      // 路由到 pendingEvents
+      const queue = (pendingEvents.get(event.chat_id) as ExtLarkEvent[] | undefined) ?? [];
+      queue.push(event);
+      pendingEvents.set(event.chat_id, queue);
+      pendingEventsByMsgId.set(event.message_id, event.chat_id);
+      // 占 temp slot + 鉴权窗口
+      const ensureResult = ensureTempSession(event.chat_id, event.message_id);
+      if (!ensureResult.ok) {
+        // temp 配额满：事件仍路由到 pendingEvents（供 PI Agent 后续轮询），
+        // 但 session 不创建 — PI Agent 收到事件后调 registerTool 时会被域检查拒绝。
+        console.error(`[lark-bot ext] ${ensureResult.error} chatId=${event.chat_id.slice(-12)}`);
+      }
+    } catch {
+      // 非 JSON 行忽略（PR-1 容错：lark-cli 输出可能含提示行）
+    }
+  }
+  // 内存保护
+  if (pendingEventsByMsgId.size > PENDING_EVENTS_MAX_SIZE) {
+    pendingEventsByMsgId.clear();
+    pendingEvents.clear();
+    console.error(`[lark-bot ext] pendingEvents cleared (size > ${PENDING_EVENTS_MAX_SIZE})`);
+  }
 }
 
 /**
