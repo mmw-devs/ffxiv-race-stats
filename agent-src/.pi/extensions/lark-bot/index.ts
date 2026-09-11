@@ -405,7 +405,21 @@ export default function (pi: any) {
   pi.on("session_start", async (event: any) => {
     if (event.reason !== "startup") return;
 
-    // 防递归：被 PI Agent spawn 的子进程不再走扩展路径
+    // PR-2 / issue#184 修复：initBoot 在 LARK_BOT_RUNTIME 检查之前跑。
+    // 关键：pi 子进程（设 LARK_BOT_RUNTIME=1）会加载本 extension 并注册 registerTool，
+    // 这些 registerTool 引用 extensionAuthModule（独立于 main.ts authModule 的实例）。
+    // 若不在 LARK_BOT_RUNTIME 检查之前调 initBoot，pi 子进程的 extensionAuthModule.groups 为空，
+    // registerTool larkbot_authorize_user 永远返回 no_match。
+    // 回归来源：issue#184 PR #185 引入双域会话机制但未迁移 initBoot 调用位置。
+    try {
+      await extensionAuthModule.initBoot();
+    } catch (err: any) {
+      console.error(`[lark-bot ext] auth 冷启动失败: ${err?.message?.slice(0, 200)}`);
+      throw err;
+    }
+
+    // 防递归：被 PI Agent spawn 的子进程不再走扩展路径（不启动子进程 / 事件订阅）
+    // 但 initBoot 已跑（registerTool 用的 extensionAuthModule.groups 已有数据）。
     if (process.env.LARK_BOT_RUNTIME === "1") return;
 
     const settings = readSettings();
@@ -425,14 +439,6 @@ export default function (pi: any) {
 
     // ── 分支 2：useExtensionMode=true ── 当前进程即 lark-bot（PR-1 新增）
     console.error("[lark-bot ext] useExtensionMode=true，lark-bot 即当前 extension 进程");
-
-    // PR-2：启动鉴权冷启动（拉全量群组 + 各群成员）。失败 → fail-fast。
-    try {
-      await extensionAuthModule.initBoot();
-    } catch (err: any) {
-      console.error(`[lark-bot ext] auth 冷启动失败: ${err?.message?.slice(0, 200)}`);
-      throw err;
-    }
 
     // 启动 lark-cli event consume 子进程（实测 3：同时监听 stderr + stdout）
     const larkCli = spawnLarkCliEventConsume();

@@ -605,8 +605,19 @@ function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void
             const id = (event as any).id;
             if (id === undefined || id === fetch.expectedId) {
               log(`📥 [${fetch.task.promptId}] 收到 get_last_assistant_text id=${id ?? "(无)"} text.len=${text?.length ?? 0}`);
+              // issue#184 D 方案 B（兜底）：LLM 常把 close_session NDJSON 写在 markdown code fence 而非真 emit 到 stdout。
+              // 在 finalize 阶段扫描 LLM 最终文本，若含 close_session NDJSON 字符串也触发关闭。
+              // （注：与 stdout NDJSON 路径独立——若 stdout 真收到也会走 case "close_session"，closeSessionFromAgent 幂等）
+              if (typeof text === "string") {
+                const closeMatch = text.match(/\{\s*"type"\s*:\s*"close_session"\s*,\s*"reason"\s*:\s*"([^"\\]*)"/);
+                if (closeMatch) {
+                  const reason = closeMatch[1];
+                  log(`🔒 [${fetch.task.promptId}] 兜底检测 close_session NDJSON: reason=${reason}`);
+                  closeSessionFromAgent(sessionKey, reason);
+                }
+              }
               fetch.resolve(text);
-              // PR-3：文本兑底解析 close_session 已删除。PI Agent 需在 NDJSON 中 emit close_session。
+              // PR-3：文本兑底解析自然语言关闭意图已删除。但 NDJSON 字符串兜底仍生效（D 方案 B）。
             } else {
               log(`⚠ get_last_assistant_text id 不匹配: 期望=${fetch.expectedId} 收到=${id}`);
             }
