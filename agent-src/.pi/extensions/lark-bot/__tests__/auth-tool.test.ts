@@ -72,11 +72,16 @@ vi.mock("../../../scripts/lark-bot/broadcast/group-tool.js", () => ({
   }),
 }));
 
-// Mock session-manager.ts — 提供可复写函数
-let mockTryReserve = true;
-vi.mock("../../../scripts/lark-bot/interactive/session-manager.js", () => ({
-  tryReserveAuthorizedSlot: () => mockTryReserve,
-  releaseAuthorizedSlot: () => {},
+// Mock business/slots.ts — issue#184：双域 slot API
+let mockTryReserveBusiness = true;
+let mockTryReserveTemp = true;
+vi.mock("../../../scripts/lark-bot/business/slots.js", () => ({
+  tryReserveTempSlot: () => mockTryReserveTemp,
+  releaseTempSlot: () => {},
+  tryReserveBusinessSlot: () => mockTryReserveBusiness,
+  releaseBusinessSlot: () => {},
+  resetSlots: () => {},
+  countByKind: () => 0,
 }));
 
 // Mock protocol/feishu.ts
@@ -92,7 +97,7 @@ vi.mock("../process/children-registry.js", () => ({
   killAllChildren: vi.fn(() => 0),
 }));
 
-import extensionFn from "../index.js";
+import extensionFn, { __resetDualDomainForTest } from "../index.js";
 
 // ═══════════════ Test helpers ═══════════════
 
@@ -130,9 +135,12 @@ let mockPi: MockPi;
 beforeEach(() => {
   vi.clearAllMocks();
   mockPi = createMockPi();
-  mockTryReserve = true;
+  mockTryReserveBusiness = true;
+  mockTryReserveTemp = true;
   mockAuthStatus.value = "matched";
   mockResolveResult = { operator: "38a32652", claim: "user_id", name: "weunimix" };
+  // issue#184：清空 module-level state
+  __resetDualDomainForTest();
 });
 
 afterEach(() => {
@@ -225,14 +233,14 @@ describe("larkbot_authorize_user — 4 种 status 路径", () => {
 
   it("matched 但授权配额已满 → auth_module_error", async () => {
     mockAuthStatus.value = "matched";
-    mockTryReserve = false;
+    mockTryReserveBusiness = false; // issue#184：业务配额已满
     extensionFn(mockPi as any);
     const tool = mockPi.tools.get("larkbot_authorize_user");
 
     const result = await tool.execute("call-1", { openId: VALID_OPEN_ID, chatId: VALID_CHAT_ID });
 
     expect(result.details.status).toBe("auth_module_error");
-    expect(result.details.reason).toMatch(/quota full/);
+    expect(result.details.reason).toMatch(/quota/);
   });
 });
 

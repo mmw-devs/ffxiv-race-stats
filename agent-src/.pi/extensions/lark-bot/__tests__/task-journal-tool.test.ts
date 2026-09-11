@@ -66,9 +66,20 @@ vi.mock("../../../scripts/lark-bot/identity-resolver.js", () => ({
 
 // Mock session-manager.ts
 let mockTryReserve = true;
+let mockTryReserveBusiness = true;
+let mockTryReserveTemp = true;
 vi.mock("../../../scripts/lark-bot/interactive/session-manager.js", () => ({
   tryReserveAuthorizedSlot: () => mockTryReserve,
   releaseAuthorizedSlot: () => {},
+}));
+// issue#184：双域 slot API mock
+vi.mock("../../../scripts/lark-bot/business/slots.js", () => ({
+  tryReserveTempSlot: () => mockTryReserveTemp,
+  releaseTempSlot: () => {},
+  tryReserveBusinessSlot: () => mockTryReserveBusiness,
+  releaseBusinessSlot: () => {},
+  resetSlots: () => {},
+  countByKind: () => 0,
 }));
 
 // Mock children-registry
@@ -77,7 +88,7 @@ vi.mock("../process/children-registry.js", () => ({
   killAllChildren: vi.fn(() => 0),
 }));
 
-import extensionFn from "../index.js";
+import extensionFn, { __resetDualDomainForTest } from "../index.js";
 
 // ═══════════════ Test helpers ═══════════════
 
@@ -119,6 +130,8 @@ beforeEach(() => {
   mockResolveResult = { operator: "38a32652", claim: "user_id", name: "weunimix" };
   mockBroadcastResult = { ok: true, messageId: "msg-broadcast-end" };
   mockTryReserve = true;
+  // issue#184：清空 module-level state
+  __resetDualDomainForTest();
 });
 
 afterEach(() => {
@@ -175,7 +188,8 @@ describe("larkbot_record_change", () => {
     });
 
     expect(result.details.ok).toBe(false);
-    expect(result.details.error).toBe("no_journal");
+    // issue#184：未鉴权 chatId 返回域检查错误（status: not_authorized）
+    expect(result.details.status).toBe("not_authorized");
     expect(result.isError).toBe(true);
   });
 });
@@ -258,7 +272,8 @@ describe("larkbot_close_business_session", () => {
     const result = await tool.execute("c1", { chatId: FRESH_CHAT_ID });
 
     expect(result.details.ok).toBe(false);
-    expect(result.details.error).toBe("not_authorized");
+    // issue#184：未鉴权 chatId 返回域检查错误（status: not_authorized）
+    expect(result.details.status).toBe("not_authorized");
     expect(result.isError).toBe(true);
   });
 
@@ -272,14 +287,17 @@ describe("larkbot_close_business_session", () => {
 });
 
 describe("larkbot_query_journal", () => {
-  it("未鉴权 chatId → empty: true", async () => {
+  it("未鉴权 chatId → domain check 拒绝", async () => {
     extensionFn(mockPi as any);
     const tool = mockPi.tools.get("larkbot_query_journal");
     const FRESH_CHAT_ID = "oc_cccccccc0000000000000000000ccccc1";
 
     const result = await tool.execute("c1", { chatId: FRESH_CHAT_ID });
 
-    expect(result.details.empty).toBe(true);
+    // issue#184：未鉴权 chatId 返回域检查错误（status: not_authorized）
+    expect(result.details.ok).toBe(false);
+    expect(result.details.status).toBe("not_authorized");
+    expect(result.isError).toBe(true);
   });
 
   it("有 buffer 时返回 operator + changesCount + changes", async () => {

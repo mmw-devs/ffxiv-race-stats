@@ -125,6 +125,38 @@ export const MAX_QUEUE_DEPTH = 100;
 // 超过此配额时，新增会话走 no_match 分支拒绝（防资源耗尽）。
 export const MAX_AUTHED_SLOTS = 10;
 
+// ═══════════════ 私聊侧 MVP（双域会话机制 — issue#184 恢复） ═══════════════
+
+// 全局私聊 session 数量上限：MAX_P2P_TEMP_SLOTS + MAX_P2P_BUSINESS_SLOTS 之和。
+// 设计文档：lark-bot-p2p-business-design.md §6
+export const MAX_P2P_SESSIONS = 10;
+
+// 临时私聊域（p2p-temp）配额：未鉴权会话数 ≤ 1。
+// 超过此配额时，新消息进入 lark-bot 走 no_match 分支拒绝（防资源耗尽）。
+export const MAX_P2P_TEMP_SLOTS = 1;
+
+// 业务私聊域（p2p-business）配额：已鉴权会话数 ≤ 9。
+// = MAX_P2P_SESSIONS - MAX_P2P_TEMP_SLOTS（设计文档 §6 约束）。
+export const MAX_P2P_BUSINESS_SLOTS = MAX_P2P_SESSIONS - MAX_P2P_TEMP_SLOTS;
+
+// 鉴权窗口：进入临时私聊域后必须在此时间内完成鉴权（larkbot_authorize_user matched）。
+// 超时 → 60s 周期清理器强制关闭（fail-closed）。
+// 设计文档：lark-bot-p2p-business-design.md §6 + lark-bot-business-flow.md §2 七阶段生命周期。
+export const P2P_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
+
+// 鉴权轮次上限：临时私聊域内 larkbot_authorize_user 失败（no_match / auth_module_error）
+// 累计调用次数上限。超轮 → fail-closed。
+// 设计文档：lark-bot-p2p-business-design.md §6。
+export const P2P_AUTH_MAX_ROUNDS = 2;
+
+// 业务私聊空闲超时：3 天无活动的业务私聊会话自动关闭（fail-closed）。
+// 设计文档：lark-bot-p2p-business-design.md §6 + §7（60s 周期清理器）。
+export const P2P_IDLE_TIMEOUT_MS = 3 * 24 * 60 * 60 * 1000;
+
+// pendingEventsByMsgId 自动清理阈值：超过此数量清空整个 Map（防内存泄漏）。
+// pendingEvents 与 pendingEventsByMsgId 同步清理。
+export const PENDING_EVENTS_MAX_SIZE = 10_000;
+
 // ═══════════════ 群组鉴权（事件驱动 / 零轮询） ═══════════════
 
 // 启动期冷启动调用超时
