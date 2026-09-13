@@ -1,5 +1,8 @@
 ---
-// BaseLayout.astro — 全局布局，承载 OKLCH token 系统和外部脚本
+// BaseLayout.astro — 全局布局
+// 承载 Atelier Zero 深墨竞速档案设计系统：OKLCH token、全局 .az-* 组件样式、动效层。
+// 所有 Vue 组件输出 .az-* 标记，样式统一收敛于此，保证单一设计源。
+// 首页大屏：底部宽幅视频带（浏览器本地播放）+ 标题浮层。
 ---
 <!doctype html>
 <html lang="zh-CN">
@@ -8,73 +11,912 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FFXIV 高难首杀竞速 — [当届赛事名称]</title>
   <meta name="description" content="FFXIV 高难首杀竞速排行聚合平台，追踪高难副本的世界首杀争夺战，提供队伍进度、选手直播、赛事速报一站式浏览。" />
-  <meta name="theme-color" content="#f5f4ef" />
+  <meta name="theme-color" content="#15171d" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta property="og:title" content="FFXIV 高难首杀竞速" />
   <meta property="og:description" content="追踪高难副本世界首杀争夺战，队伍进度、选手直播、赛事速报一站式浏览。" />
   <meta property="og:type" content="website" />
   <meta property="og:locale" content="zh_CN" />
-  <style is:inline>
-    /* ---- RESET & BASE ---- */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html {
-      font-size: 16px;
+  <script>
+    document.documentElement.classList.add('js');
+    (function () {
+      var rm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+      if (rm && rm.matches) { document.documentElement.classList.add('loaded'); return; }
+
+      var done = false;
+      function reveal() {
+        if (done) return;
+        done = true;
+        document.documentElement.classList.add('loaded');
+      }
+      // 双 rAF：保证先渲染一帧隐藏态，入场动画才会真正播放
+      function arm() {
+        if ('requestAnimationFrame' in window) {
+          requestAnimationFrame(function () { requestAnimationFrame(reveal); });
+        } else { reveal(); }
+      }
+      // hero 一渲染出来就立即入场，不再等固定延时（原先的 760ms 黑屏）
+      function watch() {
+        if (document.querySelector('.az-hero')) { arm(); return; }
+        var obs = new MutationObserver(function () {
+          if (document.querySelector('.az-hero')) { obs.disconnect(); arm(); }
+        });
+        obs.observe(document.documentElement, { childList: true, subtree: true });
+      }
+      if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', watch); }
+      else { watch(); }
+
+      // 兜底：异常情况下最迟 600ms 也要把内容放出来，绝不卡在黑屏
+      setTimeout(reveal, 600);
+    })();
+  </script>
+  <style is:global>
+    /* ═══════════════════════════════════════════════════════════
+       Atelier Zero — 深墨竞速档案视觉设计系统
+       深墨底 · 红/蓝/金点缀 · 圆角便签卡片 · 动效层（幕布/进度/级联/视差）
+       ============================================================ */
+    :root {
+      /* 深墨底：抬高亮度 + 加一丝蓝紫（hue 268），比纯黑/近黑更雅致 */
+      --bg:         oklch(0.205 0.012 268);   /* #15171d */
+      --bg-2:       oklch(0.242 0.014 268);   /* #1d2027 */
+      --surface:    oklch(0.278 0.015 268);   /* #252830 */
+      --fg:         oklch(0.986 0.004 210);
+      --muted:      oklch(0.80 0.016 210);
+      --border:     color-mix(in oklch, var(--fg) 13%, transparent);
+      --border-2:   color-mix(in oklch, var(--fg) 26%, transparent);
+
+      /* 点缀色：红/蓝/金保持原有取值，不随深墨底改色 */
+      --accent:  oklch(46% 0.14 30);
+      --accent-deep: color-mix(in oklch, var(--accent) 82%, var(--bg));
+      --accent-bright: oklch(0.66 0.2 28);   /* 章节 kicker 亮红，解决原红色小字过暗 */
+      --live:    oklch(0.63 0.19 26);        /* 对齐 v2/v3，比原取值更亮 */
+      --warn:    oklch(0.8 0.15 72);         /* 速报强调文字提亮，解决过深看不清 */
+
+      /* 队伍地区标签取色（明亮版，适配深墨底纹） */
+      --rg-cn: oklch(0.68 0.2 27);
+      --rg-jp: oklch(0.97 0.005 210);
+      --rg-na: oklch(0.85 0.16 88);
+      --rg-eu: oklch(0.72 0.14 255);
+      --rg-oc: oklch(0.78 0.15 155);
+
+      --gold:    oklch(48% 0.13 78);
+      /* 奖牌三色对齐 v2 */
+      --silver:  oklch(0.78 0.04 250);
+      --bronze:  oklch(0.61 0.09 60);
+      --rank-first: oklch(0.8 0.16 78);
+      /* PHASE 药丸配色：对齐 v2/v3 的亮色取值（原 52–55% 亮度在深底上偏暗） */
+      --ph-1:    oklch(0.76 0.1 258);
+      --ph-2:    oklch(0.79 0.085 206);
+      --ph-3:    oklch(0.79 0.1 152);
+      --ph-4:    oklch(0.8 0.11 66);
+      --ph-clear: oklch(0.78 0.11 78);
+      --cool:    oklch(48% 0.09 252);
+
+      /* 排名职业方块取色（v2 亮色） */
+      --job-tank:   oklch(0.62 0.13 258);
+      --job-healer: oklch(0.68 0.12 165);
+      --job-dps:    oklch(0.64 0.16 25);
+
+      --font-display: 'Iowan Old Style', 'Times New Roman', Georgia, 'Songti SC', 'Noto Serif SC', serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Menlo, monospace;
+      /* 章节编号专用设计感黑体（取 v2 --font-display 字阶） */
+      --font-tech:    'Bahnschrift', 'Avenir Next', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      /* 小标题/标签字族：英文/数字用最初的等宽；中文用无衬线黑体（Win=SimHei / mac=PingFang /
+         Linux=Noto Sans CJK）。与衬线大标题形成「衬线标题 + 黑体标语」的杂志式对比，
+         也比宋体细笔画在深底小字号下更结实。字重统一 400，不自行加粗 */
+      --font-label:   ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Menlo, Consolas,
+                      'PingFang SC', 'Hiragino Sans GB', SimHei, 'Microsoft YaHei',
+                      'Noto Sans CJK SC', 'Noto Sans SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei',
+                      system-ui, sans-serif;
+
+      --paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --container: 1200px;
+      --gutter: clamp(20px, 4vw, 44px);
+      --radius: 14px;
+      --radius-sm: 6px;
+    }
+
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--bg); color: var(--fg); }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+    }
+
+    /* ═══════════ base ═══════════ */
+    .az-root {
       background: var(--bg);
       color: var(--fg);
       font-family: var(--font-body);
-      line-height: 1.5;
+      font-size: 16px;
+      line-height: 1.55;
       -webkit-font-smoothing: antialiased;
     }
-    body { max-width: 1280px; margin: 0 auto; padding: 0 24px 80px; min-height: 100vh; }
+    .az-root *,
+    .az-root *::before,
+    .az-root *::after { box-sizing: border-box; }
+    .az-root a { color: inherit; text-decoration: none; }
+    .az-root p { margin: 0; }
+    .az-root h1, .az-root h2 { text-wrap: balance; }
+    .az-root h2 { font-family: var(--font-display); font-size: clamp(28px, 3.4vw, 44px); line-height: 1.3; letter-spacing: 0; margin: 8px 0 0; }
 
-    /* ---- TYPOGRAPHY ---- */
-    h1, h2, h3 { font-family: var(--font-display); font-weight: 700; }
-    h1 { font-size: clamp(48px, 6vw, 96px); line-height: 1.05; letter-spacing: -0.025em; }
-    h2 { font-size: 28px; line-height: 1.15; letter-spacing: -0.015em; }
-    h3 { font-size: 20px; line-height: 1.2; }
-    p  { max-width: 65ch; }
-    a  { color: var(--fg); text-underline-offset: 4px; }
-    a:hover { color: var(--accent); }
-
-    /* ---- REDUCED MOTION ---- */
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-      }
+    .az-container {
+      max-width: var(--container);
+      margin-inline: auto;
+      padding-inline: var(--gutter);
+    }
+    .az-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .az-root [id] { scroll-margin-top: calc(var(--nav-h, 68px) + 24px); }
+    .az-noscript {
+      padding: 12px var(--gutter); font-family: var(--font-mono); font-size: 12px;
+      color: var(--fg); background: color-mix(in oklch, var(--warn) 12%, var(--surface));
+      border-bottom: 1px solid var(--border);
     }
 
-    /* ---- TOKEN SYSTEM ---- */
-    /* ===========================================================
-       TOKEN SYSTEM — 换 6~10 个变量即可切换整站主题风格
-       =========================================================== */
-    :root {
-      --bg:      oklch(98% 0.004 90);
-      --surface: oklch(100% 0 0);
-      --fg:      oklch(15% 0.02 100);
-      --muted:   oklch(42% 0.02 100);
-      --border:  oklch(15% 0.02 100);
-      --accent:  oklch(55% 0.18 50);
+    /* ═══════════ 阅读进度 hairline ═══════════ */
+    .az-progress {
+      position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 90;
+      pointer-events: none;
+    }
+    .az-progress::before {
+      content: ''; position: absolute; inset: 0;
+      background: var(--accent); transform: scaleX(var(--progress, 0));
+      transform-origin: 0 50%;
+    }
 
-      --crt-bg:    oklch(18% 0.016 148);
-      --crt-fg:    oklch(80% 0.06 148);
-      --crt-glow:  oklch(74% 0.10 145);
-      --crt-muted: oklch(50% 0.03 148);
-      --crt-border:oklch(28% 0.015 148);
+    /* ═══════════ 直播徽标 / live pill ═══════════ */
+    .az-live-pill {
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      background: var(--live); color: #fff;
+      font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+      line-height: 1; letter-spacing: 0.12em; padding: 4px 10px; border-radius: 999px;
+      white-space: nowrap;
+    }
+    .az-live-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: az-blink 1.2s ease-in-out infinite; }
+    /* hero 大号 live：绝对定位，不参与标题居中宽度；高度加高、留白，避免贴字 */
+    .az-live-lg { position: absolute; left: calc(100% + 18px); top: 50%; transform: translateY(-50%); padding: 9px 16px; font-size: 11px; }
+    @keyframes az-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
-      --live:   oklch(55% 0.20 28);
-      --warn:   oklch(48% 0.16 60);
-      --success:oklch(40% 0.16 155);
+    /* ═══════════ 粘性导航 ═══════════ */
+    .az-nav {
+      position: sticky; top: 0; z-index: 60;
+      background: transparent;
+      border-bottom: 1px solid transparent;
+      transition: background 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    }
+    .az-nav.is-scrolled {
+      background: color-mix(in oklch, var(--bg) 78%, transparent);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      border-color: var(--border);
+    }
+    .az-nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 16px 0; flex-wrap: wrap; }
+    .az-brand {
+      font-family: var(--font-display); font-size: 21px; font-weight: 700; letter-spacing: -0.01em;
+      display: inline-flex; align-items: baseline; gap: 8px;
+    }
+    .az-brand-sub { font-family: var(--font-label); font-size: 11px; font-weight: 400; color: var(--accent-bright); letter-spacing: 0.14em; text-transform: uppercase; }
+    .az-nav-links { display: flex; gap: 26px; }
+    .az-nav-links a {
+      font-size: 13px; color: var(--muted); position: relative; padding: 6px 0;
+      transition: color 0.15s ease;
+    }
+    .az-nav-links a::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+      background: var(--accent); transform: scaleX(0); transform-origin: left;
+      transition: transform 0.25s var(--ease-out);
+    }
+    .az-nav-links a:hover, .az-nav-links a.is-active { color: var(--fg); }
+    .az-nav-links a:hover::after, .az-nav-links a.is-active::after { transform: scaleX(1); }
+    .az-rules-link.az-rules-nav {
+      font-family: var(--font-label); font-size: 13px; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--fg); background: none; border: 0; border-bottom: 1px solid var(--border-2);
+      padding: 0 0 2px; cursor: pointer; transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .az-rules-link.az-rules-nav:hover { color: var(--accent); border-color: var(--accent); }
+    .az-nav-meta { display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .az-nav-timer {
+      display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+      font-family: var(--font-display); font-size: 12px; font-weight: 600;
+      letter-spacing: 0.04em; color: var(--muted);
+    }
+    .az-nav-timer .az-num { font-variant-numeric: tabular-nums; }
+    .az-clock { width: 12px; height: 12px; flex: none; display: block; }
 
-      --font-display: 'Times New Roman', 'Iowan Old Style', Georgia, serif;
-      --font-body:    ui-monospace, 'IBM Plex Mono', 'JetBrains Mono', Menlo, monospace;
-      --font-mono:    'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    /* ═══════════ hero：全屏大屏 + 底部宽幅视频带 ═══════════ */
+    .az-hero {
+      position: relative; overflow: hidden;
+      background: var(--bg);
+    }
+    .az-hero::before {
+      content: ''; position: absolute; inset: -14%; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(44% 40% at 16% 22%, color-mix(in oklch, var(--accent) 11%, transparent), transparent 68%),
+        radial-gradient(42% 46% at 86% 76%, color-mix(in oklch, var(--cool) 9%, transparent), transparent 72%),
+        radial-gradient(34% 30% at 54% -10%, color-mix(in oklch, var(--accent) 6%, transparent), transparent 72%);
+      animation: azHeroField 17s ease-in-out infinite alternate;
+    }
+    @keyframes azHeroField {
+      from { transform: translate3d(-1.4%, 1.2%, 0) scale(1); }
+      to   { transform: translate3d(1.4%, -1.6%, 0) scale(1.05); }
+    }
+    .az-hero-stage {
+      position: relative; z-index: 1;
+      min-height: calc(100svh - var(--nav-h, 68px));
+      overflow: hidden;
+      --hero-gap: 56px;   /* 标题块（按钮）与赛事公告面板之间的固定间距 */
+    }
+    .az-hero-video {
+      position: absolute; inset: 0;
+      overflow: hidden; background: var(--bg-2);
+    }
+    .az-hero-shot {
+      display: block; width: 100%; height: 100%;
+      object-fit: cover;
+      transform: translate3d(0, 0, 0) scale(1.06);
+      will-change: transform;
+    }
+    .az-hero-video::after {
+      content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+      background: linear-gradient(to bottom,
+        color-mix(in oklch, var(--bg) 55%, transparent) 0%,
+        transparent 24%,
+        transparent 52%,
+        color-mix(in oklch, var(--bg) 40%, transparent) 78%,
+        color-mix(in oklch, var(--bg) 66%, transparent) 100%);
+    }
+    .az-hero-copy {
+      position: absolute; inset: 0; z-index: 3;
+      display: flex; flex-direction: column;
+    }
+    .az-hero-copy > .az-container { display: flex; flex-direction: column; flex: 1; }
+    .az-hero-intro {
+      /* 上方吸收剩余空间，公告面板下方再吸收一半 → 标题块+公告整体居中，标题位置不变 */
+      margin: auto 0 0;
+      padding: clamp(12px, 3vh, 32px) 0 0;
+      display: flex; flex-direction: column; align-items: center; text-align: center;
+    }
+    /* 赛事公告紧随标题块下方，间距恒定（公告上移，而不是标题下移） */
+    .az-hero-copy .az-notices {
+      margin-top: var(--hero-gap, 56px);
+      margin-bottom: auto;
+    }
+    .az-kicker {
+      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.16em;
+      text-transform: uppercase; color: var(--accent-bright);
+    }
+    .az-title {
+      position: relative;
+      font-family: var(--font-display); font-size: clamp(48px, min(6.6vw, 10vh), 92px);
+      line-height: 1.15; letter-spacing: 0; font-weight: 700; margin: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .az-title-text { white-space: nowrap; }
+    /* 注意：需覆盖 .az-root p { margin: 0 }（特异性 0,1,1），故带上 .az-hero-intro 前缀 */
+    .az-hero-intro .az-hero-kicker { margin-bottom: clamp(14px, 2vw, 26px); }
+    .az-hero-intro .az-lead {
+      font-family: var(--font-display); font-size: 18px; line-height: 1.65;
+      color: var(--muted); margin: clamp(18px, 2.4vw, 30px) 0 0;
+      white-space: nowrap;
+    }
+    /* 原有分割线保留（1px --border 发丝线），中央嵌入小菱形 */
+    .az-hero-rule {
+      display: flex; align-items: center; justify-content: center; gap: 12px;
+      width: min(340px, 64%);
+      margin: clamp(20px, 2.8vw, 32px) 0 0;
+    }
+    .az-hero-rule::before, .az-hero-rule::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .az-hero-diamond { width: 7px; height: 7px; flex: none; background: var(--accent); transform: rotate(45deg); }
+    .az-hero-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: clamp(20px, 2.8vw, 32px); }
+
+    /* hero 入场：幕布揭开后逐块 masked-rise，视频带 clip-wipe 切入 */
+    html.js:not(.loaded) .az-hero [data-hero] {
+      opacity: 0; transform: translateY(44px); clip-path: inset(0 0 100% 0);
+    }
+    html.js.loaded .az-hero [data-hero] {
+      opacity: 1; transform: none; clip-path: inset(0 0 0 0);
+      transition: opacity 0.4s var(--ease-out),
+                  transform 0.7s var(--ease-out),
+                  clip-path 0.7s var(--ease-out);
+      transition-delay: calc(var(--rd, 0s) + 0.06s);
+    }
+    html.js.loaded .az-hero-video[data-hero] {
+      transition: opacity 0.4s var(--ease-out),
+                  transform 0.9s var(--ease-out),
+                  clip-path 1s var(--ease-out);
+      transition-delay: calc(var(--rd, 0s) + 0.06s);
+    }
+    /* 标题后的 LIVE 徽标绝对定位在标题框之外，标题块必须禁用 clip-path，否则会被裁掉 */
+    html.js:not(.loaded) .az-hero .az-title[data-hero],
+    html.js.loaded .az-hero .az-title[data-hero] { clip-path: none; }
+
+    /* ═══════════ 赛事公告 面板 ═══════════ */
+    .az-notices {
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: color-mix(in oklch, var(--surface) 58%, transparent);
+      backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2);
+      box-shadow: 0 12px 40px color-mix(in oklch, var(--bg) 40%, transparent);
+      overflow: hidden;
+    }
+    .az-notices .az-panel-label { margin: 0; }
+    .az-notices-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; padding: 16px 22px 13px; border-bottom: 1px solid var(--border);
+    }
+    .az-notices-scrolltag {
+      font-family: var(--font-label); font-size: 12px; font-weight: 400; letter-spacing: 0.16em;
+      text-transform: uppercase; color: var(--muted); white-space: nowrap;
+      /* 窄屏时宁可截断这行装饰性字样，也不把「赛事公告」挤到换行 */
+      min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    }
+    .az-notices-scrolltag::before {
+      content: ''; display: inline-block; width: 5px; height: 5px; margin-right: 7px;
+      border-radius: 50%; background: var(--live); animation: az-blink 1.6s ease-in-out infinite;
+    }
+    .az-notices-scroll { position: relative; height: 152px; overflow: hidden; }
+    .az-notices-track {
+      display: flex; flex-direction: column; will-change: transform;
+      animation: azNoticesRoll var(--roll-duration, 30s) linear infinite;
+    }
+    .az-notices-track .az-notice-item { flex: none; }
+    .az-notices-scroll:hover .az-notices-track { animation-play-state: paused; }
+    /* hero 滚出视口时暂停滚动公告，避免后台空转 */
+    .az-notices-track.is-paused { animation-play-state: paused; }
+    @keyframes azNoticesRoll {
+      from { transform: translateY(0); }
+      to { transform: translateY(-50%); }
+    }
+    .az-notices-scroll::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 36px;
+      background: linear-gradient(to bottom, transparent, color-mix(in oklch, var(--surface) 58%, transparent));
+      pointer-events: none;
+    }
+    .az-notice-item {
+      padding: 11px 22px; border-bottom: 1px solid var(--border);
+      font-size: 13px; line-height: 1.55; color: var(--muted);
+    }
+    .az-notice-item:last-of-type { border-bottom: 0; }
+    .az-notices .az-expand {
+      display: block; width: 100%; padding: 13px 22px;
+      font-family: var(--font-label); font-size: 12.5px; font-weight: 400; letter-spacing: 0.1em;
+      color: var(--muted); text-align: center; cursor: pointer;
+      background: none; border: 0; border-top: 1px solid var(--border);
+      transition: color 0.15s ease, background 0.15s ease;
+    }
+    .az-notices .az-expand::before { content: '+'; margin-right: 10px; }
+    .az-notices .az-expand.is-open::before { content: '–'; }
+    .az-notices .az-expand:hover { color: var(--accent); }
+
+    /* ═══════════ 面板眉标：小菱形标记 + 黑体标签 + 渐隐引线 ═══════════ */
+    .az-panel-label {
+      font-family: var(--font-label); font-size: 14px; font-weight: 400; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--muted);
+      display: flex; align-items: center; gap: 9px; margin-bottom: 6px;
+      /* 标签文字永不折行，且不被父级 flex 压窄 */
+      white-space: nowrap; flex: none;
+    }
+    /* 标记：与 hero 分割线上的小菱形同语言，换成主题红点亮章节 */
+    .az-panel-label::before {
+      content: ''; width: 5px; height: 5px; flex: none;
+      background: var(--accent-bright); transform: rotate(45deg);
+    }
+    /* 标记后的渐隐引线：贴住可用宽度，形成「档案标签」的引导感 */
+    .az-panel-label::after {
+      content: ''; flex: 1 1 14px; height: 1px;
+      background: linear-gradient(to right, var(--border), transparent);
+    }
+
+    /* ═══════════ 按钮 ═══════════ */
+    .az-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 14px; font-weight: 500; padding: 13px 22px; border-radius: 999px;
+      border: 1px solid var(--fg);
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .az-btn.az-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--fg); font-weight: 600; }
+    .az-btn-primary:hover { background: var(--accent-deep); border-color: var(--accent-deep); }
+    .az-btn-ghost { background: transparent; color: var(--fg); }
+    .az-btn-ghost:hover { background: var(--fg); color: var(--bg); }
+    .az-btn-arrow::after { content: '→'; transition: transform 0.15s ease; }
+    .az-btn-arrow:hover::after { transform: translateX(3px); }
+    .az-btn:active { transform: translateY(1px); }
+
+    .az-rules-link {
+      font-family: var(--font-label); font-size: 13px; font-weight: 400; letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--muted); background: none; border: 0; padding: 2px 0 2px 14px; cursor: pointer;
+      border-left: 1px solid var(--border); transition: color 0.15s ease;
+    }
+    .az-rules-link:hover { color: var(--accent); }
+    .az-expand {
+      display: block; width: 100%; padding: 14px 4px;
+      font-family: var(--font-label); font-size: 12.5px; font-weight: 400; letter-spacing: 0.1em;
+      color: var(--muted); text-align: left; cursor: pointer;
+      background: none; border: 0; border-bottom: 1px solid var(--border);
+      transition: color 0.15s ease;
+    }
+    .az-expand::before { content: '+'; margin-right: 10px; }
+    .az-expand.is-open::before { content: '–'; }
+    .az-expand:hover { color: var(--accent); }
+    .az-console #expandBroadcast {
+      display: block; width: 100%; padding: 12px 0 2px;
+      border: 0; margin-top: 8px;
+    }
+
+    /* ═══════════ section ═══════════ */
+    .az-section { padding-block: clamp(44px, 6.5vw, 84px); }
+    .az-hero + .az-section,
+    .az-section + .az-section { border-top: 1px solid var(--border); }
+    .az-section-head { display: flex; gap: clamp(18px, 2vw, 26px); align-items: center; margin-block: clamp(36px, 4.5vw, 56px) 32px; }
+    .az-index {
+      /* 编号：设计感黑体 + 放大到与右侧标题块等高对齐 + v2 灰色 */
+      font-family: var(--font-tech); font-size: clamp(54px, 6vw, 82px);
+      line-height: 1; font-weight: 700; letter-spacing: -0.03em;
+      color: color-mix(in oklch, var(--fg) 13%, transparent);
+      display: flex; align-items: center;
+    }
+    .az-folio {
+      margin-left: auto;
+      font-family: var(--font-label); font-size: 12px; font-weight: 400;
+      letter-spacing: 0.16em; color: var(--muted); white-space: nowrap;
+    }
+
+    /* ═══════════ 实时控制台 console ═══════════ */
+    .az-console {
+      display: grid; grid-template-columns: 1.1fr 0.9fr 1.5fr; align-items: stretch;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface); overflow: hidden;
+    }
+    .az-console-cell { padding: 18px 22px; }
+    .az-console-cell + .az-console-cell { border-left: 1px solid var(--border); }
+    .az-console .az-panel-label { margin-bottom: 12px; }
+    .az-timer-display { font-family: var(--font-mono); font-size: clamp(26px, 3vw, 34px); font-weight: 700; line-height: 1; letter-spacing: -0.01em; }
+    .az-timer-meta { margin-top: 8px; font-size: 12px; color: var(--muted); letter-spacing: 0.05em; font-family: var(--font-mono); }
+    .az-cover-stat { font-family: var(--font-mono); font-size: 22px; line-height: 1.1; }
+    .az-cover-num { font-weight: 700; font-size: clamp(26px, 3vw, 32px); }
+    .az-cover-total { font-size: 13px; color: var(--muted); }
+    .az-cover-label { margin-top: 4px; font-size: 13px; color: var(--muted); }
+    .az-cover-stat + .az-cover-label { margin-bottom: 8px; }
+    @media (max-width: 940px) {
+      .az-console { grid-template-columns: 1fr; }
+      .az-console-cell + .az-console-cell { border-left: 0; border-top: 1px solid var(--border); }
+    }
+
+    /* ═══════════ 合作转播台 ═══════════ */
+    .az-broadcast-item { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+    .az-broadcast-item:last-child { border-bottom: 0; }
+    .az-broadcast-avatar {
+      width: 40px; height: 40px; display: grid; place-items: center; flex-shrink: 0;
+      border-radius: 50%;
+      background: color-mix(in oklch, var(--fg) 92%, transparent); color: var(--bg);
+      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;
+    }
+    .az-broadcast-info { flex: 1; min-width: 0; }
+    .az-broadcast-name { font-size: 14px; font-weight: 600; }
+    .az-broadcast-meta { font-size: 12px; color: var(--muted); letter-spacing: 0.03em; margin-top: 2px; }
+    .az-broadcast-link { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--fg); border-bottom: 1px solid var(--border); transition: color 0.15s ease, border-color 0.15s ease; }
+    .az-broadcast-link:hover { color: var(--accent); border-color: var(--accent); }
+    .az-console .az-broadcast-item { padding: 9px 0; }
+    .az-console .az-broadcast-avatar { width: 34px; height: 34px; font-size: 10px; }
+
+    /* ═══════════ ranking ledger（列宽/列距对齐 v2，职业方块取 v2 尺寸） ═══════════ */
+    .az-main-grid { display: grid; grid-template-columns: 1fr; gap: 30px; align-items: start; }
+    .az-ledger {
+      border-top: 1px solid var(--border-2);
+      margin-top: clamp(30px, 4vw, 56px);   /* 与上方控制台保持 v3 的间距 */
+      display: grid;
+      /* 列宽对齐 v2：64 / 1fr / auto / 112 / 92，列距 16；COMP 列 auto 由职业方块组撑开
+         BOSS HP / PHASE 用 minmax 设定最小列宽（窄屏不被挤压），宽松时略宽一点 */
+      grid-template-columns: 64px minmax(0, 1fr) auto minmax(120px, 144px) minmax(96px, 112px);
+      column-gap: 16px;
+    }
+    .az-ledger-head {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: subgrid;
+      align-items: center;
+      padding: 10px 4px; border-bottom: 1px solid var(--border-2);
+      font-family: var(--font-label); font-size: 12.5px; font-weight: 400; letter-spacing: 0.14em;
+      color: var(--muted); text-transform: uppercase;
+    }
+    .az-lh-rank { color: var(--fg); }
+    .az-lh-team { text-align: left; }
+    .az-lh-comp { text-align: center; }
+    .az-lh-hp { text-align: right; }
+    .az-lh-phase { text-align: center; }
+    .az-team {
+      position: relative;
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: subgrid;
+      align-items: center;
+      padding: 14px 4px; border-bottom: 1px solid var(--border);
+      transition: background 0.18s ease;
+    }
+    .az-team:hover { background: var(--surface); }
+    .az-team.n1, .az-team.n2, .az-team.n3 { background: color-mix(in oklch, var(--surface) 50%, transparent); }
+    .az-team-rank {
+      justify-self: center;
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 34px; height: 34px;
+      font-family: var(--font-display); font-size: 17px; font-weight: 700;
+      line-height: 1; font-variant-numeric: tabular-nums;
+      color: var(--muted);
+    }
+    .az-team-rank.n1, .az-team-rank.n2, .az-team-rank.n3 {
+      color: var(--bg);
+      border-radius: 6px;
+    }
+    .az-team-rank.n1 { background: var(--rank-first); }
+    .az-team-rank.n2 { background: var(--silver); }
+    .az-team-rank.n3 { background: var(--bronze); }
+    .az-team-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .az-name-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 600; }
+    /* 地区标签对齐 v2：圆角矩形（胶囊）+ 明亮取色 + 同色蒙版底 */
+    .az-region {
+      flex: none;
+      font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+      letter-spacing: 0.16em; padding: 3px 8px; border-radius: 999px;
+      color: var(--muted);
+      border: 1px solid color-mix(in oklch, currentColor 45%, transparent);
+      background: color-mix(in oklch, currentColor 14%, transparent);
+    }
+    .az-region.rg-cn { color: var(--rg-cn); }
+    .az-region.rg-jp { color: var(--rg-jp); }
+    .az-region.rg-na { color: var(--rg-na); }
+    .az-region.rg-eu { color: var(--rg-eu); }
+    .az-region.rg-oc { color: var(--rg-oc); }
+    .az-region.rg-kr { color: var(--muted); }
+    .az-team-comp { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+    .az-role-gap { width: 8px; }
+    .az-job {
+      width: 30px; height: 30px; display: grid; place-items: center; position: relative;
+      font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+      border-radius: var(--radius-sm);
+      color: color-mix(in oklch, var(--muted) 90%, transparent);
+      cursor: default;
+      transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+    }
+    .az-job.tank    { background: color-mix(in oklch, var(--job-tank) 20%, transparent);   color: color-mix(in oklch, var(--job-tank) 78%, var(--fg)); }
+    .az-job.healer  { background: color-mix(in oklch, var(--job-healer) 20%, transparent); color: color-mix(in oklch, var(--job-healer) 80%, var(--fg)); }
+    .az-job.dps     { background: color-mix(in oklch, var(--job-dps) 20%, transparent);    color: color-mix(in oklch, var(--job-dps) 78%, var(--fg)); }
+    .az-job.tank.is-live   { background: var(--job-tank);   color: var(--bg); }
+    .az-job.healer.is-live { background: var(--job-healer); color: var(--bg); }
+    .az-job.dps.is-live    { background: var(--job-dps);    color: var(--bg); }
+    .az-job.is-live { cursor: pointer; }
+    .az-job.is-live:hover { transform: translateY(-2px); }
+    .az-job.is-live::after {
+      /* 直播闪烁点：白色圆形，无描边 */
+      content: ''; position: absolute; top: 2px; right: 2px;
+      width: 5px; height: 5px; border-radius: 50%;
+      background: #fff;
+      animation: az-job-live 1.8s ease-in-out infinite;
+    }
+    @keyframes az-job-live {
+      0%, 100% { opacity: 0.2; }
+      50% { opacity: 1; }
+    }
+    .az-team-hp {
+      text-align: right;
+      font-family: var(--font-mono); font-size: 13px; color: var(--fg);
+      font-variant-numeric: tabular-nums;
+    }
+    .az-team-phase {
+      justify-self: center;
+      font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+      letter-spacing: 0.12em; padding: 5px 10px; border-radius: 999px;
+      border: 1px solid var(--border); white-space: nowrap; color: var(--muted);
+    }
+    .az-team-phase.p1 { color: var(--ph-1); border-color: color-mix(in oklch, var(--ph-1) 45%, transparent); }
+    .az-team-phase.p2 { color: var(--ph-2); border-color: color-mix(in oklch, var(--ph-2) 45%, transparent); }
+    .az-team-phase.p3 { color: var(--ph-3); border-color: color-mix(in oklch, var(--ph-3) 45%, transparent); }
+    .az-team-phase.p4 { color: var(--ph-4); border-color: color-mix(in oklch, var(--ph-4) 45%, transparent); }
+    .az-team-phase.clear { color: var(--bg); border-color: var(--ph-clear); background: var(--ph-clear); }
+    .az-ledger > .az-expand { grid-column: 1 / -1; }
+
+    .az-expand:focus-visible, .az-btn:focus-visible, .az-brand:focus-visible, .az-nav-links a:focus-visible,
+    .az-broadcast-link:focus-visible, .az-footer-links a:focus-visible, .az-job:focus-visible,
+    .az-rules-close:focus-visible, .az-rules-link:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 2px;
+    }
+
+    /* ═══════════ 弹窗 modal ═══════════ */
+    .az-modal {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 90;
+      box-sizing: border-box;
+      display: grid; place-items: center;
+      padding: clamp(16px, 4vw, 48px);
+      padding-bottom: calc(clamp(16px, 4vw, 48px) + 10vh);
+    }
+    .az-modal * { box-sizing: border-box; }
+    .az-modal[hidden] { display: none; }
+    .az-modal-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: color-mix(in oklch, var(--bg) 55%, transparent); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+    .az-modal-panel {
+      position: relative; width: min(620px, 100%); max-height: 80vh;
+      display: flex; flex-direction: column; overflow: hidden;
+      background: var(--surface); border: 1px solid var(--border-2); border-radius: 18px;
+      box-shadow: 0 40px 90px color-mix(in oklch, var(--bg) 60%, transparent),
+                  0 12px 30px color-mix(in oklch, var(--bg) 40%, transparent);
+      padding: clamp(24px, 4vw, 40px) clamp(28px, 5vw, 48px);
+    }
+    .az-modal-panel::before { content: ''; position: absolute; inset: 0; background-image: var(--paper); pointer-events: none; z-index: 1; }
+    .az-modal-head { position: relative; z-index: 2; flex: none; border-bottom: 1px solid var(--border-2); padding-bottom: 14px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .az-modal-body { position: relative; z-index: 2; overflow-y: auto; min-height: 0; padding: 0 20px 4px 0; scrollbar-width: thin; scrollbar-color: color-mix(in oklch, var(--fg) 45%, transparent) transparent; }
+    .az-modal-body::-webkit-scrollbar { width: 6px; }
+    .az-modal-body::-webkit-scrollbar-track { background: color-mix(in oklch, var(--fg) 7%, transparent); }
+    .az-modal-body::-webkit-scrollbar-thumb { background: color-mix(in oklch, var(--fg) 42%, transparent); }
+    .az-modal-body::-webkit-scrollbar-thumb:hover { background: color-mix(in oklch, var(--fg) 62%, transparent); }
+    .az-modal-head h3 { font-family: var(--font-display); font-size: clamp(22px, 3vw, 28px); font-weight: 600; line-height: 1.2; margin: 6px 0 0; }
+    .az-modal-head-right { display: flex; align-items: center; gap: 14px; flex: none; }
+    .az-rules { position: relative; z-index: 2; list-style: none; margin: 0; padding: 0; counter-reset: rules; }
+    .az-rules li {
+      counter-increment: rules; display: grid; grid-template-columns: 34px 1fr; gap: 14px;
+      padding: 13px 0; border-bottom: 1px solid var(--border); font-size: 14px; line-height: 1.65;
+    }
+    .az-rules li:last-child { border-bottom: 0; }
+    .az-rules li::before {
+      content: counter(rules, decimal-leading-zero); font-family: var(--font-mono);
+      font-size: 11px; letter-spacing: 0.08em; color: var(--accent); padding-top: 3px;
+    }
+    .az-rules-close {
+      position: relative; z-index: 2; width: 40px; height: 40px; flex: none; display: grid; place-items: center;
+      font-family: var(--font-mono); font-size: 17px; line-height: 1; color: var(--fg);
+      background: transparent; border: 1px solid var(--border); border-radius: 50%; cursor: pointer;
+      transition: color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+    }
+    .az-rules-close:hover { color: var(--accent); border-color: var(--accent); transform: rotate(90deg); }
+    .az-modal-panel.az-modal-wide { width: min(760px, 100%); }
+
+    /* ═══════════ 弹窗弹出 / 关闭动画 ═══════════ */
+    .az-modal-enter-active .az-modal-backdrop,
+    .az-modal-leave-active .az-modal-backdrop {
+      transition: opacity 0.28s ease;
+    }
+    .az-modal-enter-from .az-modal-backdrop,
+    .az-modal-leave-to .az-modal-backdrop {
+      opacity: 0;
+    }
+    .az-modal-enter-active .az-modal-panel,
+    .az-modal-leave-active .az-modal-panel {
+      transition: opacity 0.28s ease, transform 0.32s var(--ease-out);
+    }
+    .az-modal-enter-from .az-modal-panel {
+      opacity: 0;
+      transform: translateY(20px) scale(0.96);
+    }
+    .az-modal-leave-to .az-modal-panel {
+      opacity: 0;
+      transform: translateY(12px) scale(0.98);
+    }
+
+    .az-broadcast-modal-list { position: relative; z-index: 2; }
+    .az-broadcast-modal-list .az-broadcast-item { padding: 12px 0; }
+    .az-notice-modal-list { position: relative; z-index: 2; }
+    .az-notice-modal-list .az-notice-item {
+      display: flex; align-items: baseline; gap: 14px; padding: 12px 0;
+      border-left: 0; border-bottom: 1px solid var(--border);
+      font-size: 14px; line-height: 1.65;
+    }
+    .az-notice-modal-list .az-notice-item:last-child { border-bottom: 0; }
+    .az-notice-no { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; color: var(--accent); flex: none; padding-top: 3px; }
+
+    /* ═══════════ news 速报时间线 ═══════════ */
+    .az-news-wrap { border-top: 1px solid var(--border-2); --news-pad-y: 13px; }
+    .az-news { list-style: none; margin: 0; padding: 0; }
+    /* 三列：时间 │ 时间轴（竖线+节点） │ 正文 */
+    .az-news-item {
+      display: grid; grid-template-columns: 88px 18px minmax(0, 1fr);
+      padding: var(--news-pad-y) 4px; border-bottom: 1px solid var(--border);
+      align-items: baseline;
+    }
+    /* 竖线：每条目画自己那一段，负外边距抵消内边距 → 首尾相接成一条连续时间轴 */
+    .az-news-rail {
+      position: relative; width: 1px; justify-self: center; align-self: stretch;
+      background: var(--border); margin-block: calc(-1 * var(--news-pad-y));
+      transform-origin: top;
+    }
+    /* 节点：默认空心圆点 */
+    .az-news-rail::before {
+      content: ''; position: absolute; top: 19px; left: 50%;
+      width: 7px; height: 7px; border-radius: 50%;
+      transform: translateX(-50%);
+      background: var(--bg); border: 1px solid var(--border-2);
+    }
+    /* 强调条目：节点实心红 + 呼吸光环（取代原先正文前的小红点，正文本身不变） */
+    .az-news-rail::after {
+      content: ''; position: absolute; top: 19px; left: 50%;
+      width: 7px; height: 7px; border-radius: 50%;
+      transform: translateX(-50%);
+    }
+    .az-news-item.urgent .az-news-rail::before { background: var(--live); border-color: var(--live); }
+    .az-news-item.urgent .az-news-rail::after { animation: azNodePulse 2.2s ease-out infinite; }
+    @keyframes azNodePulse {
+      0%   { box-shadow: 0 0 0 0 color-mix(in oklch, var(--live) 55%, transparent); }
+      70%  { box-shadow: 0 0 0 9px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+    /* 入场：竖线自上而下「拉」出 → 节点弹出 → 文字轻微上浮（仅首批 10 条；展开新增的直接显示） */
+    html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-rail {
+      animation: azRailIn 0.55s var(--ease-out) both;
+      animation-delay: calc(min(var(--i, 0), 10) * 50ms);
+    }
+    html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-rail::before {
+      animation: azNodeIn 0.4s var(--ease-out) both;
+      animation-delay: calc(min(var(--i, 0), 10) * 50ms + 140ms);
+    }
+    html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-time,
+    html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-text {
+      animation: azNewsIn 0.6s var(--ease-out) both;
+      animation-delay: calc(min(var(--i, 0), 10) * 50ms + 70ms);
+    }
+    @keyframes azRailIn { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+    @keyframes azNodeIn {
+      from { opacity: 0; transform: translateX(-50%) scale(0.2); }
+      to   { opacity: 1; transform: translateX(-50%) scale(1); }
+    }
+    @keyframes azNewsIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: none; }
+    }
+    @keyframes azRowIn {
+      from { opacity: 0; transform: translateY(18px); }
+      to { opacity: 1; transform: none; }
+    }
+    .az-news-time { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 0.05em; text-align: right; }
+    .az-news-text { font-size: 14px; line-height: 1.6; }
+    .az-news-text.urgent { color: var(--warn); font-weight: 600; }
+
+    /* ═══════════ sponsors ═══════════ */
+    .az-sponsor-panel { border-top: 1px solid var(--border-2); }
+    .az-sponsor-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 40px; }
+    .az-sponsor-item { padding: 14px 4px; border-bottom: 1px solid var(--border); }
+    html.js .az-sponsor-panel.in-view .az-sponsor-item:nth-child(-n+10) {
+      animation: azRowIn 0.7s var(--ease-out) both;
+      animation-delay: calc(min(var(--i, 0), 10) * 45ms);
+    }
+    .az-sponsor-name { font-size: 14px; font-weight: 600; }
+    .az-sponsor-desc { font-size: 11px; color: var(--muted); line-height: 1.5; margin-top: 3px; }
+
+    /* ═══════════ guides 占位面板 ═══════════ */
+    .az-guides {
+      position: relative; overflow: hidden;
+      border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+      padding: clamp(32px, 5vw, 60px);
+    }
+    .az-guides-lead { font-size: 15px; line-height: 1.85; color: var(--muted); max-width: 52ch; margin: 16px 0 24px; }
+    .az-tag {
+      display: inline-flex; align-items: center; padding: 6px 14px;
+      border: 1px solid var(--border); border-radius: 999px; font-family: var(--font-label); font-weight: 400;
+      font-size: 12px; letter-spacing: 0.14em; color: var(--muted);
+    }
+    .az-plate-halftone {
+      position: absolute; z-index: 2; top: 18%; bottom: 18%; right: 14px; width: 9px;
+      background-image: radial-gradient(color-mix(in oklch, var(--fg) 26%, transparent) 1.5px, transparent 1.7px);
+      background-size: 8px 8px;
+    }
+    .az-plate-glyph {
+      position: absolute; right: 4%; bottom: -22%; z-index: 1;
+      font-family: var(--font-display); font-size: clamp(180px, 24vw, 300px); line-height: 1;
+      color: color-mix(in oklch, var(--fg) 9%, transparent); user-select: none;
+    }
+    .az-plate-index {
+      font-family: var(--font-label); font-size: 12.5px; font-weight: 400; letter-spacing: 0.1em; color: var(--muted);
+      display: inline-flex; align-items: center; gap: 7px;
+    }
+    .az-plate-index::before { content: ''; width: 5px; height: 5px; background: var(--accent-bright); transform: rotate(45deg); }
+
+    /* ═══════════ footer ═══════════ */
+    .az-footer { border-top: 3px solid var(--fg); margin-top: clamp(36px, 5vw, 56px); }
+    .az-footer-inner { padding-block: 28px 44px; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-end; justify-content: space-between; }
+    .az-footer-brand { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+    .az-footer-meta { margin-top: 6px; font-family: var(--font-label); font-size: 13px; font-weight: 400; color: var(--muted); letter-spacing: 0.06em; }
+    .az-footer-links a { font-size: 12px; color: var(--muted); margin-left: 18px; border-bottom: 1px solid transparent; transition: color 0.15s ease, border-color 0.15s ease; }
+    .az-footer-links a:hover { color: var(--fg); border-color: var(--border); }
+
+    /* ═══════════ 悬浮回顶端 ═══════════ */
+    .az-backtop {
+      position: fixed; right: 22px; bottom: 22px; z-index: 70;
+      width: 46px; height: 46px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--fg); color: var(--bg);
+      border: 1px solid var(--fg); border-radius: 50%;
+      font-family: var(--font-mono); font-size: 20px; line-height: 1;
+      cursor: pointer;
+      opacity: 0; visibility: hidden; transform: translateY(8px);
+      transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease,
+        background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .az-backtop.is-visible { opacity: 1; visibility: visible; transform: translateY(0); }
+    .az-backtop:hover { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+    .az-backtop:active { transform: translateY(1px); }
+    .az-backtop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* ═══════════ 错误 / 加载态 ═══════════ */
+    .az-loading {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 60vh; font-family: var(--font-mono); font-size: 13px;
+      letter-spacing: 0.1em; color: var(--muted);
+    }
+    .az-error {
+      margin: 24px var(--gutter); padding: 16px 20px;
+      border: 2px solid var(--live); background: var(--surface); color: var(--fg);
+      font-family: var(--font-mono); font-size: 13px;
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    .az-error strong { font-weight: 700; letter-spacing: 0.04em; }
+    .az-error p { margin: 0; flex: 1; min-width: 200px; color: var(--muted); }
+    .az-error-reload {
+      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;
+      padding: 6px 14px; border: 1px solid var(--fg); background: var(--fg);
+      color: var(--bg); cursor: pointer; transition: background 0.12s, color 0.12s;
+    }
+    .az-error-reload:hover { background: var(--bg); color: var(--fg); }
+
+    /* ═══════════ scroll reveal（仅当 JS 激活） ═══════════ */
+    html.js .reveal {
+      opacity: 0; transform: translateY(22px);
+      transition: opacity 0.65s var(--ease-out), transform 0.65s var(--ease-out);
+      transition-delay: var(--reveal-delay, 0ms);
+      will-change: opacity, transform;
+    }
+    /* 入场结束后立刻撤销 will-change：避免长页面里每个区块长期占着合成层 */
+    html.js .reveal.in-view { opacity: 1; transform: none; will-change: auto; }
+
+    /* ═══════════ responsive ═══════════ */
+    @media (max-width: 680px) {
+      .az-nav-links { gap: 16px; }
+      .az-nav-links a { font-size: 12px; }
+      .az-title { font-size: 32px; flex-direction: column; gap: 10px; }
+      .az-live-lg { position: static; transform: none; padding: 7px 12px; }
+      /* 窄屏下导语允许折行，避免单行溢出被裁切 */
+      .az-hero-intro .az-lead { font-size: 13px; white-space: normal; }
+      .az-folio { display: none; }
+      .az-hero-stage { --hero-gap: 48px; }
+      .az-hero-intro { padding: 0; }
+      .az-notices-scroll { height: 120px; }
+      .az-ledger { grid-template-columns: 44px minmax(0, 1fr) minmax(88px, 112px); column-gap: 10px; }
+      .az-lh-comp, .az-lh-phase { display: none; }
+      .az-team-comp, .az-team-phase { display: none; }
+      .az-team-name { font-size: 14px; }
+      .az-news-item { grid-template-columns: 54px 14px minmax(0, 1fr); column-gap: 10px; }
+      .az-sponsor-list { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html.js:not(.loaded) .az-hero [data-hero] { opacity: 1; transform: none; clip-path: none; }
+      html.js .reveal, html.js .reveal.in-view { opacity: 1; transform: none; transition: none; }
+      html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10),
+      html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-rail,
+      html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-rail::before,
+      html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-time,
+      html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-text,
+      html.js .az-sponsor-panel.in-view .az-sponsor-item:nth-child(-n+10) { animation: none; }
+      .az-live-dot, .az-job.is-live::after, .az-notices-scrolltag::before,
+      .az-news-item.urgent .az-news-rail::after,
+      .az-hero::before { animation: none; }
+      .az-notices-track { animation: none; }
+      .az-notices-scroll { height: auto; }
+      .az-hero [data-hero] { transition: none; }
+      .az-btn, .az-job, .az-nav-links a, .az-broadcast-link, .az-expand,
+      .az-rules-link, .az-footer-links a, .az-backtop, .az-rules-close { transition: none; }
+      .az-modal-enter-active, .az-modal-leave-active,
+      .az-modal-enter-active .az-modal-backdrop, .az-modal-leave-active .az-modal-backdrop,
+      .az-modal-enter-active .az-modal-panel, .az-modal-leave-active .az-modal-panel { transition: none; }
+      .az-modal-enter-from, .az-modal-leave-to,
+      .az-modal-enter-from .az-modal-backdrop, .az-modal-leave-to .az-modal-backdrop,
+      .az-modal-enter-from .az-modal-panel, .az-modal-leave-to .az-modal-panel { opacity: 1; transform: none; }
     }
   </style>
 </head>
 <body>
+  <noscript>
+    <div class="az-noscript">本站需要启用 JavaScript 才能加载实时竞速数据，请开启后刷新。</div>
+  </noscript>
+  <div class="az-progress" id="scrollProgress" aria-hidden="true"></div>
+
   <slot />
+
   <script>
     // inspect 模式 — localhost:4321 专属，?inspect 或 localStorage 任一命中即注入
     // 生产环境端口为 80/443，条件自然失效，无需分支判断
@@ -84,6 +926,168 @@
       s.src = '/scripts/inspect.js';
       document.body.appendChild(s);
     }
+
+    // 动效层：导航高度、阅读进度、hero 视差、nav scrollspy、离屏暂停
+    // 统一由「一个 scroll 监听 + 每帧一次 rAF」驱动；每帧先读完尺寸再写样式，避免滚动中反复强制重排
+    (function () {
+      var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var root = document.documentElement;
+      var progress = document.getElementById('scrollProgress');
+
+      var shell = null, shot = null, video = null, track = null, links = null;
+      var heroInView = null;   // 只在状态变化时切换播放，不每帧调 play/pause
+
+      // ── 导航高度 ──
+      var navH = 0;
+      function setNavH() {
+        var nav = document.getElementById('masthead');
+        if (!nav) return;
+        var h = nav.offsetHeight;
+        if (h && h !== navH) { navH = h; root.style.setProperty('--nav-h', h + 'px'); }
+      }
+      setNavH();
+      window.addEventListener('resize', setNavH, { passive: true });
+      new MutationObserver(function () {
+        if (document.getElementById('masthead')) { setNavH(); this.disconnect(); }
+      }).observe(document.body, { childList: true, subtree: true });
+
+      // ── DOM 懒查询（元素由 Vue 客户端渲染）──
+      function cache() {
+        if (!shell) shell = document.querySelector('.az-hero-stage');
+        if (!shot) shot = document.querySelector('.az-hero-shot');
+        if (!track) track = document.querySelector('.az-notices-track');
+        if (!links) {
+          links = [];
+          var as = document.querySelectorAll('.az-nav-links a');
+          for (var i = 0; i < as.length; i++) {
+            links.push({ el: as[i], sec: null, top: 0, id: (as[i].getAttribute('href') || '').replace(/^#/, '') });
+          }
+        }
+      }
+
+      // ── 章节位置：只在尺寸/内容变化时重算，滚动帧内不再读 offsetTop ──
+      function measure() {
+        cache();
+        for (var i = 0; i < links.length; i++) {
+          var sec = document.getElementById(links[i].id);
+          links[i].sec = sec;
+          links[i].top = sec ? sec.offsetTop : 0;
+        }
+      }
+
+      var pending = false;
+      function schedule() {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(paint);
+      }
+
+      function toggleHeroMedia(play) {
+        if (!video) video = document.querySelector('.az-hero-shot');
+        if (video && typeof video.play === 'function') {
+          if (play && !document.hidden) {
+            var pr = video.play();
+            if (pr && pr.catch) pr.catch(function () {});
+          } else {
+            video.pause();
+          }
+        }
+        // 用 class 而不是行内 style：否则会盖掉 CSS 里「悬停暂停」的规则
+        if (track) track.classList.toggle('is-paused', !play);
+      }
+
+      // 毛玻璃面板（.az-notices）在离屏期间 resize 后，回到视口时 backdrop-filter
+      // 可能采样到陈旧的视频背景，出现「错位矩形」。先置 none 渲染一帧，再恢复，
+      // 强制浏览器重新采样 backdrop（跨帧切换比同步切换更可靠，能确保真正重光栅化）。
+      function refreshHeroBackdrops() {
+        var panels = document.querySelectorAll('.az-notices');
+        for (var i = 0; i < panels.length; i++) {
+          panels[i].style.backdropFilter = 'none';
+          panels[i].style.webkitBackdropFilter = 'none';
+        }
+        requestAnimationFrame(function () {
+          for (var j = 0; j < panels.length; j++) {
+            panels[j].style.backdropFilter = '';
+            panels[j].style.webkitBackdropFilter = '';
+          }
+        });
+      }
+
+      function paint() {
+        pending = false;
+        var el = root.scrollingElement || document.documentElement;
+        var y = el.scrollTop;
+        var vh = window.innerHeight || 0;
+
+        // ① 只读：本帧需要的尺寸一次性读完
+        var docH = el.scrollHeight;
+        var heroRect = shell ? shell.getBoundingClientRect() : null;
+
+        // ② 只写：阅读进度
+        if (progress) {
+          var max = (docH - vh) || 1;
+          progress.style.setProperty('--progress', Math.max(0, Math.min(1, y / max)).toFixed(4));
+        }
+
+        // ③ hero：视差 + 离屏暂停（视频解码很贵，离屏停掉，滚动才跟手）
+        if (heroRect) {
+          var inView = heroRect.bottom > -80 && heroRect.top < vh + 80;
+          if (shot) {
+            if (inView && !reduced) {
+              var rel = (heroRect.top + heroRect.height / 2) - vh / 2;
+              shot.style.transform = 'translate3d(0,' + (rel * -0.04).toFixed(1) + 'px,0) scale(1.06)';
+            } else {
+              // 离屏 / reduced-motion 时复位 transform：否则视频带着最后一次视差位移
+              // 残留在合成层，resize 后再滚回大屏，公告面板 backdrop-filter 会采到错位底纹
+              shot.style.transform = '';
+            }
+          }
+          if (!video) video = document.querySelector('.az-hero-shot');
+          if (heroInView !== inView) {
+            heroInView = inView;
+            if (video) toggleHeroMedia(inView);
+            // 回到大屏时强制重挂毛玻璃 backdrop-filter，修复 resize 后的错位矩形
+            if (inView) refreshHeroBackdrops();
+          }
+        }
+
+        // ④ nav 高亮：位置来自缓存，滚动帧内零布局读取
+        if (links && links.length) {
+          var line = y + 180;
+          var nearBottom = vh + y >= docH - 90;
+          var cur = null;
+          for (var i = 0; i < links.length; i++) {
+            if (links[i].sec && links[i].top <= line) cur = links[i];
+          }
+          if (nearBottom) cur = links[links.length - 1];
+          for (var j = 0; j < links.length; j++) {
+            var on = links[j] === cur;
+            links[j].el.classList.toggle('is-active', on);
+            if (on) links[j].el.setAttribute('aria-current', 'true');
+            else links[j].el.removeAttribute('aria-current');
+          }
+        }
+      }
+
+      var measurePending = false;
+      function scheduleMeasure() {
+        if (measurePending) return;
+        measurePending = true;
+        requestAnimationFrame(function () { measurePending = false; measure(); schedule(); });
+      }
+
+      window.addEventListener('scroll', schedule, { passive: true });
+      window.addEventListener('resize', scheduleMeasure, { passive: true });
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) toggleHeroMedia(false);
+        else if (heroInView) toggleHeroMedia(true);
+      });
+      // 数据渲染完成 / 展开收起后重算章节位置
+      new MutationObserver(scheduleMeasure).observe(document.body, { childList: true, subtree: true });
+
+      measure();
+      paint();
+    })();
   </script>
 </body>
 </html>
