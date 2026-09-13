@@ -12,8 +12,6 @@ import { ref, onMounted, onUnmounted, type Ref } from 'vue'
 export interface UseTimerReturn {
   /** 当前已开赛时间显示（'+HH:MM:SS' 或 '--:--:--'） */
   elapsed: Ref<string>
-  /** 获取原始文本（含'开赛'前缀） */
-  getRawText: () => string
 }
 
 function pad2(n: number): string {
@@ -58,8 +56,5 @@ export function useTimer(startTimeStr: string): UseTimerReturn {
 
   return {
     elapsed,
-    getRawText() {
-      return '开赛 ' + elapsed.value
-    },
   }
 }

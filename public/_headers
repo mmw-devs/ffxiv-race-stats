@@ -1,0 +1,18 @@
+# Cloudflare Pages 缓存策略（本文件会被 Astro 原样复制到 dist/_headers）
+# 参考：docs/frontend-architecture.md §3.2
+
+# 构建产物文件名含内容 hash → 永久缓存，零风险
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# hero 视频：单文件 4MB+，避免每次访问都发条件请求
+# 30 天 TTL 兼作「忘记改名」的安全垫（换片务必改文件名，见 SOP）
+/hero-video-*.mp4
+  Cache-Control: public, max-age=2592000
+
+/hero-video-poster*.jpg
+  Cache-Control: public, max-age=2592000
+
+# 注意：/data.json 故意不在此处设置
+# 它是赛事实时数据，保持 CF Pages 默认的 public, max-age=0, must-revalidate
+# 让浏览器每次使用前校验（304 无 body，开销极低），保证首杀时刻数据永远最新

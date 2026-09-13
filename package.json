@@ -20,9 +20,14 @@
   },
   "size-limit": [
     {
-      "name": "Total dist/",
-      "path": "dist/**/*",
+      "name": "Total dist/ (代码，不含素材)",
+      "path": ["dist/**", "!dist/**/*.mp4", "!dist/**/*.jpg"],
       "limit": "150 KB"
+    },
+    {
+      "name": "静态素材 (视频/海报)",
+      "path": ["dist/**/*.mp4", "dist/**/*.jpg"],
+      "limit": "6 MB"
     },
     {
       "name": "index.html",

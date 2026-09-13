@@ -1,54 +1,137 @@
+<!-- App.vue — 根组件：fetch /data.json → validateRaceData 校验 → props 下发 -->
 <template>
-  <div v-if="error" class="error-banner" role="alert">
+  <div v-if="error" class="az-error" role="alert">
     <strong>数据加载失败</strong>
     <p>{{ error }}</p>
-    <button class="error-reload" @click="reload">重新加载</button>
+    <button class="az-error-reload" @click="reload">重新加载</button>
   </div>
-  <div v-else-if="loading" class="loading">加载中...</div>
-  <template v-else>
-    <StatusBar
-      :eventName="meta.eventName ?? ''" :dataCenter="meta.dataCenter ?? ''"
-      :startTime="meta.startTime ?? ''" :status="meta.status"
+  <div v-else-if="loading" class="az-loading">加载中…</div>
+  <div v-else class="az-root">
+    <NavBar
+      :start-time="meta.startTime ?? ''"
+      :status="meta.status"
+      @open-rules="openModal('rules')"
     />
-    <header class="header">
-      <div><div class="header-brand">FFXIV 高难首杀竞速网站</div></div>
-    </header>
-    <HeroSection :meta="meta" :notices="notices" :broadcasters="broadcasters" />
-    <div class="main-grid">
-      <RankingTable :teams="teams" :dungeons="meta.dungeons ?? []" />
-      <Sidebar :meta="meta" :sponsors="sponsors" :teams="teams" :streamCoverage="streamCoverage" />
-    </div>
-    <NewsTicker :news="news" />
-    <section class="placeholder-slot" id="guides">
-      <h2>副本攻略</h2>
-      <p>此区域预留给未来的副本攻略窗口，当前版本暂不实现。</p>
-    </section>
-    <AppFooter :eventName="meta.eventName" />
-    <!-- 全屏遮罩层（仅展开时渲染，避免 position:fixed 覆盖问题） -->
-    <Teleport to="body">
-      <div v-if="expandedId !== null" class="ranking-overlay" @click="expandedId = null"></div>
-    </Teleport>
-  </template>
+
+    <main>
+      <HeroSection :meta="meta" :notices="notices" @open-notices="openModal('notices')" />
+
+      <section class="az-section" id="ranking">
+        <div class="az-container">
+          <SectionHeader index="01" kicker="RACE REPORT" title="实时排名" folio="VOL.01 · P.01" />
+          <ConsoleBar
+            :start-time="meta.startTime ?? ''"
+            :coverage="coverage"
+            :team-count="teams.length"
+            :broadcasters="broadcasters"
+            @open-broadcast="openModal('broadcast')"
+          />
+          <div class="az-main-grid">
+            <RankingTable :teams="teams" :dungeons="meta.dungeons ?? []" />
+          </div>
+        </div>
+      </section>
+
+      <section class="az-section" id="news">
+        <div class="az-container">
+          <SectionHeader index="02" kicker="LIVE TIMELINE" title="速报时间线" folio="VOL.01 · P.02" />
+          <NewsTicker :news="news" />
+        </div>
+      </section>
+
+      <section class="az-section" id="sponsors">
+        <div class="az-container">
+          <SectionHeader index="03" kicker="SPONSORS" title="赞助公示" folio="VOL.01 · P.03" />
+          <SponsorsCard :sponsors="sponsors" />
+        </div>
+      </section>
+
+      <section class="az-section" id="guides">
+        <div class="az-container">
+          <SectionHeader index="04" kicker="GUIDES" title="副本攻略" folio="VOL.01 · P.04" />
+          <GuidesSection />
+        </div>
+      </section>
+    </main>
+
+    <AppFooter :event-name="meta.eventName ?? ''" />
+
+    <!-- 悬浮回顶端按钮 -->
+    <BackToTop />
+
+    <!-- 赛事规则弹窗 -->
+    <Modal
+      :open="activeModal === 'rules'"
+      id="rules"
+      title="赛事规则"
+      kicker="RACE REGULATION"
+      folio="VOL.01 · P.00"
+      @close="closeModal"
+    >
+      <ol class="az-rules">
+        <li>报名窗口以「赛事公告」公布的起止时间为准，逾期不予受理。</li>
+        <li>每队由 8 名选手组成，职业不限，开赛前需完成队伍名单登记。</li>
+        <li>以最新版本高难副本为竞速目标，按首次通关时间先后排序，榜单实时更新。</li>
+        <li>进度与通关记录以官方日志为准，本页榜单为展示层，不参与最终裁决。</li>
+        <li>使用第三方脚本、代打或共享账号等行为将取消成绩，完整细则以正式章程为准。</li>
+      </ol>
+    </Modal>
+
+    <!-- 合作转播台弹窗 -->
+    <Modal
+      :open="activeModal === 'broadcast'"
+      id="broadcast"
+      title="合作转播台"
+      kicker="COVERAGE"
+      folio="VOL.01 · P.00"
+      wide
+      @close="closeModal"
+    >
+      <div class="az-broadcast-modal-list">
+        <BroadcastItem v-for="(b, i) in broadcasters" :key="b.id" :broadcaster="b" :index="i" />
+      </div>
+    </Modal>
+
+    <!-- 赛事公告弹窗 -->
+    <Modal
+      :open="activeModal === 'notices'"
+      id="notices"
+      title="赛事公告"
+      kicker="NOTICE"
+      folio="VOL.01 · P.00"
+      @close="closeModal"
+    >
+      <div class="az-notice-modal-list">
+        <NoticeItem v-for="(n, i) in notices" :key="i" :text="n" :index="i" />
+      </div>
+    </Modal>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, type Ref } from 'vue'
-import { useExpand } from './composables/useExpand.js'
-import StatusBar from './components/StatusBar.vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, type Ref } from 'vue'
+import NavBar from './components/NavBar.vue'
 import HeroSection from './components/HeroSection.vue'
+import SectionHeader from './components/SectionHeader.vue'
+import ConsoleBar from './components/ConsoleBar.vue'
 import RankingTable from './components/RankingTable.vue'
-import Sidebar from './components/Sidebar.vue'
 import NewsTicker from './components/NewsTicker.vue'
+import SponsorsCard from './components/SponsorsCard.vue'
+import GuidesSection from './components/GuidesSection.vue'
 import AppFooter from './components/AppFooter.vue'
+import Modal from './components/Modal.vue'
+import BackToTop from './components/BackToTop.vue'
+import BroadcastItem from './components/BroadcastItem.vue'
+import NoticeItem from './components/NoticeItem.vue'
+import { validateRaceData } from './utils/validateRaceData'
 import type { Meta, Team, NewsItem, Broadcaster } from '../types/race-data'
-import type { Coverage } from './components/StreamCover.vue'
 
 interface Sponsor {
   name: string
   desc: string
 }
 
-const meta: Ref<Meta> = ref<Meta>({ dungeons: [] } as unknown as Meta)
+const meta: Ref<Meta> = ref<Meta>({} as Meta)
 const teams: Ref<Team[]> = ref<Team[]>([])
 const news: Ref<NewsItem[]> = ref<NewsItem[]>([])
 const broadcasters: Ref<Broadcaster[]> = ref<Broadcaster[]>([])
@@ -57,11 +140,17 @@ const sponsors: Ref<Sponsor[]> = ref<Sponsor[]>([])
 const loading = ref(true)
 const error: Ref<string | null> = ref<string | null>(null)
 
-// 展开态互斥：同一时间只有一个模块展开（'ranking' | 'sponsor' | 'notice' | null）
-const expandedId = useExpand()
+// 弹窗状态：同时间最多打开一个
+type ModalKey = 'rules' | 'broadcast' | 'notices' | null
+const activeModal = ref<ModalKey>(null)
+function openModal(key: Exclude<ModalKey, null>): void { activeModal.value = key }
+function closeModal(): void { activeModal.value = null }
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape') activeModal.value = null
+}
 
 // 直播覆盖统计
-const streamCoverage = computed<Coverage>(() => {
+const coverage = computed(() => {
   let totalPlayers = 0, streamingPlayers = 0, teamsWithCoverage = 0
   for (const t of teams.value) {
     let hasStream = false
@@ -81,20 +170,23 @@ async function loadData(): Promise<void> {
     const resp = await fetch('/data.json')
     if (!resp.ok) throw new Error('加载失败: HTTP ' + resp.status)
     const data = await resp.json()
+    const check = validateRaceData(data)
+    if (!check.ok) {
+      throw new Error('数据形状校验失败: ' + check.errors.join('；'))
+    }
     meta.value = (data.meta || {}) as Meta
-    teams.value = data.teams || []
-    news.value = data.news || []
-    broadcasters.value = data.broadcasters || []
-    notices.value = data.notices || []
-    sponsors.value = data.sponsors || []
+    teams.value = (data.teams || []) as Team[]
+    news.value = (data.news || []) as NewsItem[]
+    broadcasters.value = (data.broadcasters || []) as Broadcaster[]
+    notices.value = (data.notices || []) as string[]
+    sponsors.value = (data.sponsors || []) as Sponsor[]
   } catch (e) {
     console.error('数据加载失败:', e)
     error.value = (e instanceof Error && e.message) ? e.message : '未知错误，请稍后重试'
   } finally {
     loading.value = false
-    // 等待 Vue 渲染 DOM 后再启动入场序列
     await nextTick()
-    startEntrySequence()
+    setupReveal()
   }
 }
 
@@ -102,95 +194,34 @@ function reload(): void {
   loadData()
 }
 
-onMounted(loadData)
-
-// 入场序列：用 animation-delay 错开各模块的入场动画
-function startEntrySequence(): void {
-  const entries = document.querySelectorAll<HTMLElement>('.anim-entry')
-  entries.forEach((el, i) => {
-    el.style.animationDelay = (i * 70) + 'ms'
+// 滚动入场：交错 reveal 各模块
+function setupReveal(): void {
+  const els = document.querySelectorAll<HTMLElement>('.reveal')
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (!('IntersectionObserver' in window) || reduced) {
+    els.forEach(el => el.classList.add('in-view'))
+    return
+  }
+  // threshold 用 0.01 + 底部 -60px 内缩：
+  // ① 比视口还高的区块（展开后的排名表/速报列表）也能触发，不会因比例达不到阈值而永远不可见
+  // ② 元素真正进入视口 60px 后再入场，避免“刚露个边就闪一下”
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      if (en.isIntersecting) {
+        en.target.classList.add('in-view')
+        io.unobserve(en.target)
+      }
+    })
+  }, { threshold: 0.01, rootMargin: '0px 0px -60px 0px' })
+  els.forEach((el, i) => {
+    el.style.setProperty('--reveal-delay', (i % 4) * 90 + 'ms')
+    io.observe(el)
   })
 }
+
+onMounted(() => {
+  document.addEventListener('keydown', onKeydown)
+  loadData()
+})
+onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 </script>
-
-<style>
-.loading {
-  display: flex; align-items: center; justify-content: center;
-  min-height: 100vh; font-family: var(--font-mono); color: var(--muted);
-}
-.error-banner {
-  margin: 24px 0;
-  padding: 16px 20px;
-  border: 2px solid var(--live);
-  background: oklch(98% 0.04 28);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.error-banner strong {
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-.error-banner p {
-  margin: 0;
-  flex: 1;
-  min-width: 200px;
-  color: var(--muted);
-}
-.error-reload {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  padding: 6px 14px;
-  border: 2px solid var(--fg);
-  background: var(--fg);
-  color: var(--bg);
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-.error-reload:hover { background: var(--bg); color: var(--fg); }
-.header {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  padding: 24px 0 20px; border-bottom: 2px solid var(--border);
-  margin-bottom: 32px; flex-wrap: wrap; gap: 16px;
-}
-.header-brand {
-  font-family: var(--font-display); font-size: 18px;
-  font-style: italic; color: var(--muted);
-}
-.main-grid {
-  display: grid; grid-template-columns: 1fr 280px;
-  gap: 32px; margin-bottom: 48px; align-items: start;
-}
-@media (max-width: 860px) { .main-grid { grid-template-columns: 1fr; } }
-.placeholder-slot {
-  border: 2px dashed var(--border); padding: 32px 24px;
-  text-align: center; margin-bottom: 48px;
-}
-.placeholder-slot h2 { margin-bottom: 8px; }
-.placeholder-slot p { font-size: 12px; color: var(--muted); margin: 0 auto; }
-
-/* 全屏遮罩 */
-.ranking-overlay {
-  position: fixed; inset: 0; z-index: 900;
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-}
-
-/* 入场动画 — 使用 animation（一次性播放 + forwards 保持终态），避免 transition 被 Vue patch 重新触发 */
-.anim-entry {
-  animation: entry-in 0.45s ease both;
-}
-@keyframes entry-in {
-  from { opacity: 0; transform: translateY(14px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .anim-entry { animation: none; }
-}
-</style>
