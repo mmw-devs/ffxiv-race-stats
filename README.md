@@ -57,7 +57,6 @@ dev 仓库（本仓库）
 │   ├── scripts/            开发者工具（get-jit-pem.ts）
 │   └── npm/                agent runtime npm 依赖
 ├── agent-src/              ops 仓库镜像（dev → ops 推送源）
-└── docs/dev-onboarding-guide.md
 ```
 
 ## 分支规范
