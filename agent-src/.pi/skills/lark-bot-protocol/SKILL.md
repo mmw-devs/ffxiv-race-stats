@@ -328,4 +328,3 @@ LLM 拿到后必须调用 content-pr skill 用该 commitMessage 提交 PR（不�
 - `agent-src/scripts/op-log-schema.ts` — OPERATOR_LOG 模块（generateLog / formatCommitMessage / OPERATOR_REGISTRY，PR-4 任务日志底层）
 - `agent-src/scripts/validate-op-log.ts` — ops CI 校验脚本（PR 合并前）
 - `agent-src/.pi/extensions/lark-bot/process/children-registry.ts` — 子进程注册表（实测 6-3）
-- `docs/lark-bot-migration-roadmap.md` — N4 渐进迁移路线图
