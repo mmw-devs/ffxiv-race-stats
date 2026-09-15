@@ -1,47 +1,34 @@
+<!-- NewsTicker.vue — 速报时间线 -->
 <template>
-  <section class="news-section">
-    <h2 class="anim-entry">速报时间线</h2>
-    <TransitionGroup name="news">
-      <div v-for="n in news" :key="n.id" class="ticker-item">
-        <span class="ticker-time">{{ n.time }}</span>
-        <span class="ticker-text" :class="{ urgent: n.urgent }">{{ n.text }}</span>
+  <div class="az-news-wrap reveal">
+    <div class="az-news">
+      <div v-for="(n, i) in visibleNews" :key="n.id" class="az-news-item" :class="{ urgent: n.urgent }" :style="{ '--i': Math.min(i, 10) }">
+        <span class="az-news-time az-num">{{ n.time }}</span>
+        <!-- 时间轴：竖线 + 节点（纯装饰） -->
+        <span class="az-news-rail" aria-hidden="true"></span>
+        <span class="az-news-text" :class="{ urgent: n.urgent }">{{ n.text }}</span>
       </div>
-    </TransitionGroup>
-  </section>
+    </div>
+    <button
+      v-if="news.length > 10"
+      type="button"
+      class="az-expand"
+      :class="{ 'is-open': expanded }"
+      :aria-expanded="expanded"
+      @click="expanded = !expanded"
+    >
+      {{ expanded ? '收起' : '展开全部 ' + news.length + ' 条速报' }}
+    </button>
+  </div>
 </template>
 
 <script setup lang="ts">
+import { ref, computed } from 'vue'
 import type { NewsItem } from '../../types/race-data'
-defineProps<{ news: NewsItem[] }>()
-</script>
 
-<style scoped>
-.news-section { margin-bottom: 48px; }
-.news-section h2 {
-  padding-bottom: 14px;
-  border-bottom: 2px solid var(--border);
-  margin-bottom: 16px;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 28px;
-}
-.ticker-item {
-  display: grid;
-  grid-template-columns: 64px 1fr;
-  gap: 14px;
-  padding: 9px 0;
-  border-bottom: 2px solid var(--border);
-  font-size: 13px;
-  align-items: baseline;
-}
-.ticker-time {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--muted);
-  letter-spacing: 0.04em;
-}
-.ticker-text.urgent { color: var(--warn); }
-.news-enter-active { animation: news-in 0.4s linear; }
-.news-leave-active { animation: news-in 0.4s linear reverse; }
-@keyframes news-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
-</style>
+const props = defineProps<{ news: NewsItem[] }>()
+
+const expanded = ref(false)
+// 默认只渲染前 10 条（与入场动画只对首批 10 条生效一致），展开后全量
+const visibleNews = computed(() => (expanded.value ? props.news : props.news.slice(0, 10)))
+</script>
