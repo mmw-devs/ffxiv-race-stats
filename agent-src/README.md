@@ -78,7 +78,6 @@ npm run validate-op-log   # 校验操作日志
 
 | 文档 | 内容 |
 |------|------|
-| [运营系统设计](docs/operations-system-design.md) | 双轨分支模型、Agent 能力设计、CI 与质量保障 |
 | [.pi/SKILL.md](.pi/SKILL.md) | PI Agent 在本仓库的工作机制 |
 
 ## 相关链接

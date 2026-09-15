@@ -3,8 +3,6 @@
 /**
  * 合并门禁 Extension — 骨架（路线图阶段 4 实现）
  *
- * 设计文档: docs/operations-system-design.md §5.4 "合并门禁"
- *
  * 职责：
  *   - 在执行 content/* → main 合并前，检查运营者是否已确认
  *   - 未确认 → 拒绝执行，返回可操作的原因

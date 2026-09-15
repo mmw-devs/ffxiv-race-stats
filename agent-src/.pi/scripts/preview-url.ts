@@ -3,8 +3,6 @@
 /**
  * 预览链接自动构造 Extension
  *
- * 设计文档: docs/operations-system-design.md §5.4 "预览链接自动构造"
- *
  * Cloudflare Pages 分支预览 URL 格式:
  *   https://<sanitized-branch>.ffxiv-race-stats.pages.dev
  *
