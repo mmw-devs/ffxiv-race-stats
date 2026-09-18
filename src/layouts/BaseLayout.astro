@@ -934,8 +934,12 @@
       var root = document.documentElement;
       var progress = document.getElementById('scrollProgress');
 
-      var shell = null, shot = null, video = null, track = null, links = null;
-      var heroInView = null;   // 只在状态变化时切换播放，不每帧调 play/pause
+      var shell: Element | null = null;
+      var shot: HTMLElement | null = null;
+      var video: HTMLVideoElement | null = null;
+      var track: Element | null = null;
+      var links: { el: Element; sec: HTMLElement | null; top: number; id: string }[] | null = null;
+      var heroInView: boolean | null = null;   // 只在状态变化时切换播放，不每帧调 play/pause
 
       // ── 导航高度 ──
       var navH = 0;
@@ -947,14 +951,15 @@
       }
       setNavH();
       window.addEventListener('resize', setNavH, { passive: true });
-      new MutationObserver(function () {
-        if (document.getElementById('masthead')) { setNavH(); this.disconnect(); }
-      }).observe(document.body, { childList: true, subtree: true });
+      var navObserver = new MutationObserver(function () {
+        if (document.getElementById('masthead')) { setNavH(); navObserver.disconnect(); }
+      });
+      navObserver.observe(document.body, { childList: true, subtree: true });
 
       // ── DOM 懒查询（元素由 Vue 客户端渲染）──
       function cache() {
         if (!shell) shell = document.querySelector('.az-hero-stage');
-        if (!shot) shot = document.querySelector('.az-hero-shot');
+        if (!shot) shot = document.querySelector<HTMLElement>('.az-hero-shot');
         if (!track) track = document.querySelector('.az-notices-track');
         if (!links) {
           links = [];
@@ -968,6 +973,7 @@
       // ── 章节位置：只在尺寸/内容变化时重算，滚动帧内不再读 offsetTop ──
       function measure() {
         cache();
+        if (!links) return;
         for (var i = 0; i < links.length; i++) {
           var sec = document.getElementById(links[i].id);
           links[i].sec = sec;
@@ -982,8 +988,8 @@
         requestAnimationFrame(paint);
       }
 
-      function toggleHeroMedia(play) {
-        if (!video) video = document.querySelector('.az-hero-shot');
+      function toggleHeroMedia(play: boolean) {
+        if (!video) video = document.querySelector<HTMLVideoElement>('.az-hero-shot');
         if (video && typeof video.play === 'function') {
           if (play && !document.hidden) {
             var pr = video.play();
@@ -1000,22 +1006,22 @@
       // 可能采样到陈旧的视频背景，出现「错位矩形」。先置 none 渲染一帧，再恢复，
       // 强制浏览器重新采样 backdrop（跨帧切换比同步切换更可靠，能确保真正重光栅化）。
       function refreshHeroBackdrops() {
-        var panels = document.querySelectorAll('.az-notices');
+        var panels = document.querySelectorAll<HTMLElement>('.az-notices');
         for (var i = 0; i < panels.length; i++) {
           panels[i].style.backdropFilter = 'none';
-          panels[i].style.webkitBackdropFilter = 'none';
+          (panels[i].style as any).webkitBackdropFilter = 'none';
         }
         requestAnimationFrame(function () {
           for (var j = 0; j < panels.length; j++) {
             panels[j].style.backdropFilter = '';
-            panels[j].style.webkitBackdropFilter = '';
+            (panels[j].style as any).webkitBackdropFilter = '';
           }
         });
       }
 
       function paint() {
         pending = false;
-        var el = root.scrollingElement || document.documentElement;
+        var el = (root as any).scrollingElement || document.documentElement;
         var y = el.scrollTop;
         var vh = window.innerHeight || 0;
 
@@ -1042,7 +1048,7 @@
               shot.style.transform = '';
             }
           }
-          if (!video) video = document.querySelector('.az-hero-shot');
+          if (!video) video = document.querySelector<HTMLVideoElement>('.az-hero-shot');
           if (heroInView !== inView) {
             heroInView = inView;
             if (video) toggleHeroMedia(inView);
