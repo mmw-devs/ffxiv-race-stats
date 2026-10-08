@@ -1,9 +1,9 @@
 // data.json 运行时形状校验（防御性，A3）。
 //
 // data.json 在 ops 仓库已过 Ajv + schema 三阶段严格校验，正常不会错；
-// 这里只做「渲染直接读取、缺失会崩」的字段形状轻量检查，形状异常时让
-// App.vue 走 error 态（带重试按钮），而不是静默错渲染。
-// 值域校验（phase/region/bossHP 白名单等）仍是 ops CI 的职责，此处不重复。
+// 这里只做「字段形状 / 类型」检查（含渲染直接读取、缺失会崩的字段，以及 schema
+// 声明的必需字段），形状异常时让 App.vue 走 error 态（带重试按钮），而不是静默错渲染。
+// 值域校验（phase/region/bossHP 白名单、pattern/enum/范围等）仍是 ops CI 的职责，此处不重复。
 
 export interface ValidationResult {
   ok: boolean
@@ -33,8 +33,29 @@ export function validateRaceData(data: unknown): ValidationResult {
   } else {
     checkStr(data.meta, 'eventName', 'meta', errors)
     checkStr(data.meta, 'status', 'meta', errors)
+    // 可选字段：仅校验「出现时类型正确」
     if (data.meta.startTime !== undefined && !isStr(data.meta.startTime)) {
       errors.push('meta.startTime 应为 string')
+    }
+    if (data.meta.edition !== undefined && !isStr(data.meta.edition)) {
+      errors.push('meta.edition 应为 string')
+    }
+    if (data.meta.boss !== undefined && !isStr(data.meta.boss)) {
+      errors.push('meta.boss 应为 string')
+    }
+    if (data.meta.dataCenter !== undefined && !isStr(data.meta.dataCenter)) {
+      errors.push('meta.dataCenter 应为 string')
+    }
+    // dungeons：UI 直接读取（RankingTable/RankingRow 据此决定 phase 显示），做形状检查
+    if (!isArr(data.meta.dungeons)) {
+      errors.push('meta.dungeons 应为数组')
+    } else {
+      data.meta.dungeons.forEach((d, i) => {
+        const p = `meta.dungeons[${i}]`
+        if (!isObj(d)) { errors.push(`${p} 应为对象`); return }
+        checkStr(d, 'id', p, errors)
+        checkStr(d, 'name', p, errors)
+      })
     }
   }
 
@@ -46,10 +67,12 @@ export function validateRaceData(data: unknown): ValidationResult {
       const p = `teams[${i}]`
       if (!isObj(t)) { errors.push(`${p} 应为对象`); return }
       checkStr(t, 'id', p, errors)
+      if (t.name !== undefined && !isStr(t.name)) errors.push(`${p}.name 应为 string`)
       if (!isNum(t.rank)) errors.push(`${p}.rank 应为 number`)
       if (!isNum(t.bossHP)) errors.push(`${p}.bossHP 应为 number`)
       checkStr(t, 'phase', p, errors)
       checkStr(t, 'region', p, errors)
+      if (!isBool(t.isLive)) errors.push(`${p}.isLive 应为 boolean`)
       if (!isArr(t.players) || t.players.length !== 8) {
         errors.push(`${p}.players 应为恰好 8 项的数组`)
       } else {
@@ -60,6 +83,7 @@ export function validateRaceData(data: unknown): ValidationResult {
           checkStr(pl, 'role', q, errors)
           checkStr(pl, 'stream', q, errors)
           if (!isBool(pl.streaming)) errors.push(`${q}.streaming 应为 boolean`)
+          if (pl.isLive !== undefined && !isBool(pl.isLive)) errors.push(`${q}.isLive 应为 boolean`)
         })
       }
     })

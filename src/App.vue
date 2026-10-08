@@ -18,7 +18,7 @@
 
       <section class="az-section" id="ranking">
         <div class="az-container">
-          <SectionHeader index="01" kicker="RACE REPORT" title="实时排名" folio="VOL.01 · P.01" />
+          <SectionHeader index="01" kicker="RACE REPORT" title="实时排名" :folio="`VOL.${meta.edition ?? ''} · P.01`" />
           <ConsoleBar
             :start-time="meta.startTime ?? ''"
             :coverage="coverage"
@@ -34,27 +34,27 @@
 
       <section class="az-section" id="news">
         <div class="az-container">
-          <SectionHeader index="02" kicker="LIVE TIMELINE" title="速报时间线" folio="VOL.01 · P.02" />
+          <SectionHeader index="02" kicker="LIVE TIMELINE" title="速报时间线" :folio="`VOL.${meta.edition ?? ''} · P.02`" />
           <NewsTicker :news="news" />
         </div>
       </section>
 
       <section class="az-section" id="sponsors">
         <div class="az-container">
-          <SectionHeader index="03" kicker="SPONSORS" title="赞助公示" folio="VOL.01 · P.03" />
+          <SectionHeader index="03" kicker="SPONSORS" title="赞助公示" :folio="`VOL.${meta.edition ?? ''} · P.03`" />
           <SponsorsCard :sponsors="sponsors" />
         </div>
       </section>
 
       <section class="az-section" id="guides">
         <div class="az-container">
-          <SectionHeader index="04" kicker="GUIDES" title="副本攻略" folio="VOL.01 · P.04" />
+          <SectionHeader index="04" kicker="GUIDES" title="副本攻略" :folio="`VOL.${meta.edition ?? ''} · P.04`" />
           <GuidesSection />
         </div>
       </section>
     </main>
 
-    <AppFooter :event-name="meta.eventName ?? ''" />
+    <AppFooter :event-name="meta.eventName ?? ''" :edition="meta.edition ?? ''" />
 
     <!-- 悬浮回顶端按钮 -->
     <BackToTop />
@@ -65,7 +65,7 @@
       id="rules"
       title="赛事规则"
       kicker="RACE REGULATION"
-      folio="VOL.01 · P.00"
+      :folio="`VOL.${meta.edition ?? ''} · P.00`"
       @close="closeModal"
     >
       <ol class="az-rules">
@@ -83,7 +83,7 @@
       id="broadcast"
       title="合作转播台"
       kicker="COVERAGE"
-      folio="VOL.01 · P.00"
+      :folio="`VOL.${meta.edition ?? ''} · P.00`"
       wide
       @close="closeModal"
     >
@@ -98,7 +98,7 @@
       id="notices"
       title="赛事公告"
       kicker="NOTICE"
-      folio="VOL.01 · P.00"
+      :folio="`VOL.${meta.edition ?? ''} · P.00`"
       @close="closeModal"
     >
       <div class="az-notice-modal-list">
