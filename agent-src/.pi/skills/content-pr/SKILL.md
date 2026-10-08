@@ -71,7 +71,7 @@ PR-4 之前版本由 LLM 自行构造 commit message，遵循下方"commit messa
   - `race-ops-bot`
   - 空字符串 / `unknown`
 - lark-bot 未提供 operator 上下文（值为 `unknown` / 缺失）时：**不得 commit，不得创建 PR**
-- CI 校验：`scripts/validate-op-log.js` 会拒绝未在 `OPERATOR_REGISTRY` 内的 user_id
+- CI 校验：`scripts/validate-op-log.ts` 会拒绝日志结构不合法或变更不一致的 commit
 
 ### 2. ⚠️ 汇报并硬停止（必须执行，不可跳过）
 

@@ -5,7 +5,7 @@
 //
 // 覆盖：
 //   - larkbot_record_change: 追加变更到 buffer / 不存在的 chatId 拒绝
-//   - larkbot_commit_changes: buffer → LogEntry → commit message / buffer 清空 / OPERATOR_REGISTRY 校验
+//   - larkbot_commit_changes: buffer → LogEntry → commit message / buffer 清空 / operator 不再校验
 //   - larkbot_close_business_session: ended 广播 / 释放槽位 / 清理 buffer
 //   - larkbot_query_journal: 查询 buffer 状态
 
@@ -54,7 +54,7 @@ vi.mock("../../../scripts/lark-bot/business/broadcast.js", () => ({
   }),
 }));
 
-// Mock identity-resolver.ts — 默认成功解析为 OPERATOR_REGISTRY 中的 operator
+// Mock identity-resolver.ts — 默认成功解析为稳定 user_id
 let mockResolveResult: any = { operator: "38a32652", claim: "user_id", name: "weunimix" };
 vi.mock("../../../scripts/lark-bot/identity-resolver.js", () => ({
   createIdentityResolver: () => ({
@@ -248,19 +248,6 @@ describe("larkbot_commit_changes", () => {
     expect(result.details.ok).toBe(false);
     expect(result.isError).toBe(true);
   });
-
-  it("operator 未在 OPERATOR_REGISTRY → 拒绝", async () => {
-    // mock resolveOperator 返回非注册表的 operator
-    mockResolveResult = { operator: "unknown_user_id", claim: "user_id", name: null };
-    await ensureAuthorizedBuffer(); // 重新创建（mocks 已重置）
-
-    // 由于 matched 时校验 isOperatorAllowed，registerTool 内部会拒绝创建 buffer
-    // 这里直接验证 buffer 缺失
-    const commitTool = mockPi.tools.get("larkbot_commit_changes");
-    const result = await commitTool.execute("c1", { chatId: VALID_CHAT_ID, shortDesc: "test" });
-
-    expect(result.details.ok).toBe(false);
-  });
 });
 
 describe("larkbot_close_business_session", () => {
@@ -339,7 +326,7 @@ describe("扩展 larkbot_authorize_user（PR-4 buffer 初始化）", () => {
     expect(state.details.changesCount).toBe(0);
   });
 
-  it("matched 时 operator 未在 OPERATOR_REGISTRY → 拒绝", async () => {
+  it("matched 时 identity 解析失败 → 拒绝（无注册表检查）", async () => {
     mockResolveResult = null; // identity-resolver 解析失败
     extensionFn(mockPi as any);
     const authTool = mockPi.tools.get("larkbot_authorize_user");
@@ -348,6 +335,6 @@ describe("扩展 larkbot_authorize_user（PR-4 buffer 初始化）", () => {
     const authResult = await authTool.execute("auth", { openId: VALID_OPEN_ID, chatId: FRESH_CHAT_ID });
 
     expect(authResult.details.status).toBe("auth_module_error");
-    expect(authResult.details.reason).toMatch(/operator_not_in_registry/);
+    expect(authResult.details.reason).toMatch(/identity_resolve_failed/);
   });
 });

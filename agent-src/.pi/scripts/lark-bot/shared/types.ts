@@ -45,7 +45,7 @@ export interface PendingTask {
   createTime: string;        // 飞书原始时间
   attemptCount: number;      // prompt 投递尝试次数（success:false 时递增重试）
   operator: string;          // 飞书 user_id（lark-bot 解析后注入）
-  operatorName: string | null; // OPERATOR_REGISTRY 中的展示名
+  operatorName: string | null; // 当前实现恒为 null（已废除 OPERATOR_REGISTRY）
   currentSubject?: string;   // 最近一次 task_log 上报的 subject（用于去重）
 }
 
@@ -177,7 +177,7 @@ export interface TaskJournalEntry {
   eventTime: string;          // ISO 8601 UTC
   promptId: string;           // f-<seq>-<msgId后8位>
   operator: string;           // 飞书 user_id（PR #138 注入）
-  operatorName: string | null; // OPERATOR_REGISTRY 展示名
+  operatorName: string | null; // 当前实现恒为 null（已废除 OPERATOR_REGISTRY）
   state: TaskState;           // 当前任务状态
   subject?: string;           // agent 通过 task_log 事件上报的业务主题
   durationMs?: number;        // 终止类条目填充
