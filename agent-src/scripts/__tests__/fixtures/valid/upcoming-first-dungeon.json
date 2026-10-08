@@ -1,22 +1,33 @@
 {
   "meta": {
     "eventName": "FFXIV 高难首杀竞速",
-    "edition": "第1期",
+    "edition": "04",
     "dungeons": [
       {
         "id": "M1S",
-        "name": "欧米茄绝境战 M1S"
+        "name": "零式 1 层"
       },
       {
         "id": "M2S",
-        "name": "欧米茄绝境战 M2S"
+        "name": "零式 2 层"
+      },
+      {
+        "id": "M3S",
+        "name": "零式 3 层"
+      },
+      {
+        "id": "M4S",
+        "name": "零式 4 层"
       }
     ],
+    "boss": "欧米茄",
+    "dataCenter": "Aether",
     "status": "upcoming"
   },
   "teams": [
     {
       "id": "t1",
+      "name": "Alpha",
       "rank": 1,
       "bossHP": 100,
       "phase": "M1S-P1",
@@ -27,62 +38,55 @@
           "job": "PLD",
           "role": "tank",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
         },
         {
           "job": "WAR",
           "role": "tank",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
-        },
-        {
-          "job": "DRK",
-          "role": "tank",
-          "stream": "#",
-          "streaming": false,
-          "isLive": false
-        },
-        {
-          "job": "GNB",
-          "role": "tank",
-          "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
         },
         {
           "job": "WHM",
           "role": "healer",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
         },
         {
           "job": "SCH",
           "role": "healer",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
         },
         {
-          "job": "AST",
-          "role": "healer",
+          "job": "MNK",
+          "role": "dps",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
         },
         {
-          "job": "SGE",
-          "role": "healer",
+          "job": "DRG",
+          "role": "dps",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
+        },
+        {
+          "job": "NIN",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "BRD",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
         }
       ]
     },
     {
       "id": "t2",
+      "name": "Beta",
       "rank": 2,
       "bossHP": 100,
       "phase": "M1S-P1",
@@ -93,63 +97,57 @@
           "job": "PLD",
           "role": "tank",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
         },
         {
           "job": "WAR",
           "role": "tank",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
-        },
-        {
-          "job": "DRK",
-          "role": "tank",
-          "stream": "#",
-          "streaming": false,
-          "isLive": false
-        },
-        {
-          "job": "GNB",
-          "role": "tank",
-          "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
         },
         {
           "job": "WHM",
           "role": "healer",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
         },
         {
           "job": "SCH",
           "role": "healer",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
         },
         {
-          "job": "AST",
-          "role": "healer",
+          "job": "MNK",
+          "role": "dps",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
         },
         {
-          "job": "SGE",
-          "role": "healer",
+          "job": "DRG",
+          "role": "dps",
           "stream": "#",
-          "streaming": false,
-          "isLive": false
+          "streaming": false
+        },
+        {
+          "job": "NIN",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "BRD",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
         }
       ]
     }
   ],
   "news": [],
   "broadcasters": [],
-  "notices": [],
+  "notices": [
+    "本赛事数据由运营团队人工维护，如发现队伍进度或比分有误，请及时联系赛事管理员进行核对与更正。"
+  ],
   "sponsors": []
 }
