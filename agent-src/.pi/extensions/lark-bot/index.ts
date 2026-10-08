@@ -96,12 +96,10 @@ import {
 } from "../../scripts/lark-bot/business/slots.js";
 import { log as sharedLog } from "../../scripts/lark-bot/shared/logger.js";
 import { tryReserveAuthorizedSlot, releaseAuthorizedSlot } from "../../scripts/lark-bot/interactive/session-manager.js";
-// PR-4：OPERATOR_LOG 模块（任务日志生成 + 校验 + 注册表）
+// PR-4：OPERATOR_LOG 模块（任务日志生成 + 校验）
 import {
   generateLog,
   formatCommitMessage,
-  isOperatorAllowed,
-  getOperatorName,
 } from "../../../scripts/op-log-schema.js";
 import { emitTaskJournal } from "../../scripts/lark-bot/shared/logger.js";
 
@@ -340,9 +338,9 @@ function closeBusinessSession(chatId: string, reason: string): void {
  * 提交后 changes 清空，会话元数据保留（支持一次会话多次 PR 提交）。
  */
 interface TaskJournal {
-  /** OPERATOR_REGISTRY 校验通过的飞书 user_id */
+  /** 飞书 user_id（由 identity-resolver 解析）*/
   operator: string;
-  /** OPERATOR_REGISTRY[operator].name */
+  /** 展示名（当前实现恒为 null，预留字段）*/
   operatorName: string | null;
   /** 业务私聊会话开始时刻（ISO 8601） */
   sessionStartedAt: string;
@@ -891,31 +889,17 @@ export default function (pi: any) {
         // PR-4：解析 operator + 创建 task_journal buffer
         const operatorCtx = await extensionIdentityResolver.resolveOperator(params.openId);
         if (!operatorCtx) {
-          // fail-closed：未在 OPERATOR_REGISTRY，回滚所有状态
-          releaseBusinessSlot();
-          sessionKinds.delete(params.chatId);
-          chatAuthStates.delete(params.chatId);
-          businessLastActivityAt.delete(params.chatId);
-          tryReserveTempSlot(); // 回到 temp 域
-          sessionKinds.set(params.chatId, "p2p-temp");
-          console.error(`[lark-bot ext] larkbot_authorize_user matched 但 operator 未注册 openId=${params.openId.slice(-12)}`);
-          return {
-            content: [{ type: "text", text: `❌ operator 未在 OPERATOR_REGISTRY 中` }],
-            details: { status: "auth_module_error", reason: "operator_not_in_registry" },
-            isError: true,
-          };
-        }
-        // 双保险
-        if (!isOperatorAllowed(operatorCtx.operator)) {
+          // identity-resolver 解析失败：open_id 格式非法或 lark-cli 错误
           releaseBusinessSlot();
           sessionKinds.delete(params.chatId);
           chatAuthStates.delete(params.chatId);
           businessLastActivityAt.delete(params.chatId);
           tryReserveTempSlot();
           sessionKinds.set(params.chatId, "p2p-temp");
+          console.error(`[lark-bot ext] larkbot_authorize_user identity 解析失败 openId=${params.openId.slice(-12)}`);
           return {
-            content: [{ type: "text", text: `❌ operator ${operatorCtx.operator} 未在 OPERATOR_REGISTRY 中` }],
-            details: { status: "auth_module_error", reason: "operator_not_in_registry" },
+            content: [{ type: "text", text: `❌ identity 解析失败：open_id=${params.openId.slice(-12)}（格式非法或 lark-cli 错误）` }],
+            details: { status: "auth_module_error", reason: "identity_resolve_failed" },
             isError: true,
           };
         }
@@ -985,7 +969,7 @@ export default function (pi: any) {
     label: "解析飞书 user_id",
     description:
       "把飞书 open_id 解析为稳定 user_id。LRU 缓存（成功 TTL 1h，失败 30s）。" +
-      "校验 user_id 是否在 OPERATOR_REGISTRY。PR-4 task_journal buffer 初始化时调用。" +
+      "PR-4 task_journal buffer 初始化时调用。" +
       "（PR-2: registerTool 包装 identity-resolver.ts resolveOperator）",
     parameters: Type.Object({
       openId: Type.String({ description: "飞书 open_id" }),
@@ -994,7 +978,7 @@ export default function (pi: any) {
       const ctx = await extensionIdentityResolver.resolveOperator(params.openId);
       if (ctx === null) {
         return {
-          content: [{ type: "text", text: `❌ 解析失败：open_id=${params.openId.slice(-12)} 不在 OPERATOR_REGISTRY 或 lark-cli 错误` }],
+          content: [{ type: "text", text: `❌ 解析失败：open_id=${params.openId.slice(-12)}（格式非法或 lark-cli 错误）` }],
           details: { ok: false, operator: null },
           isError: true,
         };
@@ -1107,14 +1091,6 @@ export default function (pi: any) {
         return {
           content: [{ type: "text", text: `❌ buffer 为空或不存在：chatId=${params.chatId.slice(-12)}` }],
           details: { ok: false, error: "no_changes" },
-          isError: true,
-        };
-      }
-      // 防御性二次校验（避免 buffer 创建后 OPERATOR_REGISTRY 变化）
-      if (!isOperatorAllowed(journal.operator)) {
-        return {
-          content: [{ type: "text", text: `❌ operator ${journal.operator} 未在 OPERATOR_REGISTRY 中` }],
-          details: { ok: false, error: "operator_not_in_registry" },
           isError: true,
         };
       }

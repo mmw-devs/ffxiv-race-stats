@@ -259,7 +259,7 @@ lark-bot 维护两个域：
 
 **场景 A：提交 PR（不关闭会话）**
 
-1. LLM 调 `larkbot_commit_changes({chatId, shortDesc})` — buffer 非空校验 + operator 在 OPERATOR_REGISTRY 校验
+1. LLM 调 `larkbot_commit_changes({chatId, shortDesc})` — buffer 非空校验
 2. lark-bot 返回 commitMessage + journalReset=true
 3. LLM 拿到 commitMessage 调 content-pr skill 完成：git commit / push / gh pr create / 等待合并 / gh pr merge
    - **commitMessage 必须 100% 原样使用，不得修改任何字符**（包括 shortDesc / 字段顺序 / JSON 缩进 / 反引号数量）
@@ -305,8 +305,7 @@ LLM 拿到后必须调用 content-pr skill 用该 commitMessage 提交 PR（不�
 
 ### 6.5 校验机制
 
-- `larkbot_commit_changes` 校验 buffer.operator 在 OPERATOR_REGISTRY（避免 buffer 创建后注册表变化导致脏数据）
-- ops CI 在 PR 合并前再次通过 `validate-op-log.ts` 校验
+- ops CI 在 PR 合并前通过 `validate-op-log.ts` 校验（结构 + 历史一致性）
 - 校验失败 → PR 不合并
 
 ### 6.6 buffer 清理时机
@@ -325,6 +324,6 @@ LLM 拿到后必须调用 content-pr skill 用该 commitMessage 提交 PR（不�
 - `agent-src/.pi/scripts/lark-bot/business/auth.ts` — AuthModule 实现（PR-2 后仅做成员资格校验）
 - `agent-src/.pi/scripts/lark-bot/business/broadcast.ts` — 工作留痕广播
 - `agent-src/.pi/scripts/lark-bot/identity-resolver.ts` — open_id → user_id 解析（PR-2 registerTool 包装）
-- `agent-src/scripts/op-log-schema.ts` — OPERATOR_LOG 模块（generateLog / formatCommitMessage / OPERATOR_REGISTRY，PR-4 任务日志底层）
+- `agent-src/scripts/op-log-schema.ts` — OPERATOR_LOG 模块（generateLog / formatCommitMessage，PR-4 任务日志底层）
 - `agent-src/scripts/validate-op-log.ts` — ops CI 校验脚本（PR 合并前）
 - `agent-src/.pi/extensions/lark-bot/process/children-registry.ts` — 子进程注册表（实测 6-3）
