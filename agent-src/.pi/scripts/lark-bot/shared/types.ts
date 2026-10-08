@@ -47,6 +47,10 @@ export interface PendingTask {
   operator: string;          // 飞书 user_id（lark-bot 解析后注入）
   operatorName: string | null; // 当前实现恒为 null（已废除 OPERATOR_REGISTRY）
   currentSubject?: string;   // 最近一次 task_log 上报的 subject（用于去重）
+  /** 实时累积的 assistant text（NDJSON message_update.text_delta 累积） */
+  accumulatedText: string;   // 默认 ''
+  /** text 累积是否完成（text_end 事件触发；agent_end 后超时也算完成） */
+  textAccumulated: boolean;  // 默认 false
 }
 
 /** 单飞取回复文本的等待句柄（completeActiveTask 期间只有一个） */

@@ -33,6 +33,33 @@ import type { PiSession, PendingTask, TaskLogEvent } from "../shared/types.js";
 import { log, emitTaskJournal, taskDurationMs } from "../shared/logger.js";
 import { sendReply, sendReplyGetId, switchReaction } from "../protocol/feishu.js";
 
+// ═══════════════ 文本累积（NDJSON 实时捕获，PR-XYZ 取代 get_last_assistant_text） ═══════════════
+
+/**
+ * 累积 assistant text_delta 增量到 task.accumulatedText。
+ * 由 session-manager 路由 message_update.text_delta (contentIndex=1) 事件调用。
+ *
+ * 为什么不靠 lark-cli result 缓存：
+ *   - PI Agent 在 thinking=off 模式下可能直接 emit close_session NDJSON 而不写 assistant text
+ *   - lark-cli 缓存依赖 process 内的 result store，process 退出后丢失
+ *   - 实时累积保证：所有 LLM 输出的 text 都持久化到 PendingTask，不丢失
+ */
+export function appendText(task: PendingTask, delta: string): void {
+  if (!delta) return;
+  task.accumulatedText += delta;
+  log(`📝 [${task.promptId}] 累积 text_delta len=${delta.length} accumulated.len=${task.accumulatedText.length}`);
+}
+
+/**
+ * 标记 text 累积完成（text_end 事件触发）。
+ * 用于 completeActiveTask 判断是否还需要等待累积。
+ */
+export function markTextAccumulated(task: PendingTask): void {
+  if (task.textAccumulated) return; // 幂等
+  task.textAccumulated = true;
+  log(`✅ [${task.promptId}] text 累积完成 total.len=${task.accumulatedText.length}`);
+}
+
 // ═══════════════ 任务异常结束 ═══════════════
 
 /**
@@ -76,12 +103,18 @@ export function finishTaskWithError(pi: PiSession, task: PendingTask, reason: st
  * 完成当前 activeTask（agent_settled 后调用）：
  *   1. 取 task = activeTask；为空则 return
  *   2. pi.finishing = true（防重入）
- *   3. 发送 { type:"get_last_assistant_text", id:`result-<promptId>` }
- *   4. 等待响应：按 id 匹配；若响应未回显 id，按"单飞"规则用 pendingResultFetch
+ *   3. 等待 task.textAccumulated（text_end 已触发）—— 最多等 TEXT_FETCH_TIMEOUT_MS
+ *   4. 取 task.accumulatedText.trim() 作为最终回复文本
  *   5. 文本有效 → 异步发飞书回复（带超时）
- *   6. 拿到 replyId → DONE；否则 ERROR
+ *   6. 拿到 replyId → DONE；否则 ERROR（兜底默认回复："会话已关闭..."）
  *   7. 无论成败：activeTask = null；finishing = false
  *   8. promoteNext(pi)
+ *
+ * PR-XYZ：移除 get_last_assistant_text 抓取，改用 session-manager 路由的
+ * message_update.text_delta 实时累积（task.accumulatedText）。
+ * 根因：PI Agent 在 thinking=off 模式下可能不产生 assistant text，
+ *      lark-cli result 缓存空 → ❌"agent 未返回文本"。
+ * 修复：lark-bot 主动累积每条 text_delta，agent_end 后直接用累积结果。
  */
 export async function completeActiveTask(pi: PiSession): Promise<void> {
   if (pi.finishing) {
@@ -117,31 +150,67 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
   }
   pi.finishing = true;
 
-  const fetchId = `result-${task.promptId}`;
+  // 3：等待 task.textAccumulated（text_end 事件触发）—— 最多 TEXT_FETCH_TIMEOUT_MS
+  // 不再调 lark-cli get_last_assistant_text（依赖 result 缓存不稳）
+  if (!task.textAccumulated) {
+    log(`⏳ [${task.promptId}] 等待 text 累积完成 (textAccumulated=false, accumulated.len=${task.accumulatedText.length})`);
+    const deadline = Date.now() + TEXT_FETCH_TIMEOUT_MS;
+    while (!task.textAccumulated && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (!task.textAccumulated) {
+      log(`⚠ [${task.promptId}] text 累积超时（>${TEXT_FETCH_TIMEOUT_MS}ms），用当前 accumulated=${task.accumulatedText.length} 字符继续`);
+    } else {
+      log(`✅ [${task.promptId}] text 累积完成（等待后）`);
+    }
+  }
 
-  // 3+4：发请求并 await 响应（或超时）
-  const fetched = new Promise<string | null>((resolve) => {
-    pi.pendingResultFetch = { task, expectedId: fetchId, resolve };
-  });
-  const timeoutHit = new Promise<"__TIMEOUT__">((resolve) =>
-    setTimeout(() => resolve("__TIMEOUT__"), TEXT_FETCH_TIMEOUT_MS),
-  );
-  pi.proc?.stdin?.write(JSON.stringify({ type: "get_last_assistant_text", id: fetchId }) + "\n");
-  log(`🔍 [${task.promptId}] 请求 get_last_assistant_text msgId=${task.msgId.slice(-8)} fetchId=${fetchId} timeout=${TEXT_FETCH_TIMEOUT_MS}ms`);
-
-  const raw = await Promise.race([fetched, timeoutHit]);
-  pi.pendingResultFetch = null;
-  const text = (typeof raw === "string" && raw !== "__TIMEOUT__") ? raw.trim() : null;
+  // 4：取累积文本
+  const text = (task.accumulatedText || "").trim();
+  log(`🔍 [${task.promptId}] completeActiveTask 取累积 text len=${text.length} textAccumulated=${task.textAccumulated}`);
 
   // 5+6：处理文本 + 发回复
+  // 兜底：累积空时发默认提示（避免 "agent 未返回文本"）
+  const replyText = text || "✅ 会话已完成。如需继续操作，请重新发起私聊。";
   if (!text) {
-    const reason = raw === "__TIMEOUT__" ? "agent 返回文本超时" : "agent 未返回文本";
-    log(`⛔ [${task.promptId}] ERROR msgId=${task.msgId.slice(-8)} reason=${reason}`);
-    switchReaction(task, EMOJI_ERROR);
-    try { sendReply(task.msgId, `❌ 处理失败：${reason}`); } catch (e: any) {
-      log(`回复 ERROR 失败: ${e?.message?.slice(0, 80)}`);
+    log(`⚠ [${task.promptId}] 累积 text 为空，发默认回复（agent 可能未产生 assistant text，如 thinking=off 直 emit close_session）`);
+  }
+  {
+    const result = await sendReplyGetId(task.msgId, replyText);
+    if (result.ok && result.replyId) {
+      log(`✅ [${task.promptId}] DONE msgId=${task.msgId.slice(-8)} replyId=${result.replyId.slice(-8)} text.len=${replyText.length} content="${replyText.slice(0, 50)}"`);
+      switchReaction(task, EMOJI_DONE);
+      // Task journal: awaiting_review（agent 工作周期完成，等下游环节）
+      emitTaskJournal({
+        eventTime: new Date().toISOString(),
+        promptId: task.promptId,
+        operator: task.operator,
+        operatorName: task.operatorName,
+        state: "awaiting_review",
+        durationMs: taskDurationMs(task),
+      });
+    } else {
+      const reason = result.timedOut ? `回复超时（${REPLY_SEND_TIMEOUT_MS}ms）` : (result.error || "未知错误");
+      log(`⛔ [${task.promptId}] ERROR msgId=${task.msgId.slice(-8)} timedOut=${result.timedOut ?? false} reason=${reason}`);
+      switchReaction(task, EMOJI_ERROR);
+      // Task journal: terminated（reply 失败）
+      emitTaskJournal({
+        eventTime: new Date().toISOString(),
+        promptId: task.promptId,
+        operator: task.operator,
+        operatorName: task.operatorName,
+        state: "terminated",
+        durationMs: taskDurationMs(task),
+        reason: `reply_${reason}`,
+      });
     }
-    // Task journal: terminated（agent 超时未返回文本）
+  }
+
+  // 7+8：清理 + 晋升
+  pi.activeTask = null;
+  pi.finishing = false;
+  promoteNext(pi);
+}
     emitTaskJournal({
       eventTime: new Date().toISOString(),
       promptId: task.promptId,

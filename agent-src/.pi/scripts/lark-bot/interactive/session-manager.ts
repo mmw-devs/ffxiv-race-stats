@@ -52,7 +52,7 @@ import type { PiSession, TaskLogEvent } from "../shared/types.js";
 import { log } from "../shared/logger.js";
 import { emitTaskJournal, taskDurationMs } from "../shared/logger.js";
 import { switchReaction } from "../protocol/feishu.js";
-import { completeActiveTask, finishTaskWithError, handleTaskLog, promoteNext } from "./task-state-machine.js";
+import { appendText, completeActiveTask, finishTaskWithError, handleTaskLog, markTextAccumulated, promoteNext } from "./task-state-machine.js";
 
 // ═══════════════ 全局状态 ═══════════════
 
@@ -653,6 +653,30 @@ function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void
         // lark-bot 不做语义识别——语义识别在 PI Agent 层
         const reason = (event as any).reason ?? "unspecified";
         closeSessionFromAgent(sessionKey, reason);
+        break;
+      }
+      case "message_update": {
+        // PR-XYZ：路由 NDJSON message_update 事件到 task-state-machine 累积 text
+        // 取代 lark-cli get_last_assistant_text（PR-XYZ 之前依赖）— 原因：thinking=off
+        // 模式下 PI Agent 可能直接 emit close_session，不产生 assistant text，
+        // lark-cli result 缓存空导致 ❌"agent 未返回文本"。改实时累积 text_delta。
+        const evt = (event as any).assistantMessageEvent;
+        if (evt && pi.activeTask) {
+          if (evt.type === "text_delta" && evt.contentIndex === 1 && typeof evt.delta === "string") {
+            appendText(pi.activeTask, evt.delta);
+          } else if (evt.type === "text_end" && evt.contentIndex === 1) {
+            markTextAccumulated(pi.activeTask);
+          }
+          // 兼容：partial.content[1].text 是 lark-cli 累积视图
+          // 某些 model/edge-case 下 text_delta.delta 缺失但 partial.content 有累积文本
+          else if (evt.type === "text_delta" && evt.contentIndex === 1) {
+            const partialText = evt.partial?.content?.[1]?.text;
+            if (typeof partialText === "string" && partialText.length > pi.activeTask.accumulatedText.length) {
+              const diff = partialText.slice(pi.activeTask.accumulatedText.length);
+              appendText(pi.activeTask, diff);
+            }
+          }
+        }
         break;
       }
     }
