@@ -240,18 +240,19 @@ export function createIdentityResolver(opts: ResolveOptions): IdentityResolver {
       return null;
     }
 
-    // 6. 注册表校验
-    const { allowed, name } = isOperatorInRegistry(userId);
-    if (!allowed) {
-      log(`⚠️ [identity-resolver] user_id "${userId}" 不在 OPERATOR_REGISTRY 中`);
-      cacheSet(openId, null, FAILURE_TTL_MS);
-      return null;
-    }
+    // 6. 注册表校验（已停用：OPERATOR_REGISTRY 白名单废除 — 群组成员资格即业务身份）
+    // const { allowed, name } = isOperatorInRegistry(userId);
+    // if (!allowed) {
+    //   log(`⚠️ [identity-resolver] user_id "${userId}" 不在 OPERATOR_REGISTRY 中`);
+    //   cacheSet(openId, null, FAILURE_TTL_MS);
+    //   return null;
+    // }
+    const name: string | null = null;  // 停用 OPERATOR_REGISTRY 后无 name 来源
 
     // 7. 成功解析：构造上下文 + 长 TTL 缓存
     const ctx: OperatorContext = { operator: userId, claim: "user_id", name };
     cacheSet(openId, ctx, SUCCESS_TTL_MS);
-    log(`✓ [identity-resolver] 解析成功: ${userId} (${name ?? "-"})`);
+    log(`✓ [identity-resolver] 解析成功: ${userId} (${name ?? "-"}, OPERATOR_REGISTRY 已停用)`);
     return ctx;
   }
 
