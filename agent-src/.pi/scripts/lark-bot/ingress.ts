@@ -335,6 +335,9 @@ export async function handleLarkEvent(event: LarkEvent): Promise<void> {
       attemptCount: 0,
       operator: event.sender_id,
       operatorName: null,
+      // 文本累积：session-manager 路由 text_delta NDJSON 事件时累加
+      accumulatedText: "",
+      textAccumulated: false,
     };
 
     // 10. WAVE
