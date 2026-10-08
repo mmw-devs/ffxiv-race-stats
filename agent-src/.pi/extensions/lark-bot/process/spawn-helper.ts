@@ -145,7 +145,14 @@ export function spawnPi(opts: SpawnPiOptions): SpawnedPi {
 
   const proc = spawn(
     PI_BIN,
-    ["--mode", "rpc", "--session-dir", sessionDir],
+    [
+      "--mode", "rpc",
+      "--session-dir", sessionDir,
+      // PR-XYZ：关闭 thinking 以提升 lark-bot 响应速度
+      // （业务消息处理 + 工具调用场景下，深度推理收益小于延迟成本）
+      // 模型保持默认（settings.json 的 defaultModel = MiniMax-M3）
+      "--thinking", "off",
+    ],
     {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
