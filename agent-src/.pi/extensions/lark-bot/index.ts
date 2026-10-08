@@ -782,11 +782,19 @@ export default function (pi: any) {
     name: "larkbot_authorize_user",
     label: "授权用户业务私聊",
     description:
-      "校验用户是否在指定群组成员列表中。LLM 决策 chatId 后调用。返回 matched / not_member / no_match / auth_module_error。" +
-      "matched 时自动 slot swap（释放 temp slot → 占用 business slot）+ 广播到群组 + 缓存 chatAuthStates + 升级 kind=p2p-business。" +
-      "not_member 时 fail-closed（closeTempSession）。" +
-      "**issue#184 双域会话机制**：不限域（鉴权工具本身必须可在临时私聊域调用）。" +
-      "**新增参数 msgId**：用于反查 chatId 一致性校验（防 LLM 错传）。" +
+      "**白名单鉴权工具**：仅当用户消息身份声明到候选群组 description 时调用。\n" +
+      "前置：先调 larkbot_list_candidate_groups 拿候选群组 + description。\n" +
+      "**OK（可调用本工具）**：身份声明类消息，如「我是 FF14 运营」/「我要用智能体开发群」/「/auth 1」。\n" +
+      "**禁止调用**（PI Agent 必须拒绝）：\n" +
+      "  - 纯问候：你好/hi/hello/在吗/test\n" +
+      "  - 业务消息：更新/添加/删除/进度/速报/bossHP/转播/PR 等\n" +
+      "    （业务消息 ≠ 身份声明，业务消息不构成鉴权依据）\n" +
+      "  - 与任何 description 都不相关\n" +
+      "**禁止时**：调 feishu_send_reply 告诉用户『请告诉我要用哪个群组权限』并展示候选群组。\n" +
+      "matched → slot swap + 广播 + 升级 p2p-business。\n" +
+      "not_member → fail-closed。\n" +
+      "**issue#184 双域会话机制**：不限域（鉴权工具本身必须可在临时私聊域调用）。\n" +
+      "**新增参数 msgId**：用于反查 chatId 一致性校验（防 LLM 错传）。\n" +
       "（PR-2: registerTool 替代 business/auth.ts authorize / substringMatch）",
     parameters: Type.Object({
       openId: Type.String({ description: "飞书用户 open_id" }),
