@@ -211,53 +211,6 @@ export async function completeActiveTask(pi: PiSession): Promise<void> {
   pi.finishing = false;
   promoteNext(pi);
 }
-    emitTaskJournal({
-      eventTime: new Date().toISOString(),
-      promptId: task.promptId,
-      operator: task.operator,
-      operatorName: task.operatorName,
-      state: "terminated",
-      durationMs: taskDurationMs(task),
-      reason,
-    });
-  } else {
-    log(`📝 [${task.promptId}] 收到 agent 文本 msgId=${task.msgId.slice(-8)} len=${text.length}`);
-    // 发送飞书回复（sendReplyGetId 内置超时，结果不明确走 ERROR + 日志，不重发）
-    const result = await sendReplyGetId(task.msgId, text);
-    if (result.ok && result.replyId) {
-      log(`✅ [${task.promptId}] DONE msgId=${task.msgId.slice(-8)} replyId=${result.replyId.slice(-8)} text.len=${text.length} content="${text.slice(0, 50)}"`);
-      switchReaction(task, EMOJI_DONE);
-      // Task journal: awaiting_review（agent 工作周期完成，等下游环节）
-      emitTaskJournal({
-        eventTime: new Date().toISOString(),
-        promptId: task.promptId,
-        operator: task.operator,
-        operatorName: task.operatorName,
-        state: "awaiting_review",
-        durationMs: taskDurationMs(task),
-      });
-    } else {
-      const reason = result.timedOut ? `回复超时（${REPLY_SEND_TIMEOUT_MS}ms）` : (result.error || "未知错误");
-      log(`⛔ [${task.promptId}] ERROR msgId=${task.msgId.slice(-8)} timedOut=${result.timedOut ?? false} reason=${reason}`);
-      switchReaction(task, EMOJI_ERROR);
-      // Task journal: terminated（reply 失败）
-      emitTaskJournal({
-        eventTime: new Date().toISOString(),
-        promptId: task.promptId,
-        operator: task.operator,
-        operatorName: task.operatorName,
-        state: "terminated",
-        durationMs: taskDurationMs(task),
-        reason: `reply_${reason}`,
-      });
-    }
-  }
-
-  // 7+8：清理 + 晋升
-  pi.activeTask = null;
-  pi.finishing = false;
-  promoteNext(pi);
-}
 
 // ═══════════════ 任务入队 / 启动 / 晋升 ═══════════════
 
