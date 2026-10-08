@@ -31,7 +31,7 @@ export interface Meta {
   boss?: string;
   dataCenter?: string;
   /**
-   * ISO 8601 格式
+   * ISO 8601 瞬时，需含时区（UTC 用 Z，或 ±HH:MM）；status=upcoming 且未知时用 "-" 占位
    */
   startTime?: string;
   status: "upcoming" | "live" | "ended";
@@ -59,7 +59,7 @@ export interface Team {
   rank: number;
   bossHP: number;
   /**
-   * 复合阶段：<副本id>-<阶段>（副本id 必须在 meta.dungeons[] 中存在；阶段必须在 PHASE_ORDER 白名单内）
+   * 阶段：多副本为 <副本id>-<阶段>，单副本（绝境）为 <阶段>（不含副本前缀）；副本id 必须在 meta.dungeons[] 中，阶段必须在 PHASE_ORDER 白名单内
    */
   phase: string;
   region: "JP" | "NA" | "EU" | "OC" | "CN" | "KR";
@@ -87,7 +87,7 @@ export interface Player {
 export interface NewsItem {
   id: string;
   /**
-   * 格式 HH:MM:SS
+   * ISO 8601 瞬时，必须含时区（UTC 用 Z，或 ±HH:MM）
    */
   time: string;
   text: string;

@@ -25,7 +25,7 @@ description: >
 - `bossHP` ∈ [0, 100]，且只能随更新减少（进度不可倒退）
 - `phase` 只能前进不能后退（按 `PHASE_ORDER` 顺序）
 - 如果 `bossHP === 0` 且 `phase === PHASE_ORDER` 最后一个阶段，则该队已通关
-- `news[]` 按 `time` 降序排列
+- `news[]` 按 `time` 降序排列（`time` 为含时区的 ISO 8601 瞬时，比较时先解析为时间戳）
 - 每条 news 的 `id` 唯一
 - `broadcasters[]` 每条 `id` 唯一
 
@@ -48,6 +48,12 @@ description: >
 - push 后 CI（GitHub Actions）会再次运行相同检查作为独立防线
 
 **PHASE_ORDER 来源：** `PHASE_ORDER` 等白名单常量定义在 `constants.js`（开发者维护），Agent 不可修改。校验时以 `constants.js` 中的值为准。
+
+## 时区约定
+
+- **存储**：`data.json` 中所有时间字段（`meta.startTime`、`news[].time`）一律为 UTC 的 ISO 8601 瞬时（以 `Z` 结尾，如 `2026-09-04T16:04:52Z`）。
+- **运营交互**：与运营确认、展示时间时一律使用**北京时间（UTC+8，无夏令时）**；运营给出的时间也默认按北京时间理解（若运营明确说明其他时区则按其时区）。
+- **换算**：写入时 UTC = 北京时间 − 8 小时；展示时 北京时间 = UTC + 8 小时。换算由 Agent 内部完成，运营无需接触 UTC。
 
 ## CI 失败处理
 
