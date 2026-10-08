@@ -19,13 +19,13 @@ description: >
 |------|------|
 | **阶段命名** | 使用 `P1`、`P2`、`P3`、`P4`、`P5`、`P6`、`FINAL` 格式 |
 | **区域** | `JP`（日本）、`NA`（北美）、`EU`（欧洲）、`OC`（大洋洲）、`CN`（中国）、`KR`（韩国） |
-| **职业** | 使用官方三字母缩写：PLD/WAR/DRK/GNB/WHM/SCH/AST/SGE/MNK/DRG/NIN/SAM/RPR/BRD/MCH/DNC/BLM/SMN/RDM/VPR/PCT |
-| **平台** | `bilibili`、`douyu`、`huya`、`twitch`、`youtube` |
+| **职业** | 使用官方三字母缩写：PLD/WAR/DRK/GNB/WHM/SCH/AST/SGE/MNK/DRG/NIN/SAM/RPR/BRD/MCH/DNC/BLM/SMN/RDM/VPR/PCT（以 `constants.js` 的 `JOB_ROLES` 为准） |
+| **平台** | `bilibili`、`douyin`、`douyu`、`huya`、`twitch`、`youtube`（以 `constants.js` 的 `PLATFORM_DOMAINS` 为准） |
 
 ## 新闻格式
 
 - `title` 使用简洁陈述句，不超过 50 字
-- `time` 格式 `YYYY-MM-DD HH:mm`
+- `time` 存储 UTC 的 ISO 8601 瞬时（以 `Z` 结尾，如 `2026-09-04T16:04:52Z`）；运营输入/确认用北京时间（UTC+8），由 Agent 换算；前端按访客本地时区显示
 - `urgent: true` 仅用于首杀归属、重大规则变更等关键事件
 
 ## 禁止
