@@ -3,16 +3,15 @@
  *
  * 职责：
  *   - 把飞书 p2p 消息的 sender_id（open_id）解析为稳定 user_id
- *   - 校验 user_id 是否在 OPERATOR_REGISTRY 内
  *   - 缓存成功解析结果（1h）与失败结果（30s）减少 lark-cli 调用
  *
  * 设计：
  *   - 纯函数式工厂 `createIdentityResolver(opts)`，依赖注入（projectDir / cliPath / log）
  *   - 不持有全局可变状态（缓存是 resolver 实例内部 Map）
  *   - fail-closed：任何解析失败返回 null，调用方拒绝后续流程
+ *   - 已废除注册表校验（PR-XYZ）：群组成员资格即业务身份，OPERATOR_REGISTRY 不再被本模块引用
  *
  * 配置来源：
- *   - 注册表：`scripts/op-log-schema.ts` 的 `OPERATOR_REGISTRY`（单一来源）
  *   - 调用方式：读 `.pi/settings.json` → `larkBot.identity.provider = "feishu-contact"`
  *     `larkBot.identity.canonicalClaim = "user_id"`
  *
@@ -23,8 +22,6 @@
  *   `lark-cli contact +get-user --as bot --user-id <open_id> --user-id-type open_id`
  *       ↓
  *   `data.user.user_id`
- *       ↓
- *   `OPERATOR_REGISTRY[user_id]` 校验
  *       ↓
  *   `OperatorContext { operator, claim, name }` 或 null（fail-closed）
  *
@@ -38,9 +35,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-
-import { OPERATOR_REGISTRY } from "../../../scripts/op-log-schema.js";
-import type { OperatorRegistry } from "../../../scripts/types.js";
 
 // ══════════════════════════════════════════════════════════════
 // 类型定义
@@ -71,8 +65,9 @@ export interface ResolveOptions {
 export interface IdentityResolver {
   /**
    * 解析飞书 open_id → OperatorContext。
-   * 失败（open_id 非法 / API 调用失败 / 无效 JSON / 缺 user_id / 未在注册表）返回 null。
+   * 失败（open_id 非法 / API 调用失败 / 无效 JSON / 缺 user_id）返回 null。
    * 调用方必须按 null 做 fail-closed 处理。
+   * （已废除注册表校验 — 不再做 OPERATOR_REGISTRY 查找）
    */
   resolveOperator(openId: string): Promise<OperatorContext | null>;
 
@@ -115,7 +110,6 @@ const FAILURE_TTL_MS = 30 * 1000; // 30 秒
  */
 export function createIdentityResolver(opts: ResolveOptions): IdentityResolver {
   const { projectDir, cliPath, log } = opts;
-  const registry: OperatorRegistry = OPERATOR_REGISTRY;
   const cache = new Map<string, CacheValue>();
 
   function loadIdentityConfig(): IdentityConfig {
@@ -186,12 +180,6 @@ export function createIdentityResolver(opts: ResolveOptions): IdentityResolver {
     }
   }
 
-  function isOperatorInRegistry(userId: string): { allowed: boolean; name: string | null } {
-    const entry = registry[userId];
-    if (!entry) return { allowed: false, name: null };
-    return { allowed: true, name: entry.name };
-  }
-
   function cacheGet(openId: string): CacheValue | undefined {
     const v = cache.get(openId);
     if (!v) return undefined;
@@ -240,19 +228,13 @@ export function createIdentityResolver(opts: ResolveOptions): IdentityResolver {
       return null;
     }
 
-    // 6. 注册表校验（已停用：OPERATOR_REGISTRY 白名单废除 — 群组成员资格即业务身份）
-    // const { allowed, name } = isOperatorInRegistry(userId);
-    // if (!allowed) {
-    //   log(`⚠️ [identity-resolver] user_id "${userId}" 不在 OPERATOR_REGISTRY 中`);
-    //   cacheSet(openId, null, FAILURE_TTL_MS);
-    //   return null;
-    // }
-    const name: string | null = null;  // 停用 OPERATOR_REGISTRY 后无 name 来源
+    // 6. 成功解析：构造上下文 + 长 TTL 缓存
+    // 群组成员资格已在 authModule.authorize() 处校验；本模块不再做注册表校验。
+    const name: string | null = null;
 
-    // 7. 成功解析：构造上下文 + 长 TTL 缓存
     const ctx: OperatorContext = { operator: userId, claim: "user_id", name };
     cacheSet(openId, ctx, SUCCESS_TTL_MS);
-    log(`✓ [identity-resolver] 解析成功: ${userId} (${name ?? "-"}, OPERATOR_REGISTRY 已停用)`);
+    log(`✓ [identity-resolver] 解析成功: ${userId} (name=${name ?? "-"})`);
     return ctx;
   }
 

@@ -90,11 +90,11 @@ describe("open_id 格式校验", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// OPERATOR_REGISTRY 校验
+// resolveOperator 行为（已废除 OPERATOR_REGISTRY 校验）
 // ══════════════════════════════════════════════════════════════
 
-describe("OPERATOR_REGISTRY 校验", () => {
-  it("已注册 user_id 返回 OperatorContext", async () => {
+describe("resolveOperator 行为（注册表校验已废除）", () => {
+  it("任意有效 user_id 都返回 OperatorContext（name 恒为 null）", async () => {
     mockedExecFileSync.mockReturnValueOnce(
       JSON.stringify({ data: { user: { user_id: "38a32652" } } }),
     );
@@ -103,26 +103,21 @@ describe("OPERATOR_REGISTRY 校验", () => {
     expect(ctx).toEqual({
       operator: "38a32652",
       claim: "user_id",
-      name: "weunimix",
+      name: null,
     });
   });
 
-  it("第二个注册 user_id 311a2ea5（赤墓）也能解析", async () => {
-    mockedExecFileSync.mockReturnValueOnce(
-      JSON.stringify({ data: { user: { user_id: "311a2ea5" } } }),
-    );
-    const resolver = makeResolver();
-    const ctx = await resolver.resolveOperator(VALID_OPEN_ID);
-    expect(ctx?.name).toBe("赤墓");
-  });
-
-  it("未注册的 user_id 返回 null（fail-closed）", async () => {
+  it("未在注册表中的 user_id 仍然返回 ctx（不再 fail-closed）", async () => {
     mockedExecFileSync.mockReturnValueOnce(
       JSON.stringify({ data: { user: { user_id: "hacker_id" } } }),
     );
     const resolver = makeResolver();
     const ctx = await resolver.resolveOperator(VALID_OPEN_ID);
-    expect(ctx).toBeNull();
+    expect(ctx).toEqual({
+      operator: "hacker_id",
+      claim: "user_id",
+      name: null,
+    });
   });
 });
 
