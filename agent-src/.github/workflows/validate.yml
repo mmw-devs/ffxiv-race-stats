@@ -61,7 +61,7 @@ jobs:
       - name: Validate operation log (content/* PR only)
         if: startsWith(github.head_ref, 'content/')
         run: |
-          echo "::group::操作日志校验"
+          echo "::group::操作日志结构校验（PR-#200 已删除 OPERATOR_REGISTRY 权限校验）"
           git fetch origin "${{ github.base_ref }}"
           npx tsx scripts/validate-op-log.ts "origin/${{ github.base_ref }}"
           echo "::endgroup::"

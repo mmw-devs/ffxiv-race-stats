@@ -1,63 +1,35 @@
 /**
  * op-log-schema.ts — 结构化操作日志模块 (Issue #50)
  *
- * 定义日志格式、Operator 注册表，提供生成/校验/解析功能。
+ * 定义日志格式，提供生成/校验/解析功能。
  * 零运行时依赖：仅使用 Node.js 内置模块。
  *
  * 演进：
  *   - PR #1（scripts TS 化）：保持与 .js 完全等价的 API
- *   - PR #2（字段精简）：
- *     · 业务 skill 全部移除 → 删除 ACTION_TYPES / ACTION_RISK_LEVELS / target 字段
- *     · Operator 白名单改为 OPERATOR_REGISTRY（user_id → {name} 形式）
- *     · operator 由 lark-bot 在任务上下文注入，不依赖具体 action
+ *   - PR #2（字段精简）：业务 skill 全部移除 → 删除 ACTION_TYPES / ACTION_RISK_LEVELS / target 字段
+ *   - PR-XYZ（清理 OPERATOR_REGISTRY）：删除 Operator 白名单、isOperatorAllowed、
+ *     getOperatorName、validateOperatorPermission（运行时 PR-#196 已停用，
+ *     CI PR-#200 清理）
  */
 
-import type { ChangeEntry, LogEntry, OperatorRegistry, ValidationResult } from "./types.js";
+import type { ChangeEntry, LogEntry, ValidationResult } from "./types.js";
 
 // ══════════════════════════════════════════════════════════════
 // 常量
 // ══════════════════════════════════════════════════════════════
 
-/**
- * Operator 注册表：key 是稳定飞书 user_id，value 是展示名。
- * 任何写入 data.json 的 commit 必须使用注册表内的 user_id 作为 operator。
- *
- * PR #2 起运营者身份来源：
- *   - lark-bot 在 ingress 解析 sender_id → user_id
- *   - 仅注册表内的 user_id 通过 fail-closed
- *   - 注册表新增 Operator 需走 ops 仓库 PR 流程（避免 lark-bot 引入未授权身份）
- */
-export const OPERATOR_REGISTRY: OperatorRegistry = {
-  "38a32652": { name: "weunimix" },
-  "311a2ea5": { name: "赤墓" },
-};
+// OPERATOR_REGISTRY 已废除（PR-#196 运行时停用，PR-#200 CI 清理）
+// 任何 user_id 现在都可作为 operator（PR 合入不再有 user 身份校验）
 
 // ══════════════════════════════════════════════════════════════
 // 权限校验
 // ══════════════════════════════════════════════════════════════
 
-/** 校验 operator 是否在注册表内。 */
-export function isOperatorAllowed(operator: string): boolean {
-  return Object.prototype.hasOwnProperty.call(OPERATOR_REGISTRY, operator);
-}
+// isOperatorAllowed / getOperatorName / validateOperatorPermission 已废除
 
-/** 取 operator 对应的展示名；未注册则返回 null。 */
-export function getOperatorName(operator: string): string | null {
-  return OPERATOR_REGISTRY[operator]?.name ?? null;
-}
-
-/**
- * 校验 operator 是否有权限。
- * PR #2 起：仅校验 operator 在注册表，无 action / 风险分级。
- * @param log 日志对象
- */
-export function validateOperatorPermission(log: LogEntry): ValidationResult {
-  const errors: string[] = [];
-  if (!isOperatorAllowed(log.operator)) {
-    errors.push(`操作人 "${log.operator}" 不在注册表中`);
-  }
-  return {
-    valid: errors.length === 0,
+// ══════════════════════════════════════════════════════════════
+// 日志生成
+// ══════════════════════════════════════════════════════════════
     errors,
   };
 }

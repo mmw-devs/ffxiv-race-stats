@@ -8,12 +8,14 @@
  *
  * 三阶段校验：
  *   阶段 1 — 提取操作日志：从每个 commit message 中解析 JSON 日志块
- *   阶段 2 — 日志结构校验：必填字段 + 类型 + operator 权限
+ *   阶段 2 — 日志结构校验：必填字段 + 类型
  *   阶段 3 — 修改一致性校验：日志声明的 changes vs data.json 实际变更
  *
  * 演进：
  *   - PR #1（scripts TS 化）：保持与 .js 完全等价；将 CLI 逻辑封装到 main() 便于 vitest 导入
- *   - PR #2（字段精简）：删 risk 分级判断段，OPERATOR_REGISTRY 校验改用 user_id
+ *   - PR #2（字段精简）：删 risk 分级判断段
+ *   - PR-XYZ（清理 OPERATOR_REGISTRY）：删除 isOperatorAllowed / getOperatorName /
+ *     validateOperatorPermission（运行时 PR-#196 已停用，CI PR-#200 清理）
  */
 
 import { execSync } from "node:child_process";
@@ -22,11 +24,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
-  getOperatorName,
-  isOperatorAllowed,
   parseLogFromMessage,
   validateLogStructure,
-  validateOperatorPermission,
 } from "./op-log-schema.js";
 import type { DeepDiffResult, LogEntry } from "./types.js";
 
@@ -232,24 +231,11 @@ export function main(): number {
       continue;
     }
 
-    // 权限校验：PR #2 起仅校验 operator 是否在 OPERATOR_REGISTRY
-    // 无风险分级、无 action 校验；未授权硬阻断（fail-closed）
-    if (!isOperatorAllowed(log.operator)) {
-      fail(state, `commit ${commit.hash.slice(0, 7)} 权限: ${log.operator} 不在 Operator 注册表中`);
-      continue;
-    }
-    // 兼容旧调用（validateOperatorPermission 仅做 operator 检查，与 isOperatorAllowed 等价）
-    const permResult = validateOperatorPermission(log);
-    if (!permResult.valid) {
-      for (const err of permResult.errors) {
-        fail(state, `commit ${commit.hash.slice(0, 7)} 权限: ${err}`);
-      }
-      continue;
-    }
+    // 权限校验已废除（PR-#200 清理 OPERATOR_REGISTRY）
+    // 任何 user_id 都能作为 operator 合入 PR
 
-    // 展示 operator 时附带注册表中的展示名（便于审计排查）
-    const operatorName = getOperatorName(log.operator);
-    ok(`  operator: ${log.operator} (${operatorName ?? "-"}), changes: ${log.changes.length} 项`);
+    // 展示 operator 供审计排查
+    ok(`  operator: ${log.operator}, changes: ${log.changes.length} 项`);
     allLogs.push({ commitHash: commit.hash.slice(0, 7), log });
   }
 
