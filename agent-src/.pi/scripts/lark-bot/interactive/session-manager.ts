@@ -679,6 +679,99 @@ function handlePiEvent(sessionKey: string, event: Record<string, unknown>): void
         }
         break;
       }
+
+      // ═══════════════ PR-XYZ：补 tool 相关事件路由（PR-1 重构遗漏）═══════════════
+      // 背景：lark-bot spawn 模式下 PI Agent 是子进程，工具调用通过 stdout NDJSON 事件流回 lark-bot。
+      // 之前 switch 缺这些 case，导致 lark-bot 看不到 PI Agent 是否真调了 registerTool（如 larkbot_authorize_user），
+      // 进而无法验证 f-6/f-7 22:00 后的"registerTool 未实际触发"是真没调还是调了看不到。
+      // 修复：补全工具相关 case，让 lark-bot.log 记录完整工具调用链。
+
+      case "message_start": {
+        // 工具结果消息开始（role=toolResult）
+        const msg = (event as any).message;
+        if (msg?.role === "toolResult") {
+          log(`📨 [${sessionKey.slice(-12)}] toolResult 开始: tool=${msg.toolName} callId=${msg.toolCallId?.slice(-8) ?? "?"}`);
+        }
+        break;
+      }
+      case "message_end": {
+        // 工具结果消息结束
+        const msg = (event as any).message;
+        if (msg?.role === "toolResult") {
+          const resultText = msg.content?.[0]?.text ?? "";
+          const ok = resultText.startsWith("✅");
+          const status = ok ? "✅" : "❌";
+          log(`📨${status} [${sessionKey.slice(-12)}] toolResult 完成: tool=${msg.toolName} callId=${msg.toolCallId?.slice(-8) ?? "?"} result=${resultText.slice(0, 200)}`);
+        }
+        break;
+      }
+      case "turn_start": {
+        log(`🔄 [${sessionKey.slice(-12)}] turn_start`);
+        break;
+      }
+      case "turn_end": {
+        log(`🔄 [${sessionKey.slice(-12)}] turn_end`);
+        break;
+      }
+      case "agent_start": {
+        log(`🤖 [${sessionKey.slice(-12)}] agent_start`);
+        break;
+      }
+      case "thinking_start": {
+        log(`💭 [${sessionKey.slice(-12)}] thinking_start`);
+        break;
+      }
+      case "thinking_end": {
+        log(`💭 [${sessionKey.slice(-12)}] thinking_end`);
+        break;
+      }
+      case "text_start": {
+        log(`📝 [${sessionKey.slice(-12)}] text_start`);
+        break;
+      }
+      case "text_end": {
+        log(`📝 [${sessionKey.slice(-12)}] text_end`);
+        break;
+      }
+      case "toolcall_start": {
+        // LLM 开始构造工具调用（parameters 累积开始）
+        log(`🔧 [${sessionKey.slice(-12)}] toolcall_start`);
+        break;
+      }
+      case "toolcall_delta": {
+        // 工具调用参数累积（流式）
+        log(`🔧 [${sessionKey.slice(-12)}] toolcall_delta`);
+        break;
+      }
+      case "toolcall_end": {
+        // LLM 决定调用 registerTool（参数已完整）
+        const tc = (event as any).toolCall;
+        if (tc) {
+          log(`🔧 [${sessionKey.slice(-12)}] toolcall_end: name=${tc.name} id=${tc.id?.slice(-8) ?? "?"} args=${JSON.stringify(tc.arguments ?? {}).slice(0, 200)}`);
+          if (pi.activeTask) {
+            pi.activeTask.lastToolCall = { name: tc.name, id: tc.id, args: tc.arguments, calledAt: Date.now() };
+          }
+        }
+        break;
+      }
+      case "tool_execution_start": {
+        // 工具开始执行
+        log(`⏳ [${sessionKey.slice(-12)}] tool_execution_start: tool=${(event as any).toolName} callId=${(event as any).toolCallId?.slice(-8) ?? "?"}`);
+        break;
+      }
+      case "tool_execution_end": {
+        // 工具完成
+        const result = (event as any).result;
+        const resultText = result?.content?.[0]?.text ?? "";
+        const ok = result?.details?.ok ?? resultText.startsWith("✅");
+        const status = ok ? "✅" : "❌";
+        log(`${status} [${sessionKey.slice(-12)}] tool_execution_end: tool=${(event as any).toolName} callId=${(event as any).toolCallId?.slice(-8) ?? "?"} result=${resultText.slice(0, 200)}`);
+        break;
+      }
+      case "extension_ui_request": {
+        log(`🧩 [${sessionKey.slice(-12)}] extension_ui_request: method=${(event as any).method ?? "?"}`);
+        break;
+      }
     }
   } catch (e: any) {
     log(`💥 [handlePiEvent] 异常: sessionKey=${sessionKey} event.type=${(event as any)?.type} err=${e?.message?.slice(0, 200)}`);
