@@ -22,13 +22,6 @@ export interface ChangeEntry {
   to: unknown;
 }
 
-/** Operator 注册表：key 是稳定飞书 user_id，value 是展示元数据。 */
-export interface OperatorRegistryEntry {
-  name: string;
-}
-
-export type OperatorRegistry = Record<string, OperatorRegistryEntry>;
-
 /**
  * 结构化操作日志（commit message 中嵌入的 JSON 块）。
  * PR #2 起仅保留 operator/timestamp/changes 三字段。
