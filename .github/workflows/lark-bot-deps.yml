@@ -1,0 +1,51 @@
+name: lark-bot-deps
+
+# ───────────────────────────────────────────────────────────────
+# 用途: PR 触发，仅校验 lark-bot 模块依赖（禁止循环 import / 跨层 import）
+# 触发:
+#   - pull_request: paths 限定 lark-bot 代码或 depcruise 配置变更
+#   - workflow_dispatch（手动重新验证）
+# 范围:
+#   - 仅在 dev 仓库运行（不同步到 ops 仓库）
+#   - lark-bot 代码位于 agent-src/.pi/scripts/lark-bot/
+#   - depcruise 配置位于 dev 仓库根 .dependency-cruiser.cjs
+# 业务背景:
+#   - ops 仓库 CI 不该跑这个检查：
+#     1. ops 仓库 CI 核心业务价值 = 阻止任何对非 data.json 文件的修改
+#        （已在 agent-src/.github/workflows/validate.yml 的 file scope 步骤实现）
+#     2. lark-bot 代码在 ops 仓库只读，循环 import 不会影响 ops CI
+#     3. ops 仓库根没有 .dependency-cruiser.cjs（dev 仓库根资源，不同步）
+#   - dev 仓库维护 lark-bot 代码，循环 import 检查在这里才有价值
+# ───────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'agent-src/.pi/scripts/lark-bot/**'
+      - '.dependency-cruiser.cjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lark-bot-deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: depcruise lark-bot
+        run: |
+          echo "::group::lark-bot 模块依赖检查（禁止循环 import）"
+          npx depcruise --config .dependency-cruiser.cjs agent-src/.pi/scripts/lark-bot/
+          echo "::endgroup::"
