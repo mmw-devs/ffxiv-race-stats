@@ -100,12 +100,17 @@ dev 仓库（本仓库）
 | 场景 | 取数方式 | 入口 |
 |---|---|---|
 | 本地开发 `npm run dev` | Vite 代理 `/data.json` → 真源 | `astro.config.mjs` |
-| lighthouse / 本地 `build:preview` | 构建后下载到 `dist/data.json` | `scripts/fetch-preview-data.mjs` |
-| dev 预览站（CF Pages） | 边缘反代 `/data.json` → 生产站 | `scripts/patch-preview-redirects.mjs` |
+| lighthouse / `build:preview` | 构建后下载到 `dist/data.json` | `scripts/fetch-preview-data.mjs` |
+| dev 预览站（CF Pages） | **同 `build:preview`**：构建时写入 `dist/data.json` | `npm run build:dev-preview` |
 | 生产站（CF Pages，ops 仓库） | 构建时 `cp public/data.json dist/data.json` | — |
 
-真源 URL、生产站 origin 统一在 `scripts/data-source.mjs` 定义（可用 `DATA_SOURCE_URL` /
-`PROD_SITE_ORIGIN` 覆盖），换地址/换仓库只改这一个文件。
+dev 预览站与生产站**产物同构**：两者都把自己的 `dist/data.json` 作为同源静态文件提供，
+不使用任何边缘 rewrite/代理。曾尝试用 `_redirects` 把 `/data.json` 200 重写到生产站，
+但「直接访问能拿到 JSON、页面内 fetch 却失败」——边缘 rewrite 与静态文件不是同一条路径，
+不该让预览站依赖它。
+
+真源 URL 统一定义在 `scripts/data-source.mjs`（可用 `DATA_SOURCE_URL` 覆盖），
+换仓库/换地址只改这一个文件。
 
 `build-verify` 带守卫：任何 PR 引入 `data.json` 副本都会失败。
 
@@ -141,16 +146,15 @@ dev 仓库的 `build-dist.yml` 把 dist/ 推送到 ops 仓库后，ops 仓库重
 
 ### dev 预览站
 
-dev 仓库自身的 CF Pages 预览项目用 **`npm run build:dev-preview`**：不落盘数据，
-而是把 `/data.json` 反代到生产站，所以预览永远是线上真实数据。
-（`build:preview` 是给 lighthouse 用的：构建后从真源下载一份 `dist/data.json`，不落盘进仓库。）
+dev 仓库自身的 CF Pages 预览项目用 **`npm run build:dev-preview`**（等价于 `build:preview`）：
+构建时从真源下载数据写入 `dist/data.json`，产物与生产站同构——都是同源静态文件。
 
-`build:dev-preview` 在构建后执行 `scripts/patch-preview-redirects.mjs`，把 `dist/_redirects`
-里的 `/data.json` 改写为反代生产站 `https://ffxiv-race-stats.pages.dev/data.json`，
-预览永远显示真实数据。目标站点可用 `PROD_SITE_ORIGIN` 覆盖。
+为什么不用边缘反代：曾把 `/data.json` 用 `_redirects` 200 重写到生产站，结果「直接访问该路径
+能拿到 JSON，页面内 fetch 却报数据加载失败」。边缘 rewrite 与静态文件不是同一条投递路径
+（响应头/重编码/rewrite 语义都不同），而生产站用的是静态文件。让预览站走同一条路，
+两侧行为才可比、可复现。
 
-⚠️ 反代规则**只能在预览构建时注入**：`dist/_redirects` 与生产站共用（`build-dist.yml`
-会把整个 dist/ 推到 ops 仓库），若在 `public/_redirects` 里写死目标，生产站会自己代理自己。
+代价：预览数据是**上次构建时**的快照（每次 push 重新构建刷新），不是每次请求实时。
 
 ## 相关链接
 
