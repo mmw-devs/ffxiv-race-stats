@@ -27,6 +27,9 @@ npm run dev        # Astro 开发服务器 + HMR
 
 访问 `http://localhost:4321`。
 
+`npm run dev` 会把 `/data.json` 代理到生产站（`astro.config.mjs` 的 `vite.server.proxy`），
+本地直接看到线上真实数据；仓库里不保存任何数据副本。
+
 ## 技术栈
 
 Astro 7 + Vue 3，组件化架构（13 个 SFC，scoped CSS 样式隔离）。OKLCH token 系统定义在 `BaseLayout.astro` 中。
@@ -84,7 +87,7 @@ dev 仓库（本仓库）
 **dev → ops 推送规则**：
 - `build-dist.yml` 和 `sync-agent-src.yml` 共享 `sync-ops` concurrency group，串行推送
 - `sync-agent-src.yml` 使用 rsync + exclude，排除 `dist/`、`public/data.json`、`*:Zone.Identifier`、`.git/`
-- `public/data.json` 由 ops 仓库 agent 直接管理，不通过 dev 同步
+- `public/data.json` 只存在于 ops 仓库（由 agent 直接管理）；dev 不再持有副本，预览数据由 `scripts/fetch-preview-data.mjs` 从生产站拉取
 
 ## dev → ops 数据流
 
@@ -114,8 +117,9 @@ dev 仓库的 `build-dist.yml` 把 dist/ 推送到 ops 仓库后，ops 仓库重
 
 ### dev 预览站
 
-dev 仓库自身的 CF Pages 预览项目用 **`npm run build:dev-preview`**，而不是 `build:preview`
-（后者会把仓库里的占位镜像 `agent-src/public/data.json` 当作数据，契约过期时整站进入错误态）。
+dev 仓库自身的 CF Pages 预览项目用 **`npm run build:dev-preview`**。
+（`build:preview` 是给 lighthouse 用的：构建后由 `scripts/fetch-preview-data.mjs` 从生产站
+拉一份 `dist/data.json`；预览站则走下面的反代，不落盘任何数据。）
 
 `build:dev-preview` 在构建后执行 `scripts/patch-preview-redirects.mjs`，把 `dist/_redirects`
 里的 `/data.json` 改写为反代生产站 `https://ffxiv-race-stats.pages.dev/data.json`，
