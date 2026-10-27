@@ -2,11 +2,11 @@
 // dev 预览站的 /data.json 反代注入（仅在 dev 仓库的 CF Pages 预览项目里跑）。
 //
 // 背景：
-//   1. dev 仓库只在 `agent-src/public/data.json` 保留一份由 ops 同步来的副本，
-//      它可能落后于真源（同步链路由 ops 仓库 sync-data-to-dev.yml 驱动）。
-//   2. 该副本曾长期停留在旧数据契约（meta.dungeon 单数字符串），在客户端校验
-//      收紧后让预览站直接进入「数据加载失败」态。
-//   3. 预览站的价值是「看源码改动长什么样」，数据应该永远是生产站的真实数据。
+//   1. dev 仓库不保存 data.json 副本（SSOT：唯一的源在 ops 仓库），
+//      因此预览站的 /data.json 必须由边缘反代提供。
+//   2. 历史上 dev 曾持有一份「手动/自动同步」的副本，长期停留在旧数据契约
+//      （meta.dungeon 单数字符串），在客户端校验收紧后让预览站整站报错。
+//   3. 预览站的价值是「看源码改动长什么样」，数据应该永远是线上真实数据。
 //
 // 为什么不直接写进 public/_redirects：
 //   `dist/_redirects` 与生产站共用——build-dist.yml 会把整个 dist/ 推到 ops 仓库。
@@ -18,12 +18,13 @@
 //     npm run build:dev-preview
 //
 // 环境变量：
-//   PREVIEW_DATA_URL  反代目标，默认 https://ffxiv-race-stats.pages.dev/data.json
+//   PROD_SITE_ORIGIN  反代目标站点，默认 https://ffxiv-race-stats.pages.dev
 
 import { readFileSync, writeFileSync } from 'node:fs'
+import { PROD_SITE_ORIGIN } from './data-source.mjs'
 
 const FILE = 'dist/_redirects'
-const TARGET = (process.env.PREVIEW_DATA_URL || 'https://ffxiv-race-stats.pages.dev/data.json').trim()
+const TARGET = `${PROD_SITE_ORIGIN}/data.json`
 
 // 匹配 public/_redirects 里现有的 `/data.json  /data.json  200` 规则
 const RULE = /^\/data\.json[ \t]+\S+[ \t]+200[ \t]*$/m
@@ -41,8 +42,8 @@ if (!RULE.test(src)) {
   process.exit(1)
 }
 
-if (!/^https?:\/\//.test(TARGET)) {
-  console.error(`[dev-preview] PREVIEW_DATA_URL 必须是绝对 URL，当前为：${TARGET}`)
+if (!/^https?:\/\/[^/]+/.test(PROD_SITE_ORIGIN)) {
+  console.error(`[dev-preview] PROD_SITE_ORIGIN 必须是绝对 origin，当前为：${PROD_SITE_ORIGIN}`)
   process.exit(1)
 }
 

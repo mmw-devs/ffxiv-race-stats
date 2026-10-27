@@ -11,7 +11,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "build:preview": "npm run typegen && npm run typecheck && npm run build && cp agent-src/public/data.json dist/data.json",
+    "build:preview": "npm run typegen && npm run typecheck && npm run build && node scripts/fetch-preview-data.mjs",
     "build:dev-preview": "npm run typegen && npm run typecheck && npm run build && node scripts/patch-preview-redirects.mjs",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
