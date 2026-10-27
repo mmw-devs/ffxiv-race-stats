@@ -104,9 +104,11 @@ dev 的 build-verify 只允许 ops-sync/* 分支改动该文件，并校验结�
 合入 dev main → 副本与真源一致
 ```
 
-⚠️ **已知问题**：`sync-data-to-dev.yml` 的 `--body` 多行文本顶格写在 YAML 里，把 `run: |`
-块标量截断，GitHub 判定为 workflow file issue —— 该 workflow **从未成功创建过 PR**，
-因此 dev 的副本停在 2026-08-11。修复该 YAML 后链路即可恢复。
+⚠️ 该 workflow 曾因 `--body` 的多行文本顶格书写，把 `run: |` 块标量截断，GitHub 判定为
+workflow file issue，**从未成功创建过 PR**（dev 副本因此停在 2026-08-11）。
+已在 `agent-src/.github/workflows/sync-data-to-dev.yml` 修复：body 改走 `--body-file` +
+heredoc，且每次同步使用独立分支 `ops-sync/data-<ops 短 SHA>`，避免复用分支导致的非快进推送失败。
+本次修改合并进 dev main 后，由 `sync-agent-src.yml` 同步到 ops 仓库生效。
 
 ## dev → ops 数据流
 
