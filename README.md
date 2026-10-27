@@ -18,6 +18,8 @@
 
 ## 本地预览
 
+Node 版本以 `.nvmrc` 为唯一事实源（当前 `24.11.0`，CI 也从该文件读取）。
+
 ```bash
 npm install        # 仅首次
 npm run dev        # Astro 开发服务器 + HMR
