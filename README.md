@@ -27,8 +27,8 @@ npm run dev        # Astro 开发服务器 + HMR
 
 访问 `http://localhost:4321`。
 
-`npm run dev` 会把 `/data.json` 代理到生产站（`astro.config.mjs` 的 `vite.server.proxy`），
-本地直接看到线上最新数据，不必等 ops→dev 的副本同步。
+`npm run dev` 会把 `/data.json` 转发到真源（`astro.config.mjs` → `scripts/data-source.mjs`），
+本地直接看到当前真实数据；仓库里不保存数据副本。
 
 ## 技术栈
 
@@ -87,28 +87,31 @@ dev 仓库（本仓库）
 **dev → ops 推送规则**：
 - `build-dist.yml` 和 `sync-agent-src.yml` 共享 `sync-ops` concurrency group，串行推送
 - `sync-agent-src.yml` 使用 rsync + exclude，排除 `dist/`、`public/data.json`、`*:Zone.Identifier`、`.git/`
-- `public/data.json` 的真源在 ops 仓库（运营人员通过 `content/*` PR 提交），由 ops 的
-  `sync-data-to-dev.yml` **单向同步**到 dev 的 `agent-src/public/data.json`；dev → ops 的 rsync 始终排除它
+  （`public/data.json` 只存在于 ops；dev 不持有副本，该排除项同时防止 `rsync --delete` 误删它）
 
-### data.json 副本同步（ops → dev）
+## 数据（单一事实源，SSOT）
 
-```
-运营人员在 ops 仓库改 public/data.json → content/* PR → 合并进 ops main
-        ↓
-ops 的 sync-data-to-dev.yml 触发（push: public/data.json）
-        ↓
-在 dev 仓库建 ops-sync/data 分支，复制 data.json，开 PR
-        ↓
-dev 的 build-verify 只允许 ops-sync/* 分支改动该文件，并校验结构完整性
-        ↓
-合入 dev main → 副本与真源一致
-```
+`data.json` **只有一份**，位于 ops 仓库 `mmw-devs/ffxiv-race-ops` 的 `public/data.json`，
+由运营人员通过 `content/*` PR 维护。dev 仓库**不保存副本**——副本会漂移，一旦漂移，
+消费它的预览站/构建就会静默拿到过期数据（2026-10 线上报的「meta.dungeons 应为数组」正是如此）。
 
-⚠️ 该 workflow 曾因 `--body` 的多行文本顶格书写，把 `run: |` 块标量截断，GitHub 判定为
-workflow file issue，**从未成功创建过 PR**（dev 副本因此停在 2026-08-11）。
-已在 `agent-src/.github/workflows/sync-data-to-dev.yml` 修复：body 改走 `--body-file` +
-heredoc，且每次同步使用独立分支 `ops-sync/data-<ops 短 SHA>`，避免复用分支导致的非快进推送失败。
-本次修改合并进 dev main 后，由 `sync-agent-src.yml` 同步到 ops 仓库生效。
+需要数据的场景一律「读真源」，而不是「存副本」：
+
+| 场景 | 取数方式 | 入口 |
+|---|---|---|
+| 本地开发 `npm run dev` | Vite 代理 `/data.json` → 真源 | `astro.config.mjs` |
+| lighthouse / 本地 `build:preview` | 构建后下载到 `dist/data.json` | `scripts/fetch-preview-data.mjs` |
+| dev 预览站（CF Pages） | 边缘反代 `/data.json` → 生产站 | `scripts/patch-preview-redirects.mjs` |
+| 生产站（CF Pages，ops 仓库） | 构建时 `cp public/data.json dist/data.json` | — |
+
+真源 URL、生产站 origin 统一在 `scripts/data-source.mjs` 定义（可用 `DATA_SOURCE_URL` /
+`PROD_SITE_ORIGIN` 覆盖），换地址/换仓库只改这一个文件。
+
+`build-verify` 带守卫：任何 PR 引入 `data.json` 副本都会失败。
+
+> 历史：dev 曾保留一份副本，靠「ops CI 同步 + PR 合并」维持一致。那条链路需要跨仓库
+> token、同步 workflow、`ops-sync/*` 分支约定和人工合并，任何一环坏掉副本就腐化
+> （实际失效两个多月）。去掉副本后这些机制全部不再需要。
 
 ## dev → ops 数据流
 
@@ -140,11 +143,11 @@ dev 仓库的 `build-dist.yml` 把 dist/ 推送到 ops 仓库后，ops 仓库重
 
 dev 仓库自身的 CF Pages 预览项目用 **`npm run build:dev-preview`**：不落盘数据，
 而是把 `/data.json` 反代到生产站，所以预览永远是线上真实数据。
-（`build:preview` 仍是给 lighthouse 用的——它复制的是 ops 同步来的副本 `agent-src/public/data.json`。）
+（`build:preview` 是给 lighthouse 用的：构建后从真源下载一份 `dist/data.json`，不落盘进仓库。）
 
 `build:dev-preview` 在构建后执行 `scripts/patch-preview-redirects.mjs`，把 `dist/_redirects`
 里的 `/data.json` 改写为反代生产站 `https://ffxiv-race-stats.pages.dev/data.json`，
-预览永远显示真实数据。目标可用 `PREVIEW_DATA_URL` 覆盖。
+预览永远显示真实数据。目标站点可用 `PROD_SITE_ORIGIN` 覆盖。
 
 ⚠️ 反代规则**只能在预览构建时注入**：`dist/_redirects` 与生产站共用（`build-dist.yml`
 会把整个 dist/ 推到 ops 仓库），若在 `public/_redirects` 里写死目标，生产站会自己代理自己。
