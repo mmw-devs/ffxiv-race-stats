@@ -2,9 +2,9 @@
 // dev 预览站的 /data.json 反代注入（仅在 dev 仓库的 CF Pages 预览项目里跑）。
 //
 // 背景：
-//   1. dev 仓库没有真实数据，`agent-src/public/data.json` 只是一份占位镜像，
-//      且被 sync-agent-src.yml 排除、不会流向 ops。
-//   2. 该镜像曾长期停留在旧数据契约（meta.dungeon 单数字符串），在客户端校验
+//   1. dev 仓库只在 `agent-src/public/data.json` 保留一份由 ops 同步来的副本，
+//      它可能落后于真源（同步链路由 ops 仓库 sync-data-to-dev.yml 驱动）。
+//   2. 该副本曾长期停留在旧数据契约（meta.dungeon 单数字符串），在客户端校验
 //      收紧后让预览站直接进入「数据加载失败」态。
 //   3. 预览站的价值是「看源码改动长什么样」，数据应该永远是生产站的真实数据。
 //
