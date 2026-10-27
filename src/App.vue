@@ -1,4 +1,4 @@
-<!-- App.vue — 根组件：fetch /data.json → validateRaceData 校验 → props 下发 -->
+<!-- App.vue — 根组件：编排取数 / 弹窗 / 滚动入场，向各区块下发 props -->
 <template>
   <div v-if="error" class="az-error" role="alert">
     <strong>数据加载失败</strong>
@@ -109,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, type Ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import NavBar from './components/NavBar.vue'
 import HeroSection from './components/HeroSection.vue'
 import SectionHeader from './components/SectionHeader.vue'
@@ -123,31 +123,18 @@ import Modal from './components/Modal.vue'
 import BackToTop from './components/BackToTop.vue'
 import BroadcastItem from './components/BroadcastItem.vue'
 import NoticeItem from './components/NoticeItem.vue'
-import { validateRaceData } from './utils/validateRaceData'
-import type { Meta, Team, NewsItem, Broadcaster } from '../types/race-data'
+import { useRaceData } from './composables/useRaceData'
+import { useReveal } from './composables/useReveal'
 
-interface Sponsor {
-  name: string
-  desc: string
-}
-
-const meta: Ref<Meta> = ref<Meta>({} as Meta)
-const teams: Ref<Team[]> = ref<Team[]>([])
-const news: Ref<NewsItem[]> = ref<NewsItem[]>([])
-const broadcasters: Ref<Broadcaster[]> = ref<Broadcaster[]>([])
-const notices: Ref<string[]> = ref<string[]>([])
-const sponsors: Ref<Sponsor[]> = ref<Sponsor[]>([])
-const loading = ref(true)
-const error: Ref<string | null> = ref<string | null>(null)
+// 取数 / 校验 / 错误态全部收敛在 composable 内，App 只负责编排。
+const { meta, teams, news, broadcasters, notices, sponsors, loading, error, load } = useRaceData()
+const { setup: setupReveal } = useReveal()
 
 // 弹窗状态：同时间最多打开一个
 type ModalKey = 'rules' | 'broadcast' | 'notices' | null
 const activeModal = ref<ModalKey>(null)
 function openModal(key: Exclude<ModalKey, null>): void { activeModal.value = key }
 function closeModal(): void { activeModal.value = null }
-function onKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape') activeModal.value = null
-}
 
 // 直播覆盖统计
 const coverage = computed(() => {
@@ -164,64 +151,15 @@ const coverage = computed(() => {
 })
 
 async function loadData(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    const resp = await fetch('/data.json')
-    if (!resp.ok) throw new Error('加载失败: HTTP ' + resp.status)
-    const data = await resp.json()
-    const check = validateRaceData(data)
-    if (!check.ok) {
-      throw new Error('数据形状校验失败: ' + check.errors.join('；'))
-    }
-    meta.value = (data.meta || {}) as Meta
-    teams.value = (data.teams || []) as Team[]
-    news.value = (data.news || []) as NewsItem[]
-    broadcasters.value = (data.broadcasters || []) as Broadcaster[]
-    notices.value = (data.notices || []) as string[]
-    sponsors.value = (data.sponsors || []) as Sponsor[]
-  } catch (e) {
-    console.error('数据加载失败:', e)
-    error.value = (e instanceof Error && e.message) ? e.message : '未知错误，请稍后重试'
-  } finally {
-    loading.value = false
-    await nextTick()
-    setupReveal()
-  }
+  const applied = await load()
+  if (!applied) return
+  await nextTick()
+  setupReveal()
 }
 
 function reload(): void {
-  loadData()
+  void loadData()
 }
 
-// 滚动入场：交错 reveal 各模块
-function setupReveal(): void {
-  const els = document.querySelectorAll<HTMLElement>('.reveal')
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (!('IntersectionObserver' in window) || reduced) {
-    els.forEach(el => el.classList.add('in-view'))
-    return
-  }
-  // threshold 用 0.01 + 底部 -60px 内缩：
-  // ① 比视口还高的区块（展开后的排名表/速报列表）也能触发，不会因比例达不到阈值而永远不可见
-  // ② 元素真正进入视口 60px 后再入场，避免“刚露个边就闪一下”
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach(en => {
-      if (en.isIntersecting) {
-        en.target.classList.add('in-view')
-        io.unobserve(en.target)
-      }
-    })
-  }, { threshold: 0.01, rootMargin: '0px 0px -60px 0px' })
-  els.forEach((el, i) => {
-    el.style.setProperty('--reveal-delay', (i % 4) * 90 + 'ms')
-    io.observe(el)
-  })
-}
-
-onMounted(() => {
-  document.addEventListener('keydown', onKeydown)
-  loadData()
-})
-onUnmounted(() => document.removeEventListener('keydown', onKeydown))
+onMounted(loadData)
 </script>

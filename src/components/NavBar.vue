@@ -27,22 +27,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
 import { useTimer } from '../composables/useTimer.js'
+import { useScrolledPast } from '../composables/useScroll'
+import type { Meta } from '../../types/race-data'
 
-const props = defineProps<{ startTime: string; status: string }>()
+const props = defineProps<{ startTime: string; status: Meta['status'] }>()
 const emit = defineEmits<{ (e: 'open-rules'): void }>()
 
-const { elapsed } = useTimer(props.startTime)
+const { elapsed } = useTimer(() => props.startTime)
 
-// 滚动超过 12px 后给导航加背景/阴影（is-scrolled class）
-const scrolled = ref(false)
-function onScroll(): void {
-  scrolled.value = window.scrollY > 12
-}
-onMounted(() => {
-  onScroll()
-  window.addEventListener('scroll', onScroll, { passive: true })
-})
-onUnmounted(() => window.removeEventListener('scroll', onScroll))
+// 滚动超过 12px 后给导航加背景/阴影（is-scrolled class）；与 BackToTop 共享滚动监听
+const scrolled = useScrolledPast(12)
 </script>

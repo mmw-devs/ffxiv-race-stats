@@ -2,59 +2,29 @@
  * useTimer.ts
  *
  * 开赛计时器 composable。
- * - startTimeStr 为 ISO 8601 字符串
- * - 每秒更新 elapsed（'+HH:MM:SS' 格式）
- * - 组件卸载时自动停止定时器
+ * - startTime 为 ISO 8601 字符串（或 schema 允许的 "-" 占位）
+ * - 复用全局共享时钟 useNow，多个组件只维持一个 interval
+ * - startTime 变化时自动重算（不依赖组件挂载时的快照）
+ * - 组件卸载时自动退订
  */
 
-import { ref, onMounted, onUnmounted, type Ref } from 'vue'
+import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
+import { useNow } from './useNow'
+import { formatElapsed, parseInstant } from '../utils/time'
 
 export interface UseTimerReturn {
   /** 当前已开赛时间显示（'+HH:MM:SS' 或 '--:--:--'） */
-  elapsed: Ref<string>
+  elapsed: ComputedRef<string>
 }
 
-function pad2(n: number): string {
-  return (n < 10 ? '0' : '') + n
-}
+export function useTimer(startTime: MaybeRefOrGetter<string>): UseTimerReturn {
+  const now = useNow()
 
-function formatElapsed(ms: number): string {
-  const totalSec = Math.floor(ms / 1000)
-  const h = Math.floor(totalSec / 3600)
-  const m = Math.floor((totalSec % 3600) / 60)
-  const s = totalSec % 60
-  return '+' + pad2(h) + ':' + pad2(m) + ':' + pad2(s)
-}
-
-export function useTimer(startTimeStr: string): UseTimerReturn {
-  const elapsed = ref<string>('+00:00:00')
-  let timer: ReturnType<typeof setInterval> | null = null
-  const startTime = new Date(startTimeStr).getTime()
-  const isValid = !isNaN(startTime)
-
-  function tick(): void {
-    if (!isValid) {
-      elapsed.value = '--:--:--'
-      return
-    }
-    const ms = Date.now() - startTime
-    elapsed.value = formatElapsed(ms > 0 ? ms : 0)
-  }
-
-  onMounted(() => {
-    if (!isValid) {
-      elapsed.value = '--:--:--'
-      return
-    }
-    tick()
-    timer = setInterval(tick, 1000)
+  const elapsed = computed(() => {
+    const start = parseInstant(toValue(startTime))
+    if (!start) return '--:--:--'
+    return formatElapsed(now.value - start.getTime())
   })
 
-  onUnmounted(() => {
-    if (timer) clearInterval(timer)
-  })
-
-  return {
-    elapsed,
-  }
+  return { elapsed }
 }

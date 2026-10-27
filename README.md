@@ -23,6 +23,7 @@ Node 版本以 `.nvmrc` 为唯一事实源（当前 `24.11.0`，CI 也从该文�
 ```bash
 npm install        # 仅首次
 npm run dev        # Astro 开发服务器 + HMR
+npm run test:unit  # 前端纯函数 / 状态单测（Vitest）
 ```
 
 访问 `http://localhost:4321`。
@@ -32,15 +33,17 @@ npm run dev        # Astro 开发服务器 + HMR
 
 ## 技术栈
 
-Astro 7 + Vue 3，组件化架构（13 个 SFC，scoped CSS 样式隔离）。OKLCH token 系统定义在 `BaseLayout.astro` 中。
+Astro 7 + Vue 3，组件化架构（14 个页面组件 + `App.vue` 根组件；全局样式与 OKLCH token 集中在 `BaseLayout.astro`）。
 
 ```
 src/
 ├── pages/index.astro         # 入口
-├── layouts/BaseLayout.astro  # 全局布局 + tokens
-├── App.vue                   # 根组件（数据加载 + 分发）
-├── components/               # 13 个 Vue 组件
-└── composables/              # useTimer / useExpand
+├── layouts/BaseLayout.astro  # 全局布局 + tokens + 动效层
+├── App.vue                   # 根组件（取数 / 弹窗 / 滚动入场编排）
+├── components/               # 14 个 Vue 组件
+├── composables/              # useRaceData / useNow / useScroll / useExpandableList / useReveal / useTimer
+├── utils/                    # 纯函数（排名排序、阶段解析、时间格式化、数据校验）
+└── types.ts                  # 前端共享类型（Sponsor / Coverage / RaceData）
 ```
 
 ## 仓库结构
@@ -78,7 +81,7 @@ dev 仓库（本仓库）
 
 | Workflow | 触发 | 职责 |
 |---|---|---|
-| `build-verify.yml` | dev PR | `npm ci` → `npm run build` 验证 |
+| `build-verify.yml` | dev PR | `npm ci` → typegen → typecheck → `test:unit` → lint → build → size |
 | `build-dist.yml` | dev main push | 构建 dist/ 推送到 ops 仓库 |
 | `sync-agent-src.yml` | dev main push + agent-src/** | 同步 agent-src/ 到 ops 仓库 |
 | `sync-issue.yml` | dev issues 事件 | dev issues → 飞书多维表格 |

@@ -35,17 +35,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useTimer } from '../composables/useTimer.js'
+import { prefersReducedMotion } from '../utils/motion'
+import { formatStartLabel } from '../utils/time'
 import BroadcastItem from './BroadcastItem.vue'
+import type { Coverage } from '../types'
 import type { Broadcaster } from '../../types/race-data'
-
-/** 直播覆盖统计。由 App.vue 从 data.json 计算后传入。 */
-interface Coverage {
-  totalPlayers: number
-  streamingPlayers: number
-  teamsWithCoverage: number
-}
 
 const props = defineProps<{
   startTime: string
@@ -55,39 +51,61 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ (e: 'open-broadcast'): void }>()
 
-const { elapsed } = useTimer(props.startTime)
+const { elapsed } = useTimer(() => props.startTime)
 
-const startLabel = computed(() => {
-  if (!props.startTime) return ''
-  return props.startTime.slice(0, 10) + ' 起'
-})
+// "-" 是 schema 里「开赛时间未知」的占位符；直接 slice 会显示成 "- 起"。
+const startLabel = computed(() => formatStartLabel(props.startTime))
 
 /** 控制台仅展示前 3 个转播台，其余进入弹窗 */
 const visibleBroadcasters = computed(() => props.broadcasters.slice(0, 3))
 
-// 数字滚动动画（尊重 reduced-motion）
+// 数字滚动动画（尊重 reduced-motion）；coverage 变化时从当前值续加到新目标
+const COVERAGE_ANIM_MS = 700
 const displayStream = ref(0)
 const displayTeams = ref(0)
+let raf = 0
 
-function countUp(el: { value: number }, target: number, duration = 700): void {
-  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (prefersReduced) { el.value = target; return }
-  const start = performance.now()
-  const from = 0
-  function tick(now: number): void {
-    const progress = Math.min((now - start) / duration, 1)
-    const eased = 1 - (1 - progress) * (1 - progress)
-    el.value = Math.round(from + (target - from) * eased)
-    if (progress < 1) requestAnimationFrame(tick)
-    else el.value = target
+function animateCoverage(target: Coverage): void {
+  if (raf !== 0) {
+    cancelAnimationFrame(raf)
+    raf = 0
   }
-  requestAnimationFrame(tick)
+
+  if (prefersReducedMotion()) {
+    displayStream.value = target.streamingPlayers
+    displayTeams.value = target.teamsWithCoverage
+    return
+  }
+
+  const fromStream = displayStream.value
+  const fromTeams = displayTeams.value
+  const start = performance.now()
+
+  function tick(now: number): void {
+    const progress = Math.min((now - start) / COVERAGE_ANIM_MS, 1)
+    const eased = 1 - (1 - progress) * (1 - progress)
+    displayStream.value = Math.round(fromStream + (target.streamingPlayers - fromStream) * eased)
+    displayTeams.value = Math.round(fromTeams + (target.teamsWithCoverage - fromTeams) * eased)
+    if (progress < 1) {
+      raf = requestAnimationFrame(tick)
+    } else {
+      displayStream.value = target.streamingPlayers
+      displayTeams.value = target.teamsWithCoverage
+      raf = 0
+    }
+  }
+
+  raf = requestAnimationFrame(tick)
 }
 
 onMounted(() => {
-  if (props.coverage) {
-    countUp(displayStream, props.coverage.streamingPlayers)
-    countUp(displayTeams, props.coverage.teamsWithCoverage)
-  }
+  if (props.coverage) animateCoverage(props.coverage)
+})
+watch(() => props.coverage, (coverage) => {
+  if (coverage) animateCoverage(coverage)
+})
+onUnmounted(() => {
+  if (raf !== 0) cancelAnimationFrame(raf)
+  raf = 0
 })
 </script>

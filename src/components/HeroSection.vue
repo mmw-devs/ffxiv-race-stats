@@ -68,7 +68,7 @@
                 </template>
               </div>
             </div>
-            <button type="button" class="az-expand" @click="emit('open-notices')">查看全部 {{ notices.length }} 条</button>
+            <button v-if="notices.length > 0" type="button" class="az-expand" @click="emit('open-notices')">查看全部 {{ notices.length }} 条</button>
           </div>
         </div>
       </div>

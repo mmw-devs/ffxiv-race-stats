@@ -8,7 +8,7 @@ name: build-verify
 # 验证:
 #   - npm ci 依赖安装
 #   - 数据副本守卫（dev 不得保存 data.json，唯一真源在 ops 仓库）
-#   - npm run build Astro 构建（确保 src/ 改动可产出 dist/）
+#   - typegen / typecheck / test:unit / lint / build / size
 # 这是 dev 仓库 branch protection 的唯一必需状态检查
 # ────────────────────────────────────────────────────────────────
 
@@ -56,6 +56,9 @@ jobs:
 
       - name: Type-check
         run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
 
       - name: Lint
         run: npm run lint

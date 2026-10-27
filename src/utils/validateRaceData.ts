@@ -49,6 +49,9 @@ export function validateRaceData(data: unknown): ValidationResult {
     // dungeons：UI 直接读取（RankingTable/RankingRow 据此决定 phase 显示），做形状检查
     if (!isArr(data.meta.dungeons)) {
       errors.push('meta.dungeons 应为数组')
+    } else if (data.meta.dungeons.length === 0) {
+      // schema 的 minItems=1；空数组会让阶段显示逻辑误判为单副本
+      errors.push('meta.dungeons 至少需要 1 项')
     } else {
       data.meta.dungeons.forEach((d, i) => {
         const p = `meta.dungeons[${i}]`
