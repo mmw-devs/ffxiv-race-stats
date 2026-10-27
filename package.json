@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "FFXIV 高难首杀竞速排行聚合平台 — 静态站点，零运行时依赖。",
+  "engines": {
+    "node": ">=24.11.0"
+  },
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
