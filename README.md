@@ -112,6 +112,18 @@ Cloudflare Pages 监听 **ops 仓库** main 分支 → 自动构建（`npm run b
 
 dev 仓库的 `build-dist.yml` 把 dist/ 推送到 ops 仓库后，ops 仓库重新部署。
 
+### dev 预览站
+
+dev 仓库自身的 CF Pages 预览项目用 **`npm run build:dev-preview`**，而不是 `build:preview`
+（后者会把仓库里的占位镜像 `agent-src/public/data.json` 当作数据，契约过期时整站进入错误态）。
+
+`build:dev-preview` 在构建后执行 `scripts/patch-preview-redirects.mjs`，把 `dist/_redirects`
+里的 `/data.json` 改写为反代生产站 `https://ffxiv-race-stats.pages.dev/data.json`，
+预览永远显示真实数据。目标可用 `PREVIEW_DATA_URL` 覆盖。
+
+⚠️ 反代规则**只能在预览构建时注入**：`dist/_redirects` 与生产站共用（`build-dist.yml`
+会把整个 dist/ 推到 ops 仓库），若在 `public/_redirects` 里写死目标，生产站会自己代理自己。
+
 ## 相关链接
 
 - 站点：CF Pages URL（dashboard 查看）
