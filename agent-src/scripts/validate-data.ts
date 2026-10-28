@@ -22,7 +22,7 @@
  *   - PR #1（scripts TS 化）：保持与 .js 完全等价；将 CLI 主体封装到 main() 便于测试
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import vm from "node:vm";
@@ -129,7 +129,6 @@ interface ConstantsExport {
   VALID_REGIONS?: string[];
   VALID_ROLES?: string[];
   VALID_STATUSES?: string[];
-  REQUIRED_TOP_KEYS?: string[];
   TEAM_PLAYER_COUNT?: number;
   JOB_ROLES?: Record<string, string[]>;
   PLATFORM_DOMAINS?: Record<string, string[]>;
@@ -180,7 +179,7 @@ export function main(dataPath?: string): number {
     const wrapped =
       constantsRaw +
       "\n;({ PHASE_ORDER, VALID_REGIONS, VALID_ROLES, VALID_STATUSES, " +
-      "REQUIRED_TOP_KEYS, TEAM_PLAYER_COUNT, SCHEMA_VERSION, " +
+      "TEAM_PLAYER_COUNT, SCHEMA_VERSION, " +
       "JOB_ROLES, PLATFORM_DOMAINS });";
     const script = new vm.Script(wrapped, { filename: "constants.js" });
     constants = script.runInNewContext({}) as ConstantsExport;
@@ -195,7 +194,6 @@ export function main(dataPath?: string): number {
     VALID_REGIONS = [],
     VALID_ROLES = [],
     VALID_STATUSES = [],
-    REQUIRED_TOP_KEYS = [],
     TEAM_PLAYER_COUNT = 8,
     JOB_ROLES = {},
     PLATFORM_DOMAINS = {},
@@ -218,15 +216,11 @@ export function main(dataPath?: string): number {
   const ajv = new Ajv({ allErrors: true, validateSchema: false });
   const schemaDir = path.resolve(__dirname, "..", "schema");
 
-  // 按依赖顺序加载（player 被 team 引用，meta/team/news/broadcaster 被 root 引用）
-  const schemaFiles = [
-    "player.schema.json",
-    "meta.schema.json",
-    "team.schema.json",
-    "news.schema.json",
-    "broadcaster.schema.json",
-    "root.schema.json",
-  ];
+  // 自动加载 schema 目录下的全部契约文件；新增 schema 不再需要维护手写清单。
+  // Ajv 在 getSchema 时才编译，因此 addSchema 的先后顺序不影响 $ref 解析。
+  const schemaFiles = readdirSync(schemaDir)
+    .filter((file) => file.endsWith(".schema.json"))
+    .sort();
 
   for (const file of schemaFiles) {
     try {
@@ -262,13 +256,6 @@ export function main(dataPath?: string): number {
   console.log(`\n${BOLD}── 4. 值域与业务规则校验 ──${RESET}`);
 
   const meta = RACE_DATA.meta;
-
-  // 4a. 顶层 key 完整性
-  for (const k of REQUIRED_TOP_KEYS) {
-    if (!(k in RACE_DATA)) {
-      fail(state, `缺少顶层 key: ${k}`);
-    }
-  }
 
   // 4b. meta.eventName：1–16 字符，不得含标点/占位符/控制字符
   if (meta) {

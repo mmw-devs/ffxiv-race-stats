@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "section.schema.json",
+  "title": "Section",
+  "description": "单个章节的运营文案（id、顺序、导航标签由前端 sections 配置决定）",
+  "type": "object",
+  "required": ["kicker", "title"],
+  "properties": {
+    "kicker": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

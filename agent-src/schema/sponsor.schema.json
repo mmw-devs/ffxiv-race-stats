@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sponsor.schema.json",
+  "title": "Sponsor",
+  "description": "赞助商条目",
+  "type": "object",
+  "required": ["name", "desc"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "desc": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

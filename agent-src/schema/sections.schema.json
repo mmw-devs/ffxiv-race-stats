@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sections.schema.json",
+  "title": "Sections",
+  "description": "各章节的运营文案；章节 id / 顺序 / 导航标签不在数据中",
+  "type": "object",
+  "required": ["ranking", "news", "sponsors", "guides"],
+  "properties": {
+    "ranking": { "$ref": "section.schema.json" },
+    "news": { "$ref": "section.schema.json" },
+    "sponsors": { "$ref": "section.schema.json" },
+    "guides": { "$ref": "section.schema.json" }
+  },
+  "additionalProperties": false
+}

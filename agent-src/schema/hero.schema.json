@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hero.schema.json",
+  "title": "Hero",
+  "description": "首页英雄区运营文案（主标题使用 meta.eventName，不在此重复）",
+  "type": "object",
+  "required": ["kicker", "lead", "primaryCta", "secondaryCta"],
+  "properties": {
+    "kicker": { "type": "string", "minLength": 1, "description": "标题上方眉题" },
+    "lead": { "type": "string", "minLength": 1, "description": "导语" },
+    "primaryCta": { "$ref": "cta.schema.json" },
+    "secondaryCta": { "$ref": "cta.schema.json" }
+  },
+  "additionalProperties": false
+}

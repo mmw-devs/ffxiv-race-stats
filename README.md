@@ -23,6 +23,7 @@ Node 版本以 `.nvmrc` 为唯一事实源（当前 `24.11.0`，CI 也从该文�
 ```bash
 npm install        # 仅首次
 npm run dev        # Astro 开发服务器 + HMR
+npm run test:unit  # 前端纯函数 / 状态单测（Vitest）
 ```
 
 访问 `http://localhost:4321`。
@@ -32,15 +33,20 @@ npm run dev        # Astro 开发服务器 + HMR
 
 ## 技术栈
 
-Astro 7 + Vue 3，组件化架构（13 个 SFC，scoped CSS 样式隔离）。OKLCH token 系统定义在 `BaseLayout.astro` 中。
+Astro 7 + Vue 3，组件化架构（16 个页面组件 + `App.vue` 根组件；全局样式与 OKLCH token 集中在 `src/styles/`）。
 
 ```
 src/
 ├── pages/index.astro         # 入口
-├── layouts/BaseLayout.astro  # 全局布局 + tokens
-├── App.vue                   # 根组件（数据加载 + 分发）
-├── components/               # 13 个 Vue 组件
-└── composables/              # useTimer / useExpand
+├── layouts/BaseLayout.astro  # 全局布局 + head
+├── styles/                   # tokens / base / 区块 CSS（global.css 入口）
+├── App.vue                   # 根组件（loading / error / ready 状态机）
+├── components/               # 16 个 Vue 组件（PageView 承载 ready 后的页面主体）
+├── composables/              # useRaceData / usePageMotion / useNow / useScroll / useExpandableList / useReveal / useTimer / usePageSeo
+├── utils/                    # 纯函数（排名排序、阶段解析、时间格式化、数据校验/解析）
+├── selectors.ts              # 派生值（coverage / live / folio / phase）
+├── sections.ts               # 章节 id / 顺序 / 导航标签（站点结构）
+└── types.ts                  # 前端共享类型（schema 生成 + Coverage）
 ```
 
 ## 仓库结构
@@ -78,7 +84,7 @@ dev 仓库（本仓库）
 
 | Workflow | 触发 | 职责 |
 |---|---|---|
-| `build-verify.yml` | dev PR | `npm ci` → `npm run build` 验证 |
+| `build-verify.yml` | dev PR | `npm ci` → typegen → typecheck → data-path:check → test:unit → lint → build → size |
 | `build-dist.yml` | dev main push | 构建 dist/ 推送到 ops 仓库 |
 | `sync-agent-src.yml` | dev main push + agent-src/** | 同步 agent-src/ 到 ops 仓库 |
 | `sync-issue.yml` | dev issues 事件 | dev issues → 飞书多维表格 |
@@ -100,9 +106,15 @@ dev 仓库（本仓库）
 | 场景 | 取数方式 | 入口 |
 |---|---|---|
 | 本地开发 `npm run dev` | Vite 代理 `/data.json` → 真源 | `astro.config.mjs` |
-| lighthouse / `build:preview` | 构建后下载到 `dist/data.json` | `scripts/fetch-preview-data.mjs` |
-| dev 预览站（CF Pages） | **同 `build:preview`**：构建时写入 `dist/data.json` | `npm run build:dev-preview` |
-| 生产站（CF Pages，ops 仓库） | 构建时 `cp public/data.json dist/data.json` | — |
+| lighthouse / `build:preview` | 构建前下载到 `.astro-data/data.json`，构建后复制到 `dist/data.json` | `scripts/fetch-build-data.mjs` / `scripts/copy-build-data.mjs` |
+| dev 预览站（CF Pages） | **同 `build:preview`**：构建时先取数、再构建、复制数据 | `npm run build:dev-preview` |
+| 生产站（CF Pages，ops 仓库） | dev `build-dist` 构建前取数生成 head；ops 构建时 `cp public/data.json dist/data.json` | `build-dist.yml` |
+
+`build:preview` 先取数并跑完整 schema 校验，再构建（让 `content.seo` 进入首屏 head），最后把同一份数据复制到 `dist/data.json`；坏数据直接阻断构建。顶层 required 直接来自 `root.schema.json`，不在脚本里维护第二份。
+
+`build-dist` 的 SEO 取数对**传输层失败**（网络/HTTP/超时）降级为 fallback head，不阻断发版；但 JSON 解析错误或 schema 非法仍会硬失败。
+
+SEO head 是**构建时快照**：ops 只改 `data.json` 不会自动重跑 dev 构建，因此 head 可能滞后于 runtime 数据；runtime 内容仍由客户端 fetch 更新。若要求 head 与数据严格同步，应改 SSR 或在 ops 部署期改写 head。
 
 dev 预览站与生产站**产物同构**：两者都把自己的 `dist/data.json` 作为同源静态文件提供，
 不使用任何边缘 rewrite/代理。曾尝试用 `_redirects` 把 `/data.json` 200 重写到生产站，
@@ -110,7 +122,19 @@ dev 预览站与生产站**产物同构**：两者都把自己的 `dist/data.jso
 不该让预览站依赖它。
 
 真源 URL 统一定义在 `scripts/data-source.mjs`（可用 `DATA_SOURCE_URL` 覆盖），
-换仓库/换地址只改这一个文件。
+换仓库/换地址只改这一个文件。浏览器运行路径 `/data.json` 与构建产物路径
+`dist/data.json` 统一定义在 `shared/data-path.mjs`；`public/_redirects` 由
+`scripts/generate-redirects.mjs` 生成，CI 用 `npm run data-path:check` 防漂移。
+
+运营文案放在 `data.json` 的 `content` 块（`hero` / `rules` / `seo` / `media` / `sections`），
+契约见 `agent-src/schema/content.schema.json`。`content` 是 required，前端不再保留代码兜底；
+ops 数据由 `content/*` PR 维护。
+
+内容归属补充：导航标签、排名列头、展开/加载/关闭等交互文案、Footer 品牌与版权、Guides 占位文案
+属于代码 chrome；`meta.boss` / `meta.dataCenter` 是预留字段，当前 UI 不渲染。
+
+运行时刷新：`useRaceData` 目前只在首次加载 / 手动重试时取数，不做轮询；live 赛事若需要自动刷新，
+应另加 visibility-aware polling + ETag，避免打断滚动、视频和弹窗。
 
 `build-verify` 带守卫：任何 PR 引入 `data.json` 副本都会失败。
 

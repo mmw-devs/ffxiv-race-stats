@@ -4,10 +4,7 @@
     <div class="az-container az-nav-inner">
       <a class="az-brand" href="#top">FFXIV 竞速档案<span class="az-brand-sub">Race Archive</span></a>
       <nav class="az-nav-links" aria-label="主导航">
-        <a href="#ranking">实时排名</a>
-        <a href="#news">速报</a>
-        <a href="#sponsors">赞助</a>
-        <a href="#guides">攻略</a>
+        <a v-for="section in SECTIONS" :key="section.id" :href="'#' + section.id">{{ section.navLabel }}</a>
       </nav>
       <span class="az-nav-meta">
         <span class="az-nav-timer">
@@ -17,7 +14,7 @@
           </svg>
           <span class="az-num">{{ elapsed }}</span>
         </span>
-        <span v-if="status === 'live'" class="az-live-pill">
+        <span v-if="isLive" class="az-live-pill">
           <span class="az-live-dot" aria-hidden="true"></span>LIVE
         </span>
       </span>
@@ -27,22 +24,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { useTimer } from '../composables/useTimer.js'
+import { useScrolledPast } from '../composables/useScroll'
+import { selectIsLive } from '../selectors'
+import { SECTIONS } from '../sections'
+import type { Meta } from '../../types/race-data'
 
-const props = defineProps<{ startTime: string; status: string }>()
+const props = defineProps<{ startTime: string; status: Meta['status'] }>()
 const emit = defineEmits<{ (e: 'open-rules'): void }>()
 
-const { elapsed } = useTimer(props.startTime)
+const { elapsed } = useTimer(() => props.startTime)
+const isLive = computed(() => selectIsLive(props.status))
 
-// 滚动超过 12px 后给导航加背景/阴影（is-scrolled class）
-const scrolled = ref(false)
-function onScroll(): void {
-  scrolled.value = window.scrollY > 12
-}
-onMounted(() => {
-  onScroll()
-  window.addEventListener('scroll', onScroll, { passive: true })
-})
-onUnmounted(() => window.removeEventListener('scroll', onScroll))
+// 滚动超过 12px 后给导航加背景/阴影（is-scrolled class）；与 BackToTop 共享滚动监听
+const scrolled = useScrolledPast(12)
 </script>

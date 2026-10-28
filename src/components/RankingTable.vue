@@ -12,21 +12,23 @@
     <RankingRow v-for="team in visibleTeams" :key="team.id" :team="team" :dungeons="dungeons" />
 
     <button
-      v-if="teams.length > 15"
+      v-if="canExpand"
       type="button"
       class="az-expand"
       :class="{ 'is-open': expanded }"
       :aria-expanded="expanded"
-      @click="expanded = !expanded"
+      @click="toggle"
     >
-      {{ expanded ? '收起' : '展开全部 ' + teams.length + ' 队' }}
+      {{ expanded ? '收起' : '展开全部 ' + sortedTeams.length + ' 队' }}
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import RankingRow from './RankingRow.vue'
+import { useExpandableList } from '../composables/useExpandableList'
+import { sortTeamsByRank } from '../utils/ranking'
 import type { Team, Dungeon } from '../../types/race-data'
 
 const props = defineProps<{
@@ -35,7 +37,8 @@ const props = defineProps<{
   dungeons?: Dungeon[]
 }>()
 
-const expanded = ref(false)
-// 默认只显示前 15 名（rank<=15），点击展开后全量
-const visibleTeams = computed(() => (expanded.value ? props.teams : props.teams.filter(t => t.rank <= 15)))
+// 数据契约只保证 rank 为 1..n 连续整数，不保证 teams[] 的数组顺序；
+// 展示层始终按 rank 升序，默认收起时取前 15 名（而不是 rank <= 15）。
+const sortedTeams = computed(() => sortTeamsByRank(props.teams))
+const { expanded, canExpand, visibleItems: visibleTeams, toggle } = useExpandableList(sortedTeams, 15)
 </script>

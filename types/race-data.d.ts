@@ -5,15 +5,21 @@
  */
 
 /**
+ * 赛事公告条目（短文本，按运营给定顺序展示）
+ */
+export type Notice = string;
+
+/**
  * FFXIV 竞速排名数据顶层结构
  */
 export interface RACE_DATA {
   meta: Meta;
+  content: Content;
   teams: Team[];
   news: NewsItem[];
   broadcasters: Broadcaster[];
-  notices: unknown[];
-  sponsors: unknown[];
+  notices: Notice[];
+  sponsors: Sponsor[];
   [k: string]: unknown;
 }
 /**
@@ -28,7 +34,13 @@ export interface Meta {
    * @minItems 1
    */
   dungeons: [Dungeon, ...Dungeon[]];
+  /**
+   * 预留字段：当前 UI 不渲染；启用前需补 selector / 视图
+   */
   boss?: string;
+  /**
+   * 预留字段：当前 UI 不渲染；启用前需补 selector / 视图
+   */
   dataCenter?: string;
   /**
    * ISO 8601 瞬时，需含时区（UTC 用 Z，或 ±HH:MM）；status=upcoming 且未知时用 "-" 占位
@@ -49,6 +61,95 @@ export interface Dungeon {
    * 副本完整显示名
    */
   name: string;
+}
+/**
+ * 运营可编辑的站点文案与媒体。主标题/赛事名使用 meta.eventName；导航、列头、交互文案不在 data.json。
+ */
+export interface Content {
+  hero: Hero;
+  rules: Rules;
+  seo: Seo;
+  media: Media;
+  sections: Sections;
+}
+/**
+ * 首页英雄区运营文案（主标题使用 meta.eventName，不在此重复）
+ */
+export interface Hero {
+  /**
+   * 标题上方眉题
+   */
+  kicker: string;
+  /**
+   * 导语
+   */
+  lead: string;
+  primaryCta: Cta;
+  secondaryCta: Cta;
+}
+/**
+ * 行动号召按钮（文案 + 目标）
+ */
+export interface Cta {
+  /**
+   * 按钮文案
+   */
+  label: string;
+  /**
+   * 锚点、站内路径或绝对 URL
+   */
+  href: string;
+}
+/**
+ * 赛事规则弹窗内容
+ */
+export interface Rules {
+  title: string;
+  kicker: string;
+  /**
+   * @minItems 1
+   */
+  items: [string, ...string[]];
+}
+/**
+ * 页面 SEO 文案（title 是独立文案，不由 eventName 自动派生）
+ */
+export interface Seo {
+  title: string;
+  description: string;
+  /**
+   * Open Graph 图片路径或绝对 URL
+   */
+  ogImage?: string;
+}
+/**
+ * 首页媒体资源（站内路径或 CDN URL）
+ */
+export interface Media {
+  /**
+   * 首页大屏视频
+   */
+  heroVideo: string;
+  /**
+   * 视频加载失败 / 首帧海报
+   */
+  heroPoster: string;
+}
+/**
+ * 各章节的运营文案；章节 id / 顺序 / 导航标签不在数据中
+ */
+export interface Sections {
+  ranking: Section;
+  news: Section;
+  sponsors: Section;
+  guides: Section;
+}
+/**
+ * 单个章节的运营文案（id、顺序、导航标签由前端 sections 配置决定）
+ */
+export interface Section {
+  kicker: string;
+  title: string;
 }
 /**
  * 一支竞速队伍及其玩家
@@ -104,4 +205,11 @@ export interface Broadcaster {
   url: string;
   note: string;
   [k: string]: unknown;
+}
+/**
+ * 赞助商条目
+ */
+export interface Sponsor {
+  name: string;
+  desc: string;
 }

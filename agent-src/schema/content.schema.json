@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "content.schema.json",
+  "title": "Content",
+  "description": "运营可编辑的站点文案与媒体。主标题/赛事名使用 meta.eventName；导航、列头、交互文案不在 data.json。",
+  "type": "object",
+  "required": ["hero", "rules", "seo", "media", "sections"],
+  "properties": {
+    "hero": { "$ref": "hero.schema.json" },
+    "rules": { "$ref": "rules.schema.json" },
+    "seo": { "$ref": "seo.schema.json" },
+    "media": { "$ref": "media.schema.json" },
+    "sections": { "$ref": "sections.schema.json" }
+  },
+  "additionalProperties": false
+}

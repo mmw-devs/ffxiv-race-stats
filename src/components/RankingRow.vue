@@ -1,10 +1,10 @@
 <!-- RankingRow.vue — 排名行（单支队伍：名次 / 队名 / 职业 / 血量 / 阶段） -->
 <template>
   <div class="az-team" :class="medalClass">
-    <span class="az-team-rank" :class="medalClass">{{ padRank(team.rank) }}</span>
+    <span class="az-team-rank" :class="medalClass">{{ pad2(team.rank) }}</span>
     <span class="az-team-name">
       <span class="az-name-t">{{ team.name }}</span>
-      <span class="az-region" :class="'rg-' + regionKey">{{ team.region || '??' }}</span>
+      <span class="az-region" :class="regionKey ? 'rg-' + regionKey : ''">{{ team.region || '??' }}</span>
     </span>
     <div class="az-team-comp">
       <template v-for="(p, pi) in team.players" :key="pi">
@@ -23,12 +23,14 @@
       </template>
     </div>
     <span class="az-team-hp">{{ team.bossHP.toFixed(1) }}%</span>
-    <span class="az-team-phase" :class="phaseClass">{{ displayPhase }}</span>
+    <span class="az-team-phase" :class="phase.className">{{ phase.label }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { selectPhaseView } from '../selectors'
+import { pad2 } from '../utils/format'
 import type { Team, Dungeon } from '../../types/race-data'
 
 const props = defineProps<{
@@ -45,29 +47,9 @@ const medalClass = computed(() => {
   return ''
 })
 
-// 地区 / 阶段标签转小写，作为 CSS class 后缀（.rg-jp、.ph-1 …）
-const regionKey = computed(() => (props.team.region || 'na').toLowerCase())
-const phaseClass = computed(() => String(props.team.phase || '').toLowerCase())
+// 地区标签转小写，作为 CSS class 后缀（.rg-jp、.rg-na …）；空值不加色，文本仍显示 ??
+const regionKey = computed(() => (props.team.region || '').toLowerCase())
 
-/**
- * 阶段显示逻辑（#119 副本/阶段绑定）：
- * - phase 是复合 string "<副本id>-<阶段>"（如 M1S-P5、M2S-CLEAR）
- * - 单副本场景（dungeons.length <= 1）：只显示阶段（如 P5、CLEAR）
- * - 多副本场景：显示 "副本id · 阶段"（如 M1S · P5、M2S · CLEAR）
- */
-const displayPhase = computed(() => {
-  const phase = props.team.phase ?? ''
-  const dashIdx = phase.indexOf('-')
-  if (dashIdx < 0) return phase // 容错：旧数据无 '-' 时原样显示
-  const stage = phase.slice(dashIdx + 1)
-  const dungeons = props.dungeons ?? []
-  if (dungeons.length <= 1) return stage
-  const dungeonId = phase.slice(0, dashIdx)
-  return `${dungeonId} · ${stage}`
-})
-
-// 名次补零显示为两位（1 → 01）
-function padRank(n: number): string {
-  return String(n).padStart(2, '0')
-}
+// 阶段展示由 selector 统一解释：只取 stage 做 CSS class，文本按副本数决定前缀。
+const phase = computed(() => selectPhaseView(props.team.phase ?? '', props.dungeons ?? []))
 </script>

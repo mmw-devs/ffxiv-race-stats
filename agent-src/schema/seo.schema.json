@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "seo.schema.json",
+  "title": "Seo",
+  "description": "页面 SEO 文案（title 是独立文案，不由 eventName 自动派生）",
+  "type": "object",
+  "required": ["title", "description"],
+  "properties": {
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "ogImage": {
+      "type": "string",
+      "pattern": "^(/(?!/)|https?://)",
+      "description": "Open Graph 图片路径或绝对 URL"
+    }
+  },
+  "additionalProperties": false
+}

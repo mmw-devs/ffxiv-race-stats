@@ -37,7 +37,7 @@ LICENSE
 ```
 1. 运营人员通过飞书发送指令
 2. 运营 Agent (.pi/) 接收并解析
-3. Agent 调用 .pi/skills/* 工具（update-team / add-news / add-broadcaster）
+3. Agent 调用 .pi/skills/* 工具（update-team / add-news / add-broadcaster / update-content）
 4. Agent 通过 gh cli 创建 content/* 分支并修改 public/data.json
 5. PR 触发 .github/workflows/validate.yml 校验（schema + 文件范围 + 操作日志）
 6. Review/合并 → main

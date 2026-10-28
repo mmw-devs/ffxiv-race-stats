@@ -1,6 +1,7 @@
 import { defineConfig } from 'astro/config'
 import vue from '@astrojs/vue'
 import { DATA_SOURCE_URL, splitUrl } from './scripts/data-source.mjs'
+import { DATA_PUBLIC_PATH } from './shared/data-path.mjs'
 
 // 真源 URL 拆成 origin + path，供 Vite 代理转发
 const source = splitUrl(DATA_SOURCE_URL)
@@ -15,7 +16,7 @@ export default defineConfig({
     // 仅作用于 dev server；构建产物与预览站/生产站都不受影响。
     server: {
       proxy: {
-        '/data.json': {
+        [DATA_PUBLIC_PATH]: {
           target: source.origin,
           changeOrigin: true,
           rewrite: () => source.path,

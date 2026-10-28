@@ -9,7 +9,6 @@ const PHASE_ORDER = ["P1", "P2", "P3", "P4", "CLEAR"];
 const VALID_REGIONS = ["JP", "NA", "EU", "OC", "CN", "KR"];
 const VALID_ROLES = ["tank", "healer", "dps"];
 const VALID_STATUSES = ["upcoming", "live", "ended"];
-const REQUIRED_TOP_KEYS = ["meta", "teams", "news", "broadcasters", "notices", "sponsors"];
 const TEAM_PLAYER_COUNT = 8;
 const SCHEMA_VERSION = 1;
 

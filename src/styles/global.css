@@ -1,0 +1,14 @@
+/* 全局样式入口：tokens → base → 各区块；顺序与原 BaseLayout 内联 CSS 一致。 */
+
+@import './tokens.css';
+@import './base.css';
+@import './nav.css';
+@import './hero.css';
+@import './controls.css';
+@import './console.css';
+@import './ranking.css';
+@import './modal.css';
+@import './content.css';
+@import './footer.css';
+@import './states.css';
+@import './responsive.css';

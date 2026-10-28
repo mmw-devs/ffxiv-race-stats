@@ -1,0 +1,183 @@
+    /* ═══════════ hero：全屏大屏 + 底部宽幅视频带 ═══════════ */
+    .az-hero {
+      position: relative; overflow: hidden;
+      background: var(--bg);
+    }
+    .az-hero::before {
+      content: ''; position: absolute; inset: -14%; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(44% 40% at 16% 22%, color-mix(in oklch, var(--accent) 11%, transparent), transparent 68%),
+        radial-gradient(42% 46% at 86% 76%, color-mix(in oklch, var(--cool) 9%, transparent), transparent 72%),
+        radial-gradient(34% 30% at 54% -10%, color-mix(in oklch, var(--accent) 6%, transparent), transparent 72%);
+      animation: azHeroField 17s ease-in-out infinite alternate;
+    }
+    @keyframes azHeroField {
+      from { transform: translate3d(-1.4%, 1.2%, 0) scale(1); }
+      to   { transform: translate3d(1.4%, -1.6%, 0) scale(1.05); }
+    }
+    .az-hero-stage {
+      position: relative; z-index: 1;
+      min-height: calc(100svh - var(--nav-h, 68px));
+      overflow: hidden;
+      --hero-gap: 56px;   /* 标题块（按钮）与赛事公告面板之间的固定间距 */
+    }
+    .az-hero-video {
+      position: absolute; inset: 0;
+      overflow: hidden; background: var(--bg-2);
+    }
+    .az-hero-shot {
+      display: block; width: 100%; height: 100%;
+      object-fit: cover;
+      transform: translate3d(0, 0, 0) scale(1.06);
+      will-change: transform;
+    }
+    .az-hero-video::after {
+      content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+      background: linear-gradient(to bottom,
+        color-mix(in oklch, var(--bg) 55%, transparent) 0%,
+        transparent 24%,
+        transparent 52%,
+        color-mix(in oklch, var(--bg) 40%, transparent) 78%,
+        color-mix(in oklch, var(--bg) 66%, transparent) 100%);
+    }
+    .az-hero-copy {
+      position: absolute; inset: 0; z-index: 3;
+      display: flex; flex-direction: column;
+    }
+    .az-hero-copy > .az-container { display: flex; flex-direction: column; flex: 1; }
+    .az-hero-intro {
+      /* 上方吸收剩余空间，公告面板下方再吸收一半 → 标题块+公告整体居中，标题位置不变 */
+      margin: auto 0 0;
+      padding: clamp(12px, 3vh, 32px) 0 0;
+      display: flex; flex-direction: column; align-items: center; text-align: center;
+    }
+    /* 赛事公告紧随标题块下方，间距恒定（公告上移，而不是标题下移） */
+    .az-hero-copy .az-notices {
+      margin-top: var(--hero-gap, 56px);
+      margin-bottom: auto;
+    }
+    .az-kicker {
+      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.16em;
+      text-transform: uppercase; color: var(--accent-bright);
+    }
+    .az-title {
+      position: relative;
+      font-family: var(--font-display); font-size: clamp(48px, min(6.6vw, 10vh), 92px);
+      line-height: 1.15; letter-spacing: 0; font-weight: 700; margin: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .az-title-text { white-space: nowrap; }
+    /* 注意：需覆盖 .az-root p { margin: 0 }（特异性 0,1,1），故带上 .az-hero-intro 前缀 */
+    .az-hero-intro .az-hero-kicker { margin-bottom: clamp(14px, 2vw, 26px); }
+    .az-hero-intro .az-lead {
+      font-family: var(--font-display); font-size: 18px; line-height: 1.65;
+      color: var(--muted); margin: clamp(18px, 2.4vw, 30px) 0 0;
+      white-space: nowrap;
+    }
+    /* 原有分割线保留（1px --border 发丝线），中央嵌入小菱形 */
+    .az-hero-rule {
+      display: flex; align-items: center; justify-content: center; gap: 12px;
+      width: min(340px, 64%);
+      margin: clamp(20px, 2.8vw, 32px) 0 0;
+    }
+    .az-hero-rule::before, .az-hero-rule::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .az-hero-diamond { width: 7px; height: 7px; flex: none; background: var(--accent); transform: rotate(45deg); }
+    .az-hero-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: clamp(20px, 2.8vw, 32px); }
+
+    /* hero 入场：幕布揭开后逐块 masked-rise，视频带 clip-wipe 切入 */
+    html.js:not(.loaded) .az-hero [data-hero] {
+      opacity: 0; transform: translateY(44px); clip-path: inset(0 0 100% 0);
+    }
+    html.js.loaded .az-hero [data-hero] {
+      opacity: 1; transform: none; clip-path: inset(0 0 0 0);
+      transition: opacity 0.4s var(--ease-out),
+                  transform 0.7s var(--ease-out),
+                  clip-path 0.7s var(--ease-out);
+      transition-delay: calc(var(--rd, 0s) + 0.06s);
+    }
+    html.js.loaded .az-hero-video[data-hero] {
+      transition: opacity 0.4s var(--ease-out),
+                  transform 0.9s var(--ease-out),
+                  clip-path 1s var(--ease-out);
+      transition-delay: calc(var(--rd, 0s) + 0.06s);
+    }
+    /* 标题后的 LIVE 徽标绝对定位在标题框之外，标题块必须禁用 clip-path，否则会被裁掉 */
+    html.js:not(.loaded) .az-hero .az-title[data-hero],
+    html.js.loaded .az-hero .az-title[data-hero] { clip-path: none; }
+
+    /* ═══════════ 赛事公告 面板 ═══════════ */
+    .az-notices {
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: color-mix(in oklch, var(--surface) 58%, transparent);
+      backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2);
+      box-shadow: 0 12px 40px color-mix(in oklch, var(--bg) 40%, transparent);
+      overflow: hidden;
+    }
+    .az-notices .az-panel-label { margin: 0; }
+    .az-notices-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; padding: 16px 22px 13px; border-bottom: 1px solid var(--border);
+    }
+    .az-notices-scrolltag {
+      font-family: var(--font-label); font-size: 12px; font-weight: 400; letter-spacing: 0.16em;
+      text-transform: uppercase; color: var(--muted); white-space: nowrap;
+      /* 窄屏时宁可截断这行装饰性字样，也不把「赛事公告」挤到换行 */
+      min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    }
+    .az-notices-scrolltag::before {
+      content: ''; display: inline-block; width: 5px; height: 5px; margin-right: 7px;
+      border-radius: 50%; background: var(--live); animation: az-blink 1.6s ease-in-out infinite;
+    }
+    .az-notices-scroll { position: relative; height: 152px; overflow: hidden; }
+    .az-notices-track {
+      display: flex; flex-direction: column; will-change: transform;
+      animation: azNoticesRoll var(--roll-duration, 30s) linear infinite;
+    }
+    .az-notices-track .az-notice-item { flex: none; }
+    .az-notices-scroll:hover .az-notices-track { animation-play-state: paused; }
+    /* hero 滚出视口时暂停滚动公告，避免后台空转 */
+    .az-notices-track.is-paused { animation-play-state: paused; }
+    @keyframes azNoticesRoll {
+      from { transform: translateY(0); }
+      to { transform: translateY(-50%); }
+    }
+    .az-notices-scroll::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 36px;
+      background: linear-gradient(to bottom, transparent, color-mix(in oklch, var(--surface) 58%, transparent));
+      pointer-events: none;
+    }
+    .az-notice-item {
+      padding: 11px 22px; border-bottom: 1px solid var(--border);
+      font-size: 13px; line-height: 1.55; color: var(--muted);
+    }
+    .az-notice-item:last-of-type { border-bottom: 0; }
+    .az-notices .az-expand {
+      display: block; width: 100%; padding: 13px 22px;
+      font-family: var(--font-label); font-size: 12.5px; font-weight: 400; letter-spacing: 0.1em;
+      color: var(--muted); text-align: center; cursor: pointer;
+      background: none; border: 0; border-top: 1px solid var(--border);
+      transition: color 0.15s ease, background 0.15s ease;
+    }
+    .az-notices .az-expand::before { content: '+'; margin-right: 10px; }
+    .az-notices .az-expand.is-open::before { content: '–'; }
+    .az-notices .az-expand:hover { color: var(--accent); }
+
+    /* ═══════════ 面板眉标：小菱形标记 + 黑体标签 + 渐隐引线 ═══════════ */
+    .az-panel-label {
+      font-family: var(--font-label); font-size: 14px; font-weight: 400; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--muted);
+      display: flex; align-items: center; gap: 9px; margin-bottom: 6px;
+      /* 标签文字永不折行，且不被父级 flex 压窄 */
+      white-space: nowrap; flex: none;
+    }
+    /* 标记：与 hero 分割线上的小菱形同语言，换成主题红点亮章节 */
+    .az-panel-label::before {
+      content: ''; width: 5px; height: 5px; flex: none;
+      background: var(--accent-bright); transform: rotate(45deg);
+    }
+    /* 标记后的渐隐引线：贴住可用宽度，形成「档案标签」的引导感 */
+    .az-panel-label::after {
+      content: ''; flex: 1 1 14px; height: 1px;
+      background: linear-gradient(to right, var(--border), transparent);
+    }
+

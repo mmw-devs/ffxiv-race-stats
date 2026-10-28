@@ -15,24 +15,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { useScrolledPast } from '../composables/useScroll'
+import { prefersReducedMotion } from '../utils/motion'
 
-/** 滚动超过该距离后显示回顶按钮 */
+/** 滚动超过该距离后显示回顶按钮；与 NavBar 共享滚动监听 */
 const SHOW_AFTER = 400
-const visible = ref(false)
-
-function onScroll(): void {
-  visible.value = window.scrollY > SHOW_AFTER
-}
+const visible = useScrolledPast(SHOW_AFTER)
 
 function scrollTop(): void {
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
+  const behavior: ScrollBehavior = prefersReducedMotion() ? 'auto' : 'smooth'
+  window.scrollTo({ top: 0, behavior })
 }
-
-onMounted(() => {
-  window.addEventListener('scroll', onScroll, { passive: true })
-  onScroll()
-})
-onUnmounted(() => window.removeEventListener('scroll', onScroll))
 </script>

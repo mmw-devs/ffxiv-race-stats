@@ -1,0 +1,58 @@
+    /* ═══════════ 直播徽标 / live pill ═══════════ */
+    .az-live-pill {
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      background: var(--live); color: #fff;
+      font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+      line-height: 1; letter-spacing: 0.12em; padding: 4px 10px; border-radius: 999px;
+      white-space: nowrap;
+    }
+    .az-live-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: az-blink 1.2s ease-in-out infinite; }
+    /* hero 大号 live：绝对定位，不参与标题居中宽度；高度加高、留白，避免贴字 */
+    .az-live-lg { position: absolute; left: calc(100% + 18px); top: 50%; transform: translateY(-50%); padding: 9px 16px; font-size: 11px; }
+    @keyframes az-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+    /* ═══════════ 粘性导航 ═══════════ */
+    .az-nav {
+      position: sticky; top: 0; z-index: 60;
+      background: transparent;
+      border-bottom: 1px solid transparent;
+      transition: background 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    }
+    .az-nav.is-scrolled {
+      background: color-mix(in oklch, var(--bg) 78%, transparent);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      border-color: var(--border);
+    }
+    .az-nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 16px 0; flex-wrap: wrap; }
+    .az-brand {
+      font-family: var(--font-display); font-size: 21px; font-weight: 700; letter-spacing: -0.01em;
+      display: inline-flex; align-items: baseline; gap: 8px;
+    }
+    .az-brand-sub { font-family: var(--font-label); font-size: 11px; font-weight: 400; color: var(--accent-bright); letter-spacing: 0.14em; text-transform: uppercase; }
+    .az-nav-links { display: flex; gap: 26px; }
+    .az-nav-links a {
+      font-size: 13px; color: var(--muted); position: relative; padding: 6px 0;
+      transition: color 0.15s ease;
+    }
+    .az-nav-links a::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+      background: var(--accent); transform: scaleX(0); transform-origin: left;
+      transition: transform 0.25s var(--ease-out);
+    }
+    .az-nav-links a:hover, .az-nav-links a.is-active { color: var(--fg); }
+    .az-nav-links a:hover::after, .az-nav-links a.is-active::after { transform: scaleX(1); }
+    .az-rules-link.az-rules-nav {
+      font-family: var(--font-label); font-size: 13px; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--fg); background: none; border: 0; border-bottom: 1px solid var(--border-2);
+      padding: 0 0 2px; cursor: pointer; transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .az-rules-link.az-rules-nav:hover { color: var(--accent); border-color: var(--accent); }
+    .az-nav-meta { display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .az-nav-timer {
+      display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+      font-family: var(--font-display); font-size: 12px; font-weight: 600;
+      letter-spacing: 0.04em; color: var(--muted);
+    }
+    .az-nav-timer .az-num { font-variant-numeric: tabular-nums; }
+    .az-clock { width: 12px; height: 12px; flex: none; display: block; }
+

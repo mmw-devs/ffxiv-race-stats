@@ -8,7 +8,7 @@ name: build-verify
 # 验证:
 #   - npm ci 依赖安装
 #   - 数据副本守卫（dev 不得保存 data.json，唯一真源在 ops 仓库）
-#   - npm run build Astro 构建（确保 src/ 改动可产出 dist/）
+#   - typegen / typecheck / data-path:check / test:unit / lint / build / size
 # 这是 dev 仓库 branch protection 的唯一必需状态检查
 # ────────────────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ jobs:
           if [ -f agent-src/public/data.json ] || [ -f public/data.json ]; then
             echo "::error::dev 仓库不得保存 data.json 副本（SSOT：唯一真源在 ops 仓库）"
             echo "::error::真源：mmw-devs/ffxiv-race-ops 的 public/data.json"
-            echo "::error::构建时由 scripts/fetch-preview-data.mjs 读取；本地 npm run dev 走 Vite 代理"
+            echo "::error::构建时由 scripts/fetch-build-data.mjs 读取；本地 npm run dev 走 Vite 代理"
             exit 1
           fi
           if git diff --name-only --diff-filter=ACMR origin/main...HEAD | grep -qE '(^|/)data\.json$'; then
@@ -54,8 +54,17 @@ jobs:
       - name: Generate types from schema
         run: npm run typegen
 
+      - name: Guard — generated types committed
+        run: git diff --exit-code -- types/
+
       - name: Type-check
         run: npm run typecheck
+
+      - name: Check data path consistency
+        run: npm run data-path:check
+
+      - name: Unit tests
+        run: npm run test:unit
 
       - name: Lint
         run: npm run lint

@@ -1,0 +1,38 @@
+    /* ═══════════ 实时控制台 console ═══════════ */
+    .az-console {
+      display: grid; grid-template-columns: 1.1fr 0.9fr 1.5fr; align-items: stretch;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface); overflow: hidden;
+    }
+    .az-console-cell { padding: 18px 22px; }
+    .az-console-cell + .az-console-cell { border-left: 1px solid var(--border); }
+    .az-console .az-panel-label { margin-bottom: 12px; }
+    .az-timer-display { font-family: var(--font-mono); font-size: clamp(26px, 3vw, 34px); font-weight: 700; line-height: 1; letter-spacing: -0.01em; }
+    .az-timer-meta { margin-top: 8px; font-size: 12px; color: var(--muted); letter-spacing: 0.05em; font-family: var(--font-mono); }
+    .az-cover-stat { font-family: var(--font-mono); font-size: 22px; line-height: 1.1; }
+    .az-cover-num { font-weight: 700; font-size: clamp(26px, 3vw, 32px); }
+    .az-cover-total { font-size: 13px; color: var(--muted); }
+    .az-cover-label { margin-top: 4px; font-size: 13px; color: var(--muted); }
+    .az-cover-stat + .az-cover-label { margin-bottom: 8px; }
+    @media (max-width: 940px) {
+      .az-console { grid-template-columns: 1fr; }
+      .az-console-cell + .az-console-cell { border-left: 0; border-top: 1px solid var(--border); }
+    }
+
+    /* ═══════════ 合作转播台 ═══════════ */
+    .az-broadcast-item { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+    .az-broadcast-item:last-child { border-bottom: 0; }
+    .az-broadcast-avatar {
+      width: 40px; height: 40px; display: grid; place-items: center; flex-shrink: 0;
+      border-radius: 50%;
+      background: color-mix(in oklch, var(--fg) 92%, transparent); color: var(--bg);
+      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;
+    }
+    .az-broadcast-info { flex: 1; min-width: 0; }
+    .az-broadcast-name { font-size: 14px; font-weight: 600; }
+    .az-broadcast-meta { font-size: 12px; color: var(--muted); letter-spacing: 0.03em; margin-top: 2px; }
+    .az-broadcast-link { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--fg); border-bottom: 1px solid var(--border); transition: color 0.15s ease, border-color 0.15s ease; }
+    .az-broadcast-link:hover { color: var(--accent); border-color: var(--accent); }
+    .az-console .az-broadcast-item { padding: 9px 0; }
+    .az-console .az-broadcast-avatar { width: 34px; height: 34px; font-size: 10px; }
+

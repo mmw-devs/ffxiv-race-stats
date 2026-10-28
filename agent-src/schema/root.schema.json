@@ -4,9 +4,10 @@
   "title": "RACE_DATA",
   "description": "FFXIV 竞速排名数据顶层结构",
   "type": "object",
-  "required": ["meta", "teams", "news", "broadcasters", "notices", "sponsors"],
+  "required": ["meta", "content", "teams", "news", "broadcasters", "notices", "sponsors"],
   "properties": {
     "meta":          { "$ref": "meta.schema.json" },
+    "content":       { "$ref": "content.schema.json" },
     "teams": {
       "type": "array",
       "items": { "$ref": "team.schema.json" }
@@ -20,10 +21,12 @@
       "items": { "$ref": "broadcaster.schema.json" }
     },
     "notices": {
-      "type": "array"
+      "type": "array",
+      "items": { "$ref": "notice.schema.json" }
     },
     "sponsors": {
-      "type": "array"
+      "type": "array",
+      "items": { "$ref": "sponsor.schema.json" }
     }
   }
 }

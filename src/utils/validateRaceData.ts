@@ -5,6 +5,8 @@
 // 声明的必需字段），形状异常时让 App.vue 走 error 态（带重试按钮），而不是静默错渲染。
 // 值域校验（phase/region/bossHP 白名单、pattern/enum/范围等）仍是 ops CI 的职责，此处不重复。
 
+import { SECTIONS } from '../sections'
+
 export interface ValidationResult {
   ok: boolean
   errors: string[]
@@ -19,6 +21,99 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
 
 function checkStr(obj: Record<string, unknown>, key: string, path: string, errors: string[]): void {
   if (!isStr(obj[key])) errors.push(`${path}.${key} 应为 string`)
+}
+
+const isPathOrUrl = (v: unknown): boolean =>
+  isStr(v) && /^(\/(?!\/)|https?:\/\/)/.test(v)
+
+const isLink = (v: unknown): boolean =>
+  isStr(v) && /^(#|\/(?!\/)|https?:\/\/)/.test(v)
+
+function checkCta(value: unknown, path: string, errors: string[]): void {
+  if (!isObj(value)) {
+    errors.push(`${path} 应为对象`)
+    return
+  }
+  checkStr(value, 'label', path, errors)
+  if (!isLink(value.href)) {
+    errors.push(`${path}.href 应为锚点、站内路径或 http(s) URL`)
+  }
+}
+
+const SECTION_KEYS = SECTIONS.map((section) => section.id)
+
+/** 运营文案块（content）：schema required，按最终形状校验。 */
+function validateContent(value: unknown, errors: string[]): void {
+  if (!isObj(value)) {
+    errors.push('content 应为对象')
+    return
+  }
+
+  const hero = value.hero
+  if (!isObj(hero)) {
+    errors.push('content.hero 应为对象')
+  } else {
+    checkStr(hero, 'kicker', 'content.hero', errors)
+    checkStr(hero, 'lead', 'content.hero', errors)
+    checkCta(hero.primaryCta, 'content.hero.primaryCta', errors)
+    checkCta(hero.secondaryCta, 'content.hero.secondaryCta', errors)
+  }
+
+  const rules = value.rules
+  if (!isObj(rules)) {
+    errors.push('content.rules 应为对象')
+  } else {
+    checkStr(rules, 'title', 'content.rules', errors)
+    checkStr(rules, 'kicker', 'content.rules', errors)
+    if (!isArr(rules.items)) {
+      errors.push('content.rules.items 应为数组')
+    } else if (rules.items.length === 0) {
+      errors.push('content.rules.items 至少需要 1 项')
+    } else {
+      rules.items.forEach((item, i) => {
+        if (!isStr(item)) errors.push(`content.rules.items[${i}] 应为 string`)
+      })
+    }
+  }
+
+  const seo = value.seo
+  if (!isObj(seo)) {
+    errors.push('content.seo 应为对象')
+  } else {
+    checkStr(seo, 'title', 'content.seo', errors)
+    checkStr(seo, 'description', 'content.seo', errors)
+    if (seo.ogImage !== undefined && !isPathOrUrl(seo.ogImage)) {
+      errors.push('content.seo.ogImage 应为站内路径或 http(s) URL')
+    }
+  }
+
+  const media = value.media
+  if (!isObj(media)) {
+    errors.push('content.media 应为对象')
+  } else {
+    if (!isPathOrUrl(media.heroVideo)) {
+      errors.push('content.media.heroVideo 应为站内路径或 http(s) URL')
+    }
+    if (!isPathOrUrl(media.heroPoster)) {
+      errors.push('content.media.heroPoster 应为站内路径或 http(s) URL')
+    }
+  }
+
+  const sections = value.sections
+  if (!isObj(sections)) {
+    errors.push('content.sections 应为对象')
+  } else {
+    for (const key of SECTION_KEYS) {
+      const section = sections[key]
+      const path = `content.sections.${key}`
+      if (!isObj(section)) {
+        errors.push(`${path} 应为对象`)
+        continue
+      }
+      checkStr(section, 'kicker', path, errors)
+      checkStr(section, 'title', path, errors)
+    }
+  }
 }
 
 export function validateRaceData(data: unknown): ValidationResult {
@@ -49,6 +144,9 @@ export function validateRaceData(data: unknown): ValidationResult {
     // dungeons：UI 直接读取（RankingTable/RankingRow 据此决定 phase 显示），做形状检查
     if (!isArr(data.meta.dungeons)) {
       errors.push('meta.dungeons 应为数组')
+    } else if (data.meta.dungeons.length === 0) {
+      // schema 的 minItems=1；空数组会让阶段显示逻辑误判为单副本
+      errors.push('meta.dungeons 至少需要 1 项')
     } else {
       data.meta.dungeons.forEach((d, i) => {
         const p = `meta.dungeons[${i}]`
@@ -118,7 +216,7 @@ export function validateRaceData(data: unknown): ValidationResult {
     })
   }
 
-  // notices / sponsors（schema 里是 unknown[]，前端约定为 string[] 与 {name,desc}[]）
+  // notices / sponsors（契约见 notice.schema.json / sponsor.schema.json）
   if (!isArr(data.notices)) {
     errors.push('notices 应为数组')
   } else {
@@ -134,6 +232,13 @@ export function validateRaceData(data: unknown): ValidationResult {
       checkStr(s, 'name', `sponsors[${i}]`, errors)
       checkStr(s, 'desc', `sponsors[${i}]`, errors)
     })
+  }
+
+  // 运营文案：schema required，缺失直接报错
+  if (!('content' in data)) {
+    errors.push('content 应存在')
+  } else {
+    validateContent(data.content, errors)
   }
 
   return { ok: errors.length === 0, errors }
