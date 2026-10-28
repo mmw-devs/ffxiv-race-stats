@@ -44,6 +44,7 @@ src/
 ├── components/               # 16 个 Vue 组件（PageView 承载 ready 后的页面主体）
 ├── composables/              # useRaceData / useNow / useScroll / useExpandableList / useReveal / useTimer / usePageSeo
 ├── utils/                    # 纯函数（排名排序、阶段解析、时间格式化、数据校验/解析）
+├── selectors.ts              # 派生值（coverage / live / folio / phase）
 ├── sections.ts               # 章节 id / 顺序 / 导航标签（站点结构）
 └── types.ts                  # 前端共享类型（schema 生成 + Coverage）
 ```

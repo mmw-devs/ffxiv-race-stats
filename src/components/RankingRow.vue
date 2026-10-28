@@ -23,13 +23,13 @@
       </template>
     </div>
     <span class="az-team-hp">{{ team.bossHP.toFixed(1) }}%</span>
-    <span class="az-team-phase" :class="phaseClass">{{ phaseLabel }}</span>
+    <span class="az-team-phase" :class="phase.className">{{ phase.label }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { displayPhase, phaseStage } from '../utils/phase'
+import { selectPhaseView } from '../selectors'
 import { pad2 } from '../utils/format'
 import type { Team, Dungeon } from '../../types/race-data'
 
@@ -50,8 +50,6 @@ const medalClass = computed(() => {
 // 地区标签转小写，作为 CSS class 后缀（.rg-jp、.rg-na …）；空值不加色，文本仍显示 ??
 const regionKey = computed(() => (props.team.region || '').toLowerCase())
 
-// 阶段 class 必须只取阶段部分：多副本 phase 是 "M1S-P4"，直接小写会得到
-// "m1s-p4"，匹配不到 .p4 配色（此前的问题）；这里取 phaseStage 后再小写。
-const phaseClass = computed(() => phaseStage(props.team.phase ?? '').toLowerCase())
-const phaseLabel = computed(() => displayPhase(props.team.phase ?? '', props.dungeons ?? []))
+// 阶段展示由 selector 统一解释：只取 stage 做 CSS class，文本按副本数决定前缀。
+const phase = computed(() => selectPhaseView(props.team.phase ?? '', props.dungeons ?? []))
 </script>

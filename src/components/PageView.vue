@@ -131,6 +131,7 @@ import BackToTop from './BackToTop.vue'
 import BroadcastItem from './BroadcastItem.vue'
 import NoticeItem from './NoticeItem.vue'
 import { getSection } from '../sections'
+import { selectCoverage, selectFolio } from '../selectors'
 import { usePageSeo } from '../composables/usePageSeo'
 import { useReveal } from '../composables/useReveal'
 import type { RaceData } from '../types'
@@ -160,20 +161,9 @@ function closeModal(): void { activeModal.value = null }
 
 /** 页面 folio 统一格式，避免各 section 手拼 VOL/P.xx。 */
 function folio(page: string): string {
-  return `VOL.${meta.value.edition ?? ''} · ${page}`
+  return selectFolio(meta.value, page)
 }
 
 // 直播覆盖统计
-const coverage = computed(() => {
-  let totalPlayers = 0, streamingPlayers = 0, teamsWithCoverage = 0
-  for (const t of teams.value) {
-    let hasStream = false
-    for (const p of t.players) {
-      totalPlayers++
-      if (p.streaming) { streamingPlayers++; hasStream = true }
-    }
-    if (hasStream) teamsWithCoverage++
-  }
-  return { totalPlayers, streamingPlayers, teamsWithCoverage }
-})
+const coverage = computed(() => selectCoverage(teams.value))
 </script>

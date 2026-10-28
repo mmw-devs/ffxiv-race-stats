@@ -14,7 +14,7 @@
           </svg>
           <span class="az-num">{{ elapsed }}</span>
         </span>
-        <span v-if="status === 'live'" class="az-live-pill">
+        <span v-if="isLive" class="az-live-pill">
           <span class="az-live-dot" aria-hidden="true"></span>LIVE
         </span>
       </span>
@@ -24,8 +24,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useTimer } from '../composables/useTimer.js'
 import { useScrolledPast } from '../composables/useScroll'
+import { selectIsLive } from '../selectors'
 import { SECTIONS } from '../sections'
 import type { Meta } from '../../types/race-data'
 
@@ -33,6 +35,7 @@ const props = defineProps<{ startTime: string; status: Meta['status'] }>()
 const emit = defineEmits<{ (e: 'open-rules'): void }>()
 
 const { elapsed } = useTimer(() => props.startTime)
+const isLive = computed(() => selectIsLive(props.status))
 
 // 滚动超过 12px 后给导航加背景/阴影（is-scrolled class）；与 BackToTop 共享滚动监听
 const scrolled = useScrolledPast(12)

@@ -35,7 +35,7 @@
             <!-- 第二行：主标题 + LIVE 徽标（绝对定位，不参与居中宽度计算） -->
             <h1 class="az-title" data-hero style="--rd: 0.18s">
               <span class="az-title-text">{{ meta.eventName }}</span>
-              <span v-if="meta.status === 'live'" class="az-live-pill az-live-lg">
+              <span v-if="isLive" class="az-live-pill az-live-lg">
                 <span class="az-live-dot" aria-hidden="true"></span>LIVE
               </span>
             </h1>
@@ -79,6 +79,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import NoticeItem from './NoticeItem.vue'
+import { selectIsLive } from '../selectors'
 import type { Hero, Media, Meta } from '../../types/race-data'
 
 const props = defineProps<{
@@ -88,6 +89,8 @@ const props = defineProps<{
   media: Media
 }>()
 const emit = defineEmits<{ (e: 'open-notices'): void }>()
+
+const isLive = computed(() => selectIsLive(props.meta.status))
 
 // 视频加载失败时隐藏 video，用静态海报作为背景兜底（不引入小视频回退）
 const videoFailed = ref(false)

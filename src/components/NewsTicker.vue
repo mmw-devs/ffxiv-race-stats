@@ -23,8 +23,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
 import { useExpandableList } from '../composables/useExpandableList'
+import { useNow } from '../composables/useNow'
 import { formatNewsTime } from '../utils/time'
 import type { NewsItem } from '../../types/race-data'
 
@@ -39,11 +39,8 @@ const { expanded, canExpand, visibleItems: visibleNews, toggle } = useExpandable
  * 近期（24h 内）用相对时间，超过则用本地绝对时间 YYYY-MM-DD HH:MM（不带秒）。
  */
 
-// 相对时间需要随时间流逝刷新（30s 粒度足够）
-const now = ref(Date.now())
-let timer: ReturnType<typeof setInterval> | undefined
-onMounted(() => { timer = setInterval(() => { now.value = Date.now() }, 30_000) })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+// 相对时间需要随时间流逝刷新（30s 粒度足够）；复用全局 30s 共享时钟
+const now = useNow(30_000)
 
 function displayTime(iso: string): string {
   return formatNewsTime(iso, now.value)
