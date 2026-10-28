@@ -110,6 +110,9 @@ dev 仓库（本仓库）
 | dev 预览站（CF Pages） | **同 `build:preview`**：构建时写入 `dist/data.json` | `npm run build:dev-preview` |
 | 生产站（CF Pages，ops 仓库） | 构建时 `cp public/data.json dist/data.json` | — |
 
+`build:preview` 在写入 `dist/data.json` 前会跑完整 schema 校验，坏数据直接阻断构建；
+顶层 required 也直接来自 `root.schema.json`，不再在脚本里维护第二份。
+
 dev 预览站与生产站**产物同构**：两者都把自己的 `dist/data.json` 作为同源静态文件提供，
 不使用任何边缘 rewrite/代理。曾尝试用 `_redirects` 把 `/data.json` 200 重写到生产站，
 但「直接访问能拿到 JSON、页面内 fetch 却失败」——边缘 rewrite 与静态文件不是同一条路径，
