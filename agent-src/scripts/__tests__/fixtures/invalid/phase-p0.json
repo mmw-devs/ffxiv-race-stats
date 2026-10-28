@@ -1,0 +1,189 @@
+{
+  "meta": {
+    "eventName": "FFXIV 高难首杀竞速",
+    "edition": "01",
+    "dungeons": [
+      {
+        "id": "U1S",
+        "name": "欧米茄绝境战"
+      }
+    ],
+    "boss": "欧米茄",
+    "dataCenter": "Aether",
+    "status": "live",
+    "startTime": "2026-06-10T12:00:00Z"
+  },
+  "content": {
+    "hero": {
+      "kicker": "x",
+      "lead": "x",
+      "primaryCta": {
+        "label": "x",
+        "href": "#"
+      },
+      "secondaryCta": {
+        "label": "x",
+        "href": "#"
+      }
+    },
+    "rules": {
+      "title": "x",
+      "kicker": "x",
+      "items": [
+        "x"
+      ]
+    },
+    "seo": {
+      "title": "x",
+      "description": "x"
+    },
+    "media": {
+      "heroVideo": "/x",
+      "heroPoster": "/x"
+    },
+    "sections": {
+      "ranking": {
+        "kicker": "x",
+        "title": "x"
+      },
+      "news": {
+        "kicker": "x",
+        "title": "x"
+      },
+      "sponsors": {
+        "kicker": "x",
+        "title": "x"
+      },
+      "guides": {
+        "kicker": "x",
+        "title": "x"
+      }
+    }
+  },
+  "teams": [
+    {
+      "id": "t1",
+      "name": "[队伍名 1]",
+      "rank": 1,
+      "bossHP": 50,
+      "phase": "P0",
+      "region": "NA",
+      "isLive": false,
+      "players": [
+        {
+          "job": "PLD",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "WAR",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "WHM",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "SCH",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "MNK",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "DRG",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "NIN",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "BRD",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        }
+      ]
+    },
+    {
+      "id": "t2",
+      "name": "[队伍名 2]",
+      "rank": 2,
+      "bossHP": 12.5,
+      "phase": "P4",
+      "region": "NA",
+      "isLive": true,
+      "players": [
+        {
+          "job": "PLD",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "WAR",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "WHM",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "SCH",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "MNK",
+          "role": "dps",
+          "stream": "https://www.twitch.tv/ffxiv_race",
+          "streaming": true
+        },
+        {
+          "job": "DRG",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "NIN",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "BRD",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        }
+      ]
+    }
+  ],
+  "news": [],
+  "broadcasters": [],
+  "notices": [
+    "本赛事数据由运营团队人工维护，如发现队伍进度或比分有误，请及时联系赛事管理员进行核对与更正。"
+  ],
+  "sponsors": []
+}

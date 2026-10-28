@@ -23,8 +23,8 @@ description: >
 
 - `rank` 从 1 开始连续，无重复，无跳号
 - `bossHP` ∈ [0, 100]，且只能随更新减少（进度不可倒退）
-- `phase` 只能前进不能后退（按 `PHASE_ORDER` 顺序）
-- 如果 `bossHP === 0` 且 `phase === PHASE_ORDER` 最后一个阶段，则该队已通关
+- `phase` 只能前进不能后退（按 `stageRank` 数值顺序，`CLEAR` 为最高）
+- 如果 `bossHP === 0` 且 `phase` 以 `CLEAR` 结尾，则该队已通关
 - `news[]` 按 `time` 降序排列（`time` 为含时区的 ISO 8601 瞬时，比较时先解析为时间戳）
 - 每条 news 的 `id` 唯一
 - `broadcasters[]` 每条 `id` 唯一
@@ -35,7 +35,7 @@ description: >
 |------|------|
 | `bossHP` | 0–100，允许 1 位小数 |
 | `rank` | ≥1，≤ teams 数组长度 |
-| `phase` | 必须在 `PHASE_ORDER` 数组中出现 |
+| `phase` | 符合 `P<正整数>` / `CLEAR` 语法（可带 `<副本id>-` 前缀） |
 | `region` | 必须 ∈ `{JP, NA, EU, OC, CN, KR}` |
 | `streaming` | boolean |
 | `isLive` | boolean |
@@ -43,11 +43,11 @@ description: >
 ## 写入后自检
 
 - 重新读取 `data.js`，确认写入内容与意图一致
-- 运行 `node scripts/validate-data.js` 自检（确保通过 schema + 值域 + 业务规则三阶段校验）
+- 运行 `node --experimental-strip-types scripts/validate-data.ts` 自检（确保通过 schema + 值域 + 业务规则三阶段校验）
 - 如有任一检查不通过，修复后重新自检，不通过不 push
 - push 后 CI（GitHub Actions）会再次运行相同检查作为独立防线
 
-**PHASE_ORDER 来源：** `PHASE_ORDER` 等白名单常量定义在 `constants.js`（开发者维护），Agent 不可修改。校验时以 `constants.js` 中的值为准。
+**阶段语法来源：** `P<正整数>` / `CLEAR` 的解析与排序定义在 `shared/stage.mjs`（开发者维护），Agent 不可修改；schema pattern 由 contract test 锁定。
 
 ## 时区约定
 

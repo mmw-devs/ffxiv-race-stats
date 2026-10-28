@@ -4,7 +4,7 @@
 // 此文件被 scripts/validate-data.ts 引用，作为值域校验的单一真相来源。
 // 新增合法值请修改此处，校验逻辑自动同步。
 
-const PHASE_ORDER = ["P1", "P2", "P3", "P4", "CLEAR"];
+// 阶段不是固定枚举：每届赛事为 P1..Pn + CLEAR，语法与排序见 shared/stage.mjs。
 
 const VALID_REGIONS = ["JP", "NA", "EU", "OC", "CN", "KR"];
 const VALID_ROLES = ["tank", "healer", "dps"];

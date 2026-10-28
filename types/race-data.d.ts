@@ -160,7 +160,7 @@ export interface Team {
   rank: number;
   bossHP: number;
   /**
-   * 阶段：多副本为 <副本id>-<阶段>，单副本（绝境）为 <阶段>（不含副本前缀）；副本id 必须在 meta.dungeons[] 中，阶段必须在 PHASE_ORDER 白名单内
+   * 阶段：多副本为 <副本id>-<阶段>，单副本（绝境）为 <阶段>（不含副本前缀）；阶段语法为 P<正整数> 或 CLEAR
    */
   phase: string;
   region: "JP" | "NA" | "EU" | "OC" | "CN" | "KR";
