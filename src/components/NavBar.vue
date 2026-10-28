@@ -4,10 +4,7 @@
     <div class="az-container az-nav-inner">
       <a class="az-brand" href="#top">FFXIV 竞速档案<span class="az-brand-sub">Race Archive</span></a>
       <nav class="az-nav-links" aria-label="主导航">
-        <a href="#ranking">实时排名</a>
-        <a href="#news">速报</a>
-        <a href="#sponsors">赞助</a>
-        <a href="#guides">攻略</a>
+        <a v-for="section in SECTIONS" :key="section.id" :href="'#' + section.id">{{ section.navLabel }}</a>
       </nav>
       <span class="az-nav-meta">
         <span class="az-nav-timer">
@@ -29,6 +26,7 @@
 <script setup lang="ts">
 import { useTimer } from '../composables/useTimer.js'
 import { useScrolledPast } from '../composables/useScroll'
+import { SECTIONS } from '../sections'
 import type { Meta } from '../../types/race-data'
 
 const props = defineProps<{ startTime: string; status: Meta['status'] }>()

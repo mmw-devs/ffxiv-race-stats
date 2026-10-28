@@ -14,44 +14,62 @@
     />
 
     <main>
-      <HeroSection :meta="meta" :notices="notices" @open-notices="openModal('notices')" />
+      <HeroSection
+        :meta="meta"
+        :notices="notices"
+        :hero="pageContent.hero"
+        :media="pageContent.media"
+        @open-notices="openModal('notices')"
+      />
 
-      <section class="az-section" id="ranking">
-        <div class="az-container">
-          <SectionHeader index="01" kicker="RACE REPORT" title="实时排名" :folio="`VOL.${meta.edition ?? ''} · P.01`" />
-          <ConsoleBar
-            :start-time="meta.startTime ?? ''"
-            :coverage="coverage"
-            :team-count="teams.length"
-            :broadcasters="broadcasters"
-            @open-broadcast="openModal('broadcast')"
-          />
-          <div class="az-main-grid">
-            <RankingTable :teams="teams" :dungeons="meta.dungeons ?? []" />
-          </div>
+      <PageSection
+        id="ranking"
+        :index="getSection('ranking').index"
+        :kicker="pageContent.sections.ranking.kicker"
+        :title="pageContent.sections.ranking.title"
+        :folio="folio(getSection('ranking').page)"
+      >
+        <ConsoleBar
+          :start-time="meta.startTime ?? ''"
+          :coverage="coverage"
+          :team-count="teams.length"
+          :broadcasters="broadcasters"
+          @open-broadcast="openModal('broadcast')"
+        />
+        <div class="az-main-grid">
+          <RankingTable :teams="teams" :dungeons="meta.dungeons ?? []" />
         </div>
-      </section>
+      </PageSection>
 
-      <section class="az-section" id="news">
-        <div class="az-container">
-          <SectionHeader index="02" kicker="LIVE TIMELINE" title="速报时间线" :folio="`VOL.${meta.edition ?? ''} · P.02`" />
-          <NewsTicker :news="news" />
-        </div>
-      </section>
+      <PageSection
+        id="news"
+        :index="getSection('news').index"
+        :kicker="pageContent.sections.news.kicker"
+        :title="pageContent.sections.news.title"
+        :folio="folio(getSection('news').page)"
+      >
+        <NewsTicker :news="news" />
+      </PageSection>
 
-      <section class="az-section" id="sponsors">
-        <div class="az-container">
-          <SectionHeader index="03" kicker="SPONSORS" title="赞助公示" :folio="`VOL.${meta.edition ?? ''} · P.03`" />
-          <SponsorsCard :sponsors="sponsors" />
-        </div>
-      </section>
+      <PageSection
+        id="sponsors"
+        :index="getSection('sponsors').index"
+        :kicker="pageContent.sections.sponsors.kicker"
+        :title="pageContent.sections.sponsors.title"
+        :folio="folio(getSection('sponsors').page)"
+      >
+        <SponsorsCard :sponsors="sponsors" />
+      </PageSection>
 
-      <section class="az-section" id="guides">
-        <div class="az-container">
-          <SectionHeader index="04" kicker="GUIDES" title="副本攻略" :folio="`VOL.${meta.edition ?? ''} · P.04`" />
-          <GuidesSection />
-        </div>
-      </section>
+      <PageSection
+        id="guides"
+        :index="getSection('guides').index"
+        :kicker="pageContent.sections.guides.kicker"
+        :title="pageContent.sections.guides.title"
+        :folio="folio(getSection('guides').page)"
+      >
+        <GuidesSection />
+      </PageSection>
     </main>
 
     <AppFooter :event-name="meta.eventName ?? ''" :edition="meta.edition ?? ''" />
@@ -63,17 +81,13 @@
     <Modal
       :open="activeModal === 'rules'"
       id="rules"
-      title="赛事规则"
-      kicker="RACE REGULATION"
-      :folio="`VOL.${meta.edition ?? ''} · P.00`"
+      :title="pageContent.rules.title"
+      :kicker="pageContent.rules.kicker"
+      :folio="folio('P.00')"
       @close="closeModal"
     >
       <ol class="az-rules">
-        <li>报名窗口以「赛事公告」公布的起止时间为准，逾期不予受理。</li>
-        <li>每队由 8 名选手组成，职业不限，开赛前需完成队伍名单登记。</li>
-        <li>以最新版本高难副本为竞速目标，按首次通关时间先后排序，榜单实时更新。</li>
-        <li>进度与通关记录以官方日志为准，本页榜单为展示层，不参与最终裁决。</li>
-        <li>使用第三方脚本、代打或共享账号等行为将取消成绩，完整细则以正式章程为准。</li>
+        <li v-for="(rule, index) in pageContent.rules.items" :key="index">{{ rule }}</li>
       </ol>
     </Modal>
 
@@ -83,7 +97,7 @@
       id="broadcast"
       title="合作转播台"
       kicker="COVERAGE"
-      :folio="`VOL.${meta.edition ?? ''} · P.00`"
+      :folio="folio('P.00')"
       wide
       @close="closeModal"
     >
@@ -98,7 +112,7 @@
       id="notices"
       title="赛事公告"
       kicker="NOTICE"
-      :folio="`VOL.${meta.edition ?? ''} · P.00`"
+      :folio="folio('P.00')"
       @close="closeModal"
     >
       <div class="az-notice-modal-list">
@@ -112,7 +126,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import NavBar from './components/NavBar.vue'
 import HeroSection from './components/HeroSection.vue'
-import SectionHeader from './components/SectionHeader.vue'
+import PageSection from './components/PageSection.vue'
 import ConsoleBar from './components/ConsoleBar.vue'
 import RankingTable from './components/RankingTable.vue'
 import NewsTicker from './components/NewsTicker.vue'
@@ -123,18 +137,31 @@ import Modal from './components/Modal.vue'
 import BackToTop from './components/BackToTop.vue'
 import BroadcastItem from './components/BroadcastItem.vue'
 import NoticeItem from './components/NoticeItem.vue'
+import { DEFAULT_CONTENT } from './content/defaults'
+import { getSection } from './sections'
+import { usePageSeo } from './composables/usePageSeo'
 import { useRaceData } from './composables/useRaceData'
 import { useReveal } from './composables/useReveal'
+import type { Content } from '../types/race-data'
 
 // 取数 / 校验 / 错误态全部收敛在 composable 内，App 只负责编排。
-const { meta, teams, news, broadcasters, notices, sponsors, loading, error, load } = useRaceData()
+const { meta, content, teams, news, broadcasters, notices, sponsors, loading, error, load } = useRaceData()
 const { setup: setupReveal } = useReveal()
+
+// 迁移期：ops content 未落地时使用与旧硬编码一致的兜底；数据到位后删除 DEFAULT_CONTENT。
+const pageContent = computed<Content>(() => content.value ?? DEFAULT_CONTENT)
+usePageSeo(() => pageContent.value.seo)
 
 // 弹窗状态：同时间最多打开一个
 type ModalKey = 'rules' | 'broadcast' | 'notices' | null
 const activeModal = ref<ModalKey>(null)
 function openModal(key: Exclude<ModalKey, null>): void { activeModal.value = key }
 function closeModal(): void { activeModal.value = null }
+
+/** 页面 folio 统一格式，避免各 section 手拼 VOL/P.xx。 */
+function folio(page: string): string {
+  return `VOL.${meta.value.edition ?? ''} · ${page}`
+}
 
 // 直播覆盖统计
 const coverage = computed(() => {

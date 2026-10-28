@@ -13,8 +13,8 @@
         <video
           v-show="!videoFailed"
           class="az-hero-shot"
-          :src="VIDEO_SRC"
-          :poster="VIDEO_POSTER"
+          :src="media.heroVideo"
+          :poster="media.heroPoster"
           @error="onVideoError"
           autoplay
           muted
@@ -30,7 +30,7 @@
         <div class="az-container">
           <div class="az-hero-intro">
             <!-- 第一行：赛事眉题 -->
-            <p class="az-kicker az-hero-kicker" data-hero style="--rd: 0.13s">FINALFANTASY · 2026</p>
+            <p class="az-kicker az-hero-kicker" data-hero style="--rd: 0.13s">{{ hero.kicker }}</p>
 
             <!-- 第二行：主标题 + LIVE 徽标（绝对定位，不参与居中宽度计算） -->
             <h1 class="az-title" data-hero style="--rd: 0.18s">
@@ -41,7 +41,7 @@
             </h1>
 
             <!-- 第三行：导语（不换行） -->
-            <p class="az-lead" data-hero style="--rd: 0.23s">高难副本首杀争夺战——队伍进度、选手直播、赛事速报，一站式追踪。</p>
+            <p class="az-lead" data-hero style="--rd: 0.23s">{{ hero.lead }}</p>
 
             <!-- 原有分割线保留，中央嵌入小菱形 -->
             <div class="az-hero-rule" data-hero style="--rd: 0.27s" aria-hidden="true">
@@ -49,8 +49,8 @@
             </div>
 
             <div class="az-hero-actions" data-hero style="--rd: 0.31s">
-              <a class="az-btn az-btn-primary" href="#register">立即报名</a>
-              <a class="az-btn az-btn-ghost az-btn-arrow" href="#ranking">查看实时排名</a>
+              <a class="az-btn az-btn-primary" :href="hero.primaryCta.href">{{ hero.primaryCta.label }}</a>
+              <a class="az-btn az-btn-ghost az-btn-arrow" :href="hero.secondaryCta.href">{{ hero.secondaryCta.label }}</a>
             </div>
           </div>
 
@@ -79,27 +79,24 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import NoticeItem from './NoticeItem.vue'
-import type { Meta } from '../../types/race-data'
+import type { Hero, Media, Meta } from '../../types/race-data'
 
-const props = defineProps<{ meta: Meta; notices: string[] }>()
+const props = defineProps<{
+  meta: Meta
+  notices: string[]
+  hero: Hero
+  media: Media
+}>()
 const emit = defineEmits<{ (e: 'open-notices'): void }>()
-
-/**
- * 首页大屏视频：FFXIV 8.0「银海之天舟」先导预告片前 23 秒（已本地裁剪，浏览器播放）。
- * ⚠️ 换片必须同时改这里的文件名（带版本），否则已缓存的老访客看不到新视频 ——
- *    换片 SOP 与后续 CDN 迁移预案见 docs/frontend-architecture.md §4
- */
-const VIDEO_SRC = '/hero-video-2026q3.mp4'
-const VIDEO_POSTER = '/hero-video-poster.jpg'
 
 // 视频加载失败时隐藏 video，用静态海报作为背景兜底（不引入小视频回退）
 const videoFailed = ref(false)
 function onVideoError(): void {
   videoFailed.value = true
 }
-const heroFallbackStyle = {
-  background: `url(${VIDEO_POSTER}) center / cover no-repeat`,
-}
+const heroFallbackStyle = computed(() => ({
+  background: `url(${props.media.heroPoster}) center / cover no-repeat`,
+}))
 
 /** 公告滚动速度：条目越多跑完一轮越慢 */
 const rollStyle = computed<Record<string, string>>(() => ({
