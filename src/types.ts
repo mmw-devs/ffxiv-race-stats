@@ -1,27 +1,14 @@
-import type { Broadcaster, Meta, NewsItem, Team } from '../types/race-data'
+import type { RACE_DATA } from '../types/race-data'
 
-/** 赞助商条目（schema 未定义 items，前端约定形状）。 */
-export interface Sponsor {
-  name: string
-  desc: string
-}
+// 数据契约的唯一来源是 agent-src/schema/*.json；这里的类型全部由 typegen 生成。
+export type { Sponsor } from '../types/race-data'
 
-/** 直播覆盖统计。 */
+/** 校验通过后的顶层数据（Content 在迁移期为可选）。 */
+export type RaceData = RACE_DATA
+
+/** 直播覆盖统计（由 teams 派生，不属于 data.json）。 */
 export interface Coverage {
   totalPlayers: number
   streamingPlayers: number
   teamsWithCoverage: number
-}
-
-/**
- * 校验通过后的完整数据结构。
- * 把 `unknown → 具体类型` 的收窄集中在 useRaceData 一处，组件不再各自断言。
- */
-export interface RaceData {
-  meta: Meta
-  teams: Team[]
-  news: NewsItem[]
-  broadcasters: Broadcaster[]
-  notices: string[]
-  sponsors: Sponsor[]
 }

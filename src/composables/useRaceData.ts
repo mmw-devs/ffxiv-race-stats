@@ -1,10 +1,12 @@
 import { onUnmounted, ref, type Ref } from 'vue'
 import { validateRaceData } from '../utils/validateRaceData'
-import type { Broadcaster, Meta, NewsItem, Team } from '../../types/race-data'
+import type { Broadcaster, Content, Meta, NewsItem, Team } from '../../types/race-data'
 import type { RaceData, Sponsor } from '../types'
 
 export interface UseRaceDataReturn {
   meta: Ref<Meta>
+  /** 运营文案；迁移期可能缺失 */
+  content: Ref<Content | undefined>
   teams: Ref<Team[]>
   news: Ref<NewsItem[]>
   broadcasters: Ref<Broadcaster[]>
@@ -25,6 +27,7 @@ export interface UseRaceDataReturn {
  */
 export function useRaceData(): UseRaceDataReturn {
   const meta = ref<Meta>({} as Meta)
+  const content = ref<Content | undefined>(undefined)
   const teams = ref<Team[]>([])
   const news = ref<NewsItem[]>([])
   const broadcasters = ref<Broadcaster[]>([])
@@ -57,6 +60,7 @@ export function useRaceData(): UseRaceDataReturn {
 
       const data = raw as RaceData
       meta.value = data.meta
+      content.value = data.content
       teams.value = data.teams
       news.value = data.news
       broadcasters.value = data.broadcasters
@@ -81,5 +85,5 @@ export function useRaceData(): UseRaceDataReturn {
     controller = null
   })
 
-  return { meta, teams, news, broadcasters, notices, sponsors, loading, error, load }
+  return { meta, content, teams, news, broadcasters, notices, sponsors, loading, error, load }
 }

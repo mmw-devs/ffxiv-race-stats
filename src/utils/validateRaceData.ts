@@ -21,6 +21,99 @@ function checkStr(obj: Record<string, unknown>, key: string, path: string, error
   if (!isStr(obj[key])) errors.push(`${path}.${key} 应为 string`)
 }
 
+const isPathOrUrl = (v: unknown): boolean =>
+  isStr(v) && /^(\/|https?:\/\/)/.test(v)
+
+const isLink = (v: unknown): boolean =>
+  isStr(v) && /^(#|\/|https?:\/\/)/.test(v)
+
+function checkCta(value: unknown, path: string, errors: string[]): void {
+  if (!isObj(value)) {
+    errors.push(`${path} 应为对象`)
+    return
+  }
+  checkStr(value, 'label', path, errors)
+  if (!isLink(value.href)) {
+    errors.push(`${path}.href 应为锚点、站内路径或 http(s) URL`)
+  }
+}
+
+const SECTION_KEYS = ['ranking', 'news', 'sponsors', 'guides'] as const
+
+/** 运营文案块（content）：迁移期允许缺失；出现时按最终形状校验。 */
+function validateContent(value: unknown, errors: string[]): void {
+  if (!isObj(value)) {
+    errors.push('content 应为对象')
+    return
+  }
+
+  const hero = value.hero
+  if (!isObj(hero)) {
+    errors.push('content.hero 应为对象')
+  } else {
+    checkStr(hero, 'kicker', 'content.hero', errors)
+    checkStr(hero, 'lead', 'content.hero', errors)
+    checkCta(hero.primaryCta, 'content.hero.primaryCta', errors)
+    checkCta(hero.secondaryCta, 'content.hero.secondaryCta', errors)
+  }
+
+  const rules = value.rules
+  if (!isObj(rules)) {
+    errors.push('content.rules 应为对象')
+  } else {
+    checkStr(rules, 'title', 'content.rules', errors)
+    checkStr(rules, 'kicker', 'content.rules', errors)
+    if (!isArr(rules.items)) {
+      errors.push('content.rules.items 应为数组')
+    } else if (rules.items.length === 0) {
+      errors.push('content.rules.items 至少需要 1 项')
+    } else {
+      rules.items.forEach((item, i) => {
+        if (!isStr(item)) errors.push(`content.rules.items[${i}] 应为 string`)
+      })
+    }
+  }
+
+  const seo = value.seo
+  if (!isObj(seo)) {
+    errors.push('content.seo 应为对象')
+  } else {
+    checkStr(seo, 'title', 'content.seo', errors)
+    checkStr(seo, 'description', 'content.seo', errors)
+    if (seo.ogImage !== undefined && !isPathOrUrl(seo.ogImage)) {
+      errors.push('content.seo.ogImage 应为站内路径或 http(s) URL')
+    }
+  }
+
+  const media = value.media
+  if (!isObj(media)) {
+    errors.push('content.media 应为对象')
+  } else {
+    if (!isPathOrUrl(media.heroVideo)) {
+      errors.push('content.media.heroVideo 应为站内路径或 http(s) URL')
+    }
+    if (!isPathOrUrl(media.heroPoster)) {
+      errors.push('content.media.heroPoster 应为站内路径或 http(s) URL')
+    }
+  }
+
+  const sections = value.sections
+  if (!isObj(sections)) {
+    errors.push('content.sections 应为对象')
+  } else {
+    for (const key of SECTION_KEYS) {
+      const section = sections[key]
+      const path = `content.sections.${key}`
+      if (!isObj(section)) {
+        errors.push(`${path} 应为对象`)
+        continue
+      }
+      checkStr(section, 'kicker', path, errors)
+      checkStr(section, 'title', path, errors)
+    }
+  }
+}
+
 export function validateRaceData(data: unknown): ValidationResult {
   const errors: string[] = []
   if (!isObj(data)) {
@@ -121,7 +214,7 @@ export function validateRaceData(data: unknown): ValidationResult {
     })
   }
 
-  // notices / sponsors（schema 里是 unknown[]，前端约定为 string[] 与 {name,desc}[]）
+  // notices / sponsors（契约见 notice.schema.json / sponsor.schema.json）
   if (!isArr(data.notices)) {
     errors.push('notices 应为数组')
   } else {
@@ -138,6 +231,9 @@ export function validateRaceData(data: unknown): ValidationResult {
       checkStr(s, 'desc', `sponsors[${i}]`, errors)
     })
   }
+
+  // 运营文案：迁移期可选，ops 数据补齐后再改为 required
+  if (data.content !== undefined) validateContent(data.content, errors)
 
   return { ok: errors.length === 0, errors }
 }

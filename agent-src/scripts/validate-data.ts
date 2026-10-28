@@ -22,7 +22,7 @@
  *   - PR #1（scripts TS 化）：保持与 .js 完全等价；将 CLI 主体封装到 main() 便于测试
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import vm from "node:vm";
@@ -218,15 +218,11 @@ export function main(dataPath?: string): number {
   const ajv = new Ajv({ allErrors: true, validateSchema: false });
   const schemaDir = path.resolve(__dirname, "..", "schema");
 
-  // 按依赖顺序加载（player 被 team 引用，meta/team/news/broadcaster 被 root 引用）
-  const schemaFiles = [
-    "player.schema.json",
-    "meta.schema.json",
-    "team.schema.json",
-    "news.schema.json",
-    "broadcaster.schema.json",
-    "root.schema.json",
-  ];
+  // 自动加载 schema 目录下的全部契约文件；新增 schema 不再需要维护手写清单。
+  // Ajv 在 getSchema 时才编译，因此 addSchema 的先后顺序不影响 $ref 解析。
+  const schemaFiles = readdirSync(schemaDir)
+    .filter((file) => file.endsWith(".schema.json"))
+    .sort();
 
   for (const file of schemaFiles) {
     try {

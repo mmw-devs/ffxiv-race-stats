@@ -7,6 +7,10 @@
   "required": ["meta", "teams", "news", "broadcasters", "notices", "sponsors"],
   "properties": {
     "meta":          { "$ref": "meta.schema.json" },
+    "content": {
+      "description": "运营可编辑的站点文案与媒体（迁移期可选；ops 数据补齐后改为 required）",
+      "$ref": "content.schema.json"
+    },
     "teams": {
       "type": "array",
       "items": { "$ref": "team.schema.json" }
@@ -20,10 +24,12 @@
       "items": { "$ref": "broadcaster.schema.json" }
     },
     "notices": {
-      "type": "array"
+      "type": "array",
+      "items": { "$ref": "notice.schema.json" }
     },
     "sponsors": {
-      "type": "array"
+      "type": "array",
+      "items": { "$ref": "sponsor.schema.json" }
     }
   }
 }

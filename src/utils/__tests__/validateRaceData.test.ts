@@ -31,9 +31,87 @@ function makeValidData(): Record<string, unknown> {
   }
 }
 
+function makeContent(): Record<string, unknown> {
+  return {
+    hero: {
+      kicker: 'FINALFANTASY · 2026',
+      lead: '导语',
+      primaryCta: { label: '立即报名', href: '#register' },
+      secondaryCta: { label: '查看排名', href: '#ranking' },
+    },
+    rules: {
+      title: '赛事规则',
+      kicker: 'RACE REGULATION',
+      items: ['规则一'],
+    },
+    seo: {
+      title: '赛事标题',
+      description: '赛事描述',
+    },
+    media: {
+      heroVideo: '/hero.mp4',
+      heroPoster: '/poster.jpg',
+    },
+    sections: {
+      ranking: { kicker: 'RACE REPORT', title: '实时排名' },
+      news: { kicker: 'LIVE TIMELINE', title: '速报时间线' },
+      sponsors: { kicker: 'SPONSORS', title: '赞助公示' },
+      guides: { kicker: 'GUIDES', title: '副本攻略' },
+    },
+  }
+}
+
 describe('validateRaceData', () => {
   it('合法数据通过校验', () => {
     expect(validateRaceData(makeValidData())).toEqual({ ok: true, errors: [] })
+  })
+
+  it('content 合法时通过（迁移期可选，出现时校验）', () => {
+    const data = makeValidData()
+    data.content = makeContent()
+    expect(validateRaceData(data)).toEqual({ ok: true, errors: [] })
+  })
+
+  it('content.hero.lead 缺失时失败', () => {
+    const data = makeValidData()
+    const content = makeContent()
+    ;(content.hero as Record<string, unknown>).lead = undefined
+    data.content = content
+
+    const result = validateRaceData(data)
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain('content.hero.lead 应为 string')
+  })
+
+  it('content.rules.items 为空时失败', () => {
+    const data = makeValidData()
+    const content = makeContent()
+    ;(content.rules as Record<string, unknown>).items = []
+    data.content = content
+
+    const result = validateRaceData(data)
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain('content.rules.items 至少需要 1 项')
+  })
+
+  it('content.media 不是站内路径 / URL 时失败', () => {
+    const data = makeValidData()
+    const content = makeContent()
+    ;(content.media as Record<string, unknown>).heroVideo = 'hero.mp4'
+    data.content = content
+
+    const result = validateRaceData(data)
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain('content.media.heroVideo 应为站内路径或 http(s) URL')
+  })
+
+  it('sponsors 缺 desc 时失败', () => {
+    const data = makeValidData()
+    data.sponsors = [{ name: '赞助商' }]
+
+    const result = validateRaceData(data)
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain('sponsors[0].desc 应为 string')
   })
 
   it('players 不是恰好 8 项时失败', () => {

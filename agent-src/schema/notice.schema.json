@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "notice.schema.json",
+  "title": "Notice",
+  "description": "赛事公告条目（短文本，按运营给定顺序展示）",
+  "type": "string",
+  "minLength": 1
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cta.schema.json",
+  "title": "Cta",
+  "description": "行动号召按钮（文案 + 目标）",
+  "type": "object",
+  "required": ["label", "href"],
+  "properties": {
+    "label": { "type": "string", "minLength": 1, "description": "按钮文案" },
+    "href": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(#|/|https?://)",
+      "description": "锚点、站内路径或绝对 URL"
+    }
+  },
+  "additionalProperties": false
+}
