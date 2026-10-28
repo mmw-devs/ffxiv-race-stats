@@ -10,7 +10,7 @@
     "href": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^(#|/|https?://)",
+      "pattern": "^(#|/(?!/)|https?://)",
       "description": "锚点、站内路径或绝对 URL"
     }
   },

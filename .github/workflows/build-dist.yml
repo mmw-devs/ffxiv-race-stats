@@ -47,7 +47,7 @@ jobs:
         run: npm ci
 
       - name: Fetch source data for SEO head
-        run: npm run fetch:build-data
+        run: npm run fetch:build-data:optional
 
       - name: Build dist
         run: npm run build

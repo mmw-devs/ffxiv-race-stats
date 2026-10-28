@@ -53,7 +53,6 @@ function cloneFixture(relativePath: string): Record<string, unknown> {
 describe('schema / validateRaceData contract', () => {
   const validateSchema = createSchemaValidator()
   const validFixtures = readdirSync(join(FIXTURE_DIR, 'valid'))
-  const invalidFixtures = readdirSync(join(FIXTURE_DIR, 'invalid'))
 
   it('valid fixtures 同时通过 schema 与运行时校验', () => {
     for (const file of validFixtures) {
@@ -63,14 +62,12 @@ describe('schema / validateRaceData contract', () => {
     }
   })
 
-  it('运行时拒绝的 fixture，schema 也必须拒绝', () => {
-    for (const file of invalidFixtures) {
-      const data = readFixture(`invalid/${file}`)
-      const runtime = validateRaceData(data)
-      if (!runtime.ok) {
-        expect(validateSchema(data), `schema should reject invalid/${file}`).toBe(false)
-      }
-    }
+  it('schema 值域错误不会被 runtime shape validator 吞掉', () => {
+    // invalid/ 下多数 fixture 是业务规则（dungeon 顺序、重复 id、ended 非 CLEAR、未知 dungeon），
+    // 由 ops 的 validate-data 负责；这里只锁 schema 自己能识别的值域错误。
+    const lowercasePhase = readFixture('invalid/phase-format-lowercase.json')
+    expect(validateSchema(lowercasePhase), 'schema should reject lowercase phase').toBe(false)
+    expect(validateRaceData(lowercasePhase).ok, 'runtime is shape-only').toBe(true)
   })
 
   it('runtime 抓住的 shape 错误，schema 也能抓住', () => {
@@ -86,10 +83,16 @@ describe('schema / validateRaceData contract', () => {
     const badSponsor = cloneFixture(baseFixture)
     badSponsor.sponsors = [{ name: '缺少 desc' }]
 
+    const protocolRelative = cloneFixture(baseFixture)
+    ;((protocolRelative.content as Record<string, unknown>).hero as {
+      primaryCta: { href: string }
+    }).primaryCta.href = '//evil.example/x'
+
     for (const [label, data] of [
       ['content missing', withoutContent],
       ['players not 8', sevenPlayers],
       ['sponsor missing desc', badSponsor],
+      ['protocol-relative CTA', protocolRelative],
     ] as const) {
       expect(validateRaceData(data).ok, `runtime should reject ${label}`).toBe(false)
       expect(validateSchema(data), `schema should reject ${label}`).toBe(false)

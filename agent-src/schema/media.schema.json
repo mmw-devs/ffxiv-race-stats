@@ -9,13 +9,13 @@
     "heroVideo": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^(/|https?://)",
+      "pattern": "^(/(?!/)|https?://)",
       "description": "首页大屏视频"
     },
     "heroPoster": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^(/|https?://)",
+      "pattern": "^(/(?!/)|https?://)",
       "description": "视频加载失败 / 首帧海报"
     }
   },

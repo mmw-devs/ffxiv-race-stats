@@ -73,8 +73,11 @@ description: >
 
 媒体路径额外检查：
 
-- 站内路径必须在 `public/` 下存在；换片/换海报必须使用带版本的文件名，避免 CDN 缓存旧素材；
-- 若运营只提供新视频没有海报，先询问海报是否需要同步更新。
+- `content.media` 的资源由 **dev 仓库 `public/`** 提供（dev dist → build-dist 推给 ops dist）；ops 仓库的 `public/` 不参与构建产物，不能把新素材放在 ops `public/` 里；
+- 新视频/海报必须先由开发者/运营在 dev 仓库 `public/` 提交素材 PR，本 Skill 只更新 data.json 中的路径指针；
+- 换片/换海报必须使用带版本的文件名，避免 CDN 缓存旧素材；
+- 若运营只提供新视频没有海报，先询问海报是否需要同步更新；
+- `content.seo` 是构建期 head 快照，修改后需要等 dev 重新构建才会进入首屏 HTML。
 
 ### Step 4: 确认
 

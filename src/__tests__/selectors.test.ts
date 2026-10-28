@@ -55,6 +55,10 @@ describe('selectCopyrightYear', () => {
     expect(selectCopyrightYear({ startTime: '2026-10-05T10:00:00Z' })).toBe('2026')
   })
 
+  it('跨年边界使用 UTC 年份', () => {
+    expect(selectCopyrightYear({ startTime: '2026-12-31T23:00:00Z' })).toBe('2026')
+  })
+
   it('未知开赛时间回退当前年', () => {
     expect(selectCopyrightYear({ startTime: '-' })).toBe(String(new Date().getFullYear()))
     expect(selectCopyrightYear({})).toBe(String(new Date().getFullYear()))

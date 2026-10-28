@@ -112,6 +112,8 @@ dev 仓库（本仓库）
 
 `build:preview` 先取数并跑完整 schema 校验，再构建（让 `content.seo` 进入首屏 head），最后把同一份数据复制到 `dist/data.json`；坏数据直接阻断构建。顶层 required 直接来自 `root.schema.json`，不在脚本里维护第二份。
 
+`build-dist` 的 SEO 取数对**传输层失败**（网络/HTTP/超时）降级为 fallback head，不阻断发版；但 JSON 解析错误或 schema 非法仍会硬失败。
+
 SEO head 是**构建时快照**：ops 只改 `data.json` 不会自动重跑 dev 构建，因此 head 可能滞后于 runtime 数据；runtime 内容仍由客户端 fetch 更新。若要求 head 与数据严格同步，应改 SSR 或在 ops 部署期改写 head。
 
 dev 预览站与生产站**产物同构**：两者都把自己的 `dist/data.json` 作为同源静态文件提供，

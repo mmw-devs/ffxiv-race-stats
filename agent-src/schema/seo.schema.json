@@ -10,7 +10,7 @@
     "description": { "type": "string", "minLength": 1 },
     "ogImage": {
       "type": "string",
-      "pattern": "^(/|https?://)",
+      "pattern": "^(/(?!/)|https?://)",
       "description": "Open Graph 图片路径或绝对 URL"
     }
   },

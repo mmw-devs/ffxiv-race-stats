@@ -32,6 +32,7 @@
 
 <script setup lang="ts">
 import { computed, watch, nextTick, onUnmounted, ref } from 'vue'
+import { lockPageScroll, unlockPageScroll } from '../utils/scrollLock'
 
 const props = defineProps<{
   open: boolean
@@ -51,32 +52,17 @@ const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 let locked = false
-// 多个 Modal 实例可能在同一帧内交接（一个关闭、一个打开）；用深度计数保证
-// 只有最后一个关闭时才真正恢复页面滚动。
-let lockDepth = 0
-let previousOverflow = ''
-let previousPaddingRight = ''
 
 function lockScroll(): void {
   if (locked) return
   locked = true
-  if (lockDepth++ > 0) return
-
-  previousOverflow = document.documentElement.style.overflow
-  previousPaddingRight = document.documentElement.style.paddingRight
-  const sbw = window.innerWidth - document.documentElement.clientWidth
-  if (sbw > 0) document.documentElement.style.paddingRight = sbw + 'px'
-  document.documentElement.style.overflow = 'hidden'
+  lockPageScroll()
 }
 
 function unlockScroll(): void {
   if (!locked) return
   locked = false
-  lockDepth = Math.max(0, lockDepth - 1)
-  if (lockDepth > 0) return
-
-  document.documentElement.style.overflow = previousOverflow
-  document.documentElement.style.paddingRight = previousPaddingRight
+  unlockPageScroll()
 }
 
 function getFocusableElements(): HTMLElement[] {

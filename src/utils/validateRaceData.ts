@@ -5,6 +5,8 @@
 // 声明的必需字段），形状异常时让 App.vue 走 error 态（带重试按钮），而不是静默错渲染。
 // 值域校验（phase/region/bossHP 白名单、pattern/enum/范围等）仍是 ops CI 的职责，此处不重复。
 
+import { SECTIONS } from '../sections'
+
 export interface ValidationResult {
   ok: boolean
   errors: string[]
@@ -22,10 +24,10 @@ function checkStr(obj: Record<string, unknown>, key: string, path: string, error
 }
 
 const isPathOrUrl = (v: unknown): boolean =>
-  isStr(v) && /^(\/|https?:\/\/)/.test(v)
+  isStr(v) && /^(\/(?!\/)|https?:\/\/)/.test(v)
 
 const isLink = (v: unknown): boolean =>
-  isStr(v) && /^(#|\/|https?:\/\/)/.test(v)
+  isStr(v) && /^(#|\/(?!\/)|https?:\/\/)/.test(v)
 
 function checkCta(value: unknown, path: string, errors: string[]): void {
   if (!isObj(value)) {
@@ -38,7 +40,7 @@ function checkCta(value: unknown, path: string, errors: string[]): void {
   }
 }
 
-const SECTION_KEYS = ['ranking', 'news', 'sponsors', 'guides'] as const
+const SECTION_KEYS = SECTIONS.map((section) => section.id)
 
 /** 运营文案块（content）：schema required，按最终形状校验。 */
 function validateContent(value: unknown, errors: string[]): void {

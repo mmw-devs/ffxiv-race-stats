@@ -109,6 +109,19 @@ describe('validateRaceData', () => {
     expect(result.errors).toContain('content.media.heroVideo 应为站内路径或 http(s) URL')
   })
 
+  it('拒绝协议相对 URL', () => {
+    const data = makeValidData()
+    const content = makeContent()
+    ;(content.hero as { primaryCta: { href: string } }).primaryCta.href = '//evil.example/x'
+    ;(content.media as Record<string, unknown>).heroVideo = '//evil.example/x'
+    data.content = content
+
+    const result = validateRaceData(data)
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain('content.hero.primaryCta.href 应为锚点、站内路径或 http(s) URL')
+    expect(result.errors).toContain('content.media.heroVideo 应为站内路径或 http(s) URL')
+  })
+
   it('sponsors 缺 desc 时失败', () => {
     const data = makeValidData()
     data.sponsors = [{ name: '赞助商' }]

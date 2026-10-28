@@ -12,6 +12,7 @@
     "build": "astro build",
     "prebuild": "node scripts/generate-redirects.mjs",
     "fetch:build-data": "node scripts/fetch-build-data.mjs",
+    "fetch:build-data:optional": "node scripts/fetch-build-data.mjs --allow-missing",
     "fetch:preview-data": "node scripts/fetch-preview-data.mjs",
     "copy:build-data": "node scripts/copy-build-data.mjs",
     "data-path:sync": "node scripts/generate-redirects.mjs",

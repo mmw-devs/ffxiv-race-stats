@@ -19,8 +19,11 @@ let seo: Seo = FALLBACK_SEO
 try {
   const buildData = JSON.parse(
     readFileSync(join(process.cwd(), '.astro-data', 'data.json'), 'utf8')
-  ) as { content?: { seo?: Seo } }
-  if (buildData.content?.seo) seo = buildData.content.seo
+  ) as { content?: { seo?: Partial<Seo> } }
+  const candidate = buildData.content?.seo
+  if (candidate && typeof candidate.title === 'string' && typeof candidate.description === 'string') {
+    seo = { ...FALLBACK_SEO, ...candidate }
+  }
 } catch {
   // 构建期没有数据：保持静态 fallback，客户端 usePageSeo 仍会更新
 }

@@ -42,7 +42,7 @@ jobs:
           if [ -f agent-src/public/data.json ] || [ -f public/data.json ]; then
             echo "::error::dev 仓库不得保存 data.json 副本（SSOT：唯一真源在 ops 仓库）"
             echo "::error::真源：mmw-devs/ffxiv-race-ops 的 public/data.json"
-            echo "::error::构建时由 scripts/fetch-preview-data.mjs 读取；本地 npm run dev 走 Vite 代理"
+            echo "::error::构建时由 scripts/fetch-build-data.mjs 读取；本地 npm run dev 走 Vite 代理"
             exit 1
           fi
           if git diff --name-only --diff-filter=ACMR origin/main...HEAD | grep -qE '(^|/)data\.json$'; then
@@ -53,6 +53,9 @@ jobs:
 
       - name: Generate types from schema
         run: npm run typegen
+
+      - name: Guard — generated types committed
+        run: git diff --exit-code -- types/
 
       - name: Type-check
         run: npm run typecheck
