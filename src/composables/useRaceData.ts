@@ -1,5 +1,6 @@
 import { onUnmounted, ref, type Ref } from 'vue'
 import { validateRaceData } from '../utils/validateRaceData'
+import { DATA_PUBLIC_PATH } from '../../shared/data-path.mjs'
 import type { Broadcaster, Content, Meta, NewsItem, Team } from '../../types/race-data'
 import type { RaceData, Sponsor } from '../types'
 
@@ -50,7 +51,7 @@ export function useRaceData(): UseRaceDataReturn {
     error.value = null
 
     try {
-      const response = await fetch('/data.json', { signal: current.signal })
+      const response = await fetch(DATA_PUBLIC_PATH, { signal: current.signal })
       if (!response.ok) throw new Error('加载失败: HTTP ' + response.status)
 
       const raw: unknown = await response.json()

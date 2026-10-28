@@ -27,6 +27,8 @@
     "src/**/*.d.ts",
     "src/**/*.vue",
     "types/**/*.d.ts",
+    "shared/**/*.mjs",
+    "shared/**/*.d.mts",
     "scripts/**/*.mjs",
     "scripts/**/*.ts"
   ],

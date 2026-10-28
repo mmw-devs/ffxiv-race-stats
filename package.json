@@ -10,6 +10,9 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
+    "prebuild": "node scripts/generate-redirects.mjs",
+    "data-path:sync": "node scripts/generate-redirects.mjs",
+    "data-path:check": "node scripts/generate-redirects.mjs --check",
     "preview": "astro preview",
     "build:preview": "npm run typegen && npm run typecheck && npm run build && node scripts/fetch-preview-data.mjs",
     "build:dev-preview": "npm run build:preview",

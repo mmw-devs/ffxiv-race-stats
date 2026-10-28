@@ -1,4 +1,6 @@
-// data.json 的单一事实源（SSOT）配置——所有需要数据的脚本/代理都从这里取，不要各自硬编码。
+// data.json 的单一事实源（SSOT）配置——所有需要“真源地址”的脚本/代理都从这里取，不要各自硬编码。
+//
+// 真源地址（ops 仓库）在此；浏览器运行路径 / 构建产物路径在 shared/data-path.mjs。
 //
 // 原则：
 //   data.json 只有一份，位于 ops 仓库 mmw-devs/ffxiv-race-ops 的 public/data.json，

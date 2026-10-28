@@ -83,7 +83,7 @@ dev 仓库（本仓库）
 
 | Workflow | 触发 | 职责 |
 |---|---|---|
-| `build-verify.yml` | dev PR | `npm ci` → typegen → typecheck → `test:unit` → lint → build → size |
+| `build-verify.yml` | dev PR | `npm ci` → typegen → typecheck → data-path:check → test:unit → lint → build → size |
 | `build-dist.yml` | dev main push | 构建 dist/ 推送到 ops 仓库 |
 | `sync-agent-src.yml` | dev main push + agent-src/** | 同步 agent-src/ 到 ops 仓库 |
 | `sync-issue.yml` | dev issues 事件 | dev issues → 飞书多维表格 |
@@ -115,7 +115,9 @@ dev 预览站与生产站**产物同构**：两者都把自己的 `dist/data.jso
 不该让预览站依赖它。
 
 真源 URL 统一定义在 `scripts/data-source.mjs`（可用 `DATA_SOURCE_URL` 覆盖），
-换仓库/换地址只改这一个文件。
+换仓库/换地址只改这一个文件。浏览器运行路径 `/data.json` 与构建产物路径
+`dist/data.json` 统一定义在 `shared/data-path.mjs`；`public/_redirects` 由
+`scripts/generate-redirects.mjs` 生成，CI 用 `npm run data-path:check` 防漂移。
 
 运营文案放在 `data.json` 的 `content` 块（`hero` / `rules` / `seo` / `media` / `sections`），
 契约见 `agent-src/schema/content.schema.json`。迁移期 `content` 可选，页面使用
