@@ -129,7 +129,6 @@ interface ConstantsExport {
   VALID_REGIONS?: string[];
   VALID_ROLES?: string[];
   VALID_STATUSES?: string[];
-  REQUIRED_TOP_KEYS?: string[];
   TEAM_PLAYER_COUNT?: number;
   JOB_ROLES?: Record<string, string[]>;
   PLATFORM_DOMAINS?: Record<string, string[]>;
@@ -180,7 +179,7 @@ export function main(dataPath?: string): number {
     const wrapped =
       constantsRaw +
       "\n;({ PHASE_ORDER, VALID_REGIONS, VALID_ROLES, VALID_STATUSES, " +
-      "REQUIRED_TOP_KEYS, TEAM_PLAYER_COUNT, SCHEMA_VERSION, " +
+      "TEAM_PLAYER_COUNT, SCHEMA_VERSION, " +
       "JOB_ROLES, PLATFORM_DOMAINS });";
     const script = new vm.Script(wrapped, { filename: "constants.js" });
     constants = script.runInNewContext({}) as ConstantsExport;
@@ -195,7 +194,6 @@ export function main(dataPath?: string): number {
     VALID_REGIONS = [],
     VALID_ROLES = [],
     VALID_STATUSES = [],
-    REQUIRED_TOP_KEYS = [],
     TEAM_PLAYER_COUNT = 8,
     JOB_ROLES = {},
     PLATFORM_DOMAINS = {},
@@ -258,13 +256,6 @@ export function main(dataPath?: string): number {
   console.log(`\n${BOLD}── 4. 值域与业务规则校验 ──${RESET}`);
 
   const meta = RACE_DATA.meta;
-
-  // 4a. 顶层 key 完整性
-  for (const k of REQUIRED_TOP_KEYS) {
-    if (!(k in RACE_DATA)) {
-      fail(state, `缺少顶层 key: ${k}`);
-    }
-  }
 
   // 4b. meta.eventName：1–16 字符，不得含标点/占位符/控制字符
   if (meta) {

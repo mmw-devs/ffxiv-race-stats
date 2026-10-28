@@ -13,7 +13,7 @@
 // 环境变量：
 //   DATA_SOURCE_URL  覆盖数据来源（默认 ops 仓库 raw 地址）
 
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { writeFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DATA_SOURCE_URL } from './data-source.mjs'
 import { DATA_DIST_PATH } from '../shared/data-path.mjs'
@@ -22,7 +22,22 @@ const OUT = DATA_DIST_PATH
 const OUT_DIR = dirname(OUT)
 const ATTEMPTS = 3
 const TIMEOUT_MS = 15_000
-const REQUIRED_KEYS = ['meta', 'content', 'teams', 'news', 'broadcasters', 'notices', 'sponsors']
+
+// 顶层 required 直接读 schema，避免与 root.schema.json 双写。
+let REQUIRED_KEYS
+try {
+  const rootSchema = JSON.parse(
+    readFileSync(new URL('../agent-src/schema/root.schema.json', import.meta.url), 'utf8')
+  )
+  REQUIRED_KEYS = rootSchema.required
+} catch (e) {
+  console.error(`[preview-data] 无法读取 agent-src/schema/root.schema.json: ${e.message}`)
+  process.exit(1)
+}
+if (!Array.isArray(REQUIRED_KEYS) || REQUIRED_KEYS.length === 0) {
+  console.error('[preview-data] root.schema.json 缺少 required 数组')
+  process.exit(1)
+}
 
 if (!existsSync(OUT_DIR)) {
   console.error(`[preview-data] 找不到 ${OUT_DIR}/，请先执行 npm run build`)
