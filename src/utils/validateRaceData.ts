@@ -40,7 +40,7 @@ function checkCta(value: unknown, path: string, errors: string[]): void {
 
 const SECTION_KEYS = ['ranking', 'news', 'sponsors', 'guides'] as const
 
-/** 运营文案块（content）：迁移期允许缺失；出现时按最终形状校验。 */
+/** 运营文案块（content）：schema required，按最终形状校验。 */
 function validateContent(value: unknown, errors: string[]): void {
   if (!isObj(value)) {
     errors.push('content 应为对象')
@@ -232,8 +232,12 @@ export function validateRaceData(data: unknown): ValidationResult {
     })
   }
 
-  // 运营文案：迁移期可选，ops 数据补齐后再改为 required
-  if (data.content !== undefined) validateContent(data.content, errors)
+  // 运营文案：schema required，缺失直接报错
+  if (!('content' in data)) {
+    errors.push('content 应存在')
+  } else {
+    validateContent(data.content, errors)
+  }
 
   return { ok: errors.length === 0, errors }
 }

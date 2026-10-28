@@ -23,11 +23,13 @@ function upsertMeta(attr: 'name' | 'property', key: string, value: string | unde
  * ⚠️ 当前站点是静态 Astro 输出 + 客户端取数，这里只能保证运行后标题/描述正确，
  * 首屏 HTML 仍是 BaseLayout 的静态值。若 SEO 要求爬虫可见，需要改为构建期取数或 SSR。
  */
-export function usePageSeo(seo: MaybeRefOrGetter<Seo>): void {
+export function usePageSeo(seo: MaybeRefOrGetter<Seo | undefined>): void {
   if (typeof document === 'undefined') return
 
   const apply = (): void => {
     const value = toValue(seo)
+    // 数据尚未加载时保持 BaseLayout 静态 head；加载完成后再应用 content.seo。
+    if (!value) return
     document.title = value.title
     upsertMeta('name', 'description', value.description)
     upsertMeta('property', 'og:title', value.title)

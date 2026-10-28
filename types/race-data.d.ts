@@ -14,7 +14,7 @@ export type Notice = string;
  */
 export interface RACE_DATA {
   meta: Meta;
-  content?: Content;
+  content: Content;
   teams: Team[];
   news: NewsItem[];
   broadcasters: Broadcaster[];
@@ -57,7 +57,7 @@ export interface Dungeon {
   name: string;
 }
 /**
- * 运营可编辑的站点文案与媒体（迁移期可选；ops 数据补齐后改为 required）
+ * 运营可编辑的站点文案与媒体。主标题/赛事名使用 meta.eventName；导航、列头、交互文案不在 data.json。
  */
 export interface Content {
   hero: Hero;

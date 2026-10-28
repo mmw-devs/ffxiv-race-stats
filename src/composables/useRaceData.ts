@@ -6,8 +6,8 @@ import type { RaceData, Sponsor } from '../types'
 
 export interface UseRaceDataReturn {
   meta: Ref<Meta>
-  /** 运营文案；迁移期可能缺失 */
-  content: Ref<Content | undefined>
+  /** 运营文案；data.json 校验通过后必定存在 */
+  content: Ref<Content>
   teams: Ref<Team[]>
   news: Ref<NewsItem[]>
   broadcasters: Ref<Broadcaster[]>
@@ -28,7 +28,7 @@ export interface UseRaceDataReturn {
  */
 export function useRaceData(): UseRaceDataReturn {
   const meta = ref<Meta>({} as Meta)
-  const content = ref<Content | undefined>(undefined)
+  const content = ref<Content>({} as Content)
   const teams = ref<Team[]>([])
   const news = ref<NewsItem[]>([])
   const broadcasters = ref<Broadcaster[]>([])

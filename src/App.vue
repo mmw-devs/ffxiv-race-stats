@@ -137,19 +137,17 @@ import Modal from './components/Modal.vue'
 import BackToTop from './components/BackToTop.vue'
 import BroadcastItem from './components/BroadcastItem.vue'
 import NoticeItem from './components/NoticeItem.vue'
-import { DEFAULT_CONTENT } from './content/defaults'
 import { getSection } from './sections'
 import { usePageSeo } from './composables/usePageSeo'
 import { useRaceData } from './composables/useRaceData'
 import { useReveal } from './composables/useReveal'
-import type { Content } from '../types/race-data'
 
 // 取数 / 校验 / 错误态全部收敛在 composable 内，App 只负责编排。
 const { meta, content, teams, news, broadcasters, notices, sponsors, loading, error, load } = useRaceData()
 const { setup: setupReveal } = useReveal()
 
-// 迁移期：ops content 未落地时使用与旧硬编码一致的兜底；数据到位后删除 DEFAULT_CONTENT。
-const pageContent = computed<Content>(() => content.value ?? DEFAULT_CONTENT)
+// content 在 schema 中是 required；组件只读 data.json，不再有代码兜底。
+const pageContent = computed(() => content.value)
 usePageSeo(() => pageContent.value.seo)
 
 // 弹窗状态：同时间最多打开一个

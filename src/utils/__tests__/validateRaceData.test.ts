@@ -24,6 +24,7 @@ function makeValidData(): Record<string, unknown> {
         })),
       },
     ],
+    content: makeContent(),
     news: [],
     broadcasters: [],
     notices: [],
@@ -66,10 +67,13 @@ describe('validateRaceData', () => {
     expect(validateRaceData(makeValidData())).toEqual({ ok: true, errors: [] })
   })
 
-  it('content 合法时通过（迁移期可选，出现时校验）', () => {
+  it('content 缺失时失败', () => {
     const data = makeValidData()
-    data.content = makeContent()
-    expect(validateRaceData(data)).toEqual({ ok: true, errors: [] })
+    delete data.content
+
+    const result = validateRaceData(data)
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain('content 应存在')
   })
 
   it('content.hero.lead 缺失时失败', () => {

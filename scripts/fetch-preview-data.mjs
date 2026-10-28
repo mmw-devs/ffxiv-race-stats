@@ -22,7 +22,7 @@ const OUT = DATA_DIST_PATH
 const OUT_DIR = dirname(OUT)
 const ATTEMPTS = 3
 const TIMEOUT_MS = 15_000
-const REQUIRED_KEYS = ['meta', 'teams', 'news', 'broadcasters', 'notices', 'sponsors']
+const REQUIRED_KEYS = ['meta', 'content', 'teams', 'news', 'broadcasters', 'notices', 'sponsors']
 
 if (!existsSync(OUT_DIR)) {
   console.error(`[preview-data] 找不到 ${OUT_DIR}/，请先执行 npm run build`)

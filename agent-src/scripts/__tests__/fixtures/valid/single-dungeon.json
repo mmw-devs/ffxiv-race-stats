@@ -13,6 +13,7 @@
     "status": "live",
     "startTime": "2026-06-10T12:00:00Z"
   },
+  "content": {"hero":{"kicker":"x","lead":"x","primaryCta":{"label":"x","href":"#"},"secondaryCta":{"label":"x","href":"#"}},"rules":{"title":"x","kicker":"x","items":["x"]},"seo":{"title":"x","description":"x"},"media":{"heroVideo":"/x","heroPoster":"/x"},"sections":{"ranking":{"kicker":"x","title":"x"},"news":{"kicker":"x","title":"x"},"sponsors":{"kicker":"x","title":"x"},"guides":{"kicker":"x","title":"x"}}},
   "teams": [
     {
       "id": "t1",

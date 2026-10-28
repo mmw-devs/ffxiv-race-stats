@@ -4,13 +4,10 @@
   "title": "RACE_DATA",
   "description": "FFXIV 竞速排名数据顶层结构",
   "type": "object",
-  "required": ["meta", "teams", "news", "broadcasters", "notices", "sponsors"],
+  "required": ["meta", "content", "teams", "news", "broadcasters", "notices", "sponsors"],
   "properties": {
     "meta":          { "$ref": "meta.schema.json" },
-    "content": {
-      "description": "运营可编辑的站点文案与媒体（迁移期可选；ops 数据补齐后改为 required）",
-      "$ref": "content.schema.json"
-    },
+    "content":       { "$ref": "content.schema.json" },
     "teams": {
       "type": "array",
       "items": { "$ref": "team.schema.json" }

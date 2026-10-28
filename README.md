@@ -45,7 +45,6 @@ src/
 ├── composables/              # useRaceData / useNow / useScroll / useExpandableList / useReveal / useTimer / usePageSeo
 ├── utils/                    # 纯函数（排名排序、阶段解析、时间格式化、数据校验）
 ├── sections.ts               # 章节 id / 顺序 / 导航标签（站点结构）
-├── content/                  # 迁移期 DEFAULT_CONTENT（data.content 落地后删除）
 └── types.ts                  # 前端共享类型（schema 生成 + Coverage）
 ```
 
@@ -121,8 +120,8 @@ dev 预览站与生产站**产物同构**：两者都把自己的 `dist/data.jso
 `scripts/generate-redirects.mjs` 生成，CI 用 `npm run data-path:check` 防漂移。
 
 运营文案放在 `data.json` 的 `content` 块（`hero` / `rules` / `seo` / `media` / `sections`），
-契约见 `agent-src/schema/content.schema.json`。迁移期 `content` 可选，页面使用
-`src/content/defaults.ts` 兜底；ops 数据补齐后把 `content` 改为 required，并删除该兜底文件。
+契约见 `agent-src/schema/content.schema.json`。`content` 是 required，前端不再保留代码兜底；
+ops 数据由 `content/*` PR 维护。
 
 `build-verify` 带守卫：任何 PR 引入 `data.json` 副本都会失败。
 
