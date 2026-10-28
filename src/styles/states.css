@@ -1,0 +1,31 @@
+    /* ═══════════ 错误 / 加载态 ═══════════ */
+    .az-loading {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 60vh; font-family: var(--font-mono); font-size: 13px;
+      letter-spacing: 0.1em; color: var(--muted);
+    }
+    .az-error {
+      margin: 24px var(--gutter); padding: 16px 20px;
+      border: 2px solid var(--live); background: var(--surface); color: var(--fg);
+      font-family: var(--font-mono); font-size: 13px;
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    .az-error strong { font-weight: 700; letter-spacing: 0.04em; }
+    .az-error p { margin: 0; flex: 1; min-width: 200px; color: var(--muted); }
+    .az-error-reload {
+      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;
+      padding: 6px 14px; border: 1px solid var(--fg); background: var(--fg);
+      color: var(--bg); cursor: pointer; transition: background 0.12s, color 0.12s;
+    }
+    .az-error-reload:hover { background: var(--bg); color: var(--fg); }
+
+    /* ═══════════ scroll reveal（仅当 JS 激活） ═══════════ */
+    html.js .reveal {
+      opacity: 0; transform: translateY(22px);
+      transition: opacity 0.65s var(--ease-out), transform 0.65s var(--ease-out);
+      transition-delay: var(--reveal-delay, 0ms);
+      will-change: opacity, transform;
+    }
+    /* 入场结束后立刻撤销 will-change：避免长页面里每个区块长期占着合成层 */
+    html.js .reveal.in-view { opacity: 1; transform: none; will-change: auto; }
+

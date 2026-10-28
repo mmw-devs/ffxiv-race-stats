@@ -1,0 +1,74 @@
+    /* ═══════════════════════════════════════════════════════════
+       Atelier Zero — 深墨竞速档案视觉设计系统
+       深墨底 · 红/蓝/金点缀 · 圆角便签卡片 · 动效层（幕布/进度/级联/视差）
+       ============================================================ */
+    :root {
+      /* 深墨底：抬高亮度 + 加一丝蓝紫（hue 268），比纯黑/近黑更雅致 */
+      --bg:         oklch(0.205 0.012 268);   /* #15171d */
+      --bg-2:       oklch(0.242 0.014 268);   /* #1d2027 */
+      --surface:    oklch(0.278 0.015 268);   /* #252830 */
+      --fg:         oklch(0.986 0.004 210);
+      --muted:      oklch(0.80 0.016 210);
+      --border:     color-mix(in oklch, var(--fg) 13%, transparent);
+      --border-2:   color-mix(in oklch, var(--fg) 26%, transparent);
+
+      /* 点缀色：红/蓝/金保持原有取值，不随深墨底改色 */
+      --accent:  oklch(46% 0.14 30);
+      --accent-deep: color-mix(in oklch, var(--accent) 82%, var(--bg));
+      --accent-bright: oklch(0.66 0.2 28);   /* 章节 kicker 亮红，解决原红色小字过暗 */
+      --live:    oklch(0.63 0.19 26);        /* 对齐 v2/v3，比原取值更亮 */
+      --warn:    oklch(0.8 0.15 72);         /* 速报强调文字提亮，解决过深看不清 */
+
+      /* 队伍地区标签取色（明亮版，适配深墨底纹） */
+      --rg-cn: oklch(0.68 0.2 27);
+      --rg-jp: oklch(0.97 0.005 210);
+      --rg-na: oklch(0.85 0.16 88);
+      --rg-eu: oklch(0.72 0.14 255);
+      --rg-oc: oklch(0.78 0.15 155);
+
+      --gold:    oklch(48% 0.13 78);
+      /* 奖牌三色对齐 v2 */
+      --silver:  oklch(0.78 0.04 250);
+      --bronze:  oklch(0.61 0.09 60);
+      --rank-first: oklch(0.8 0.16 78);
+      /* PHASE 药丸配色：对齐 v2/v3 的亮色取值（原 52–55% 亮度在深底上偏暗） */
+      --ph-1:    oklch(0.76 0.1 258);
+      --ph-2:    oklch(0.79 0.085 206);
+      --ph-3:    oklch(0.79 0.1 152);
+      --ph-4:    oklch(0.8 0.11 66);
+      --ph-clear: oklch(0.78 0.11 78);
+      --cool:    oklch(48% 0.09 252);
+
+      /* 排名职业方块取色（v2 亮色） */
+      --job-tank:   oklch(0.62 0.13 258);
+      --job-healer: oklch(0.68 0.12 165);
+      --job-dps:    oklch(0.64 0.16 25);
+
+      --font-display: 'Iowan Old Style', 'Times New Roman', Georgia, 'Songti SC', 'Noto Serif SC', serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Menlo, monospace;
+      /* 章节编号专用设计感黑体（取 v2 --font-display 字阶） */
+      --font-tech:    'Bahnschrift', 'Avenir Next', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      /* 小标题/标签字族：英文/数字用最初的等宽；中文用无衬线黑体（Win=SimHei / mac=PingFang /
+         Linux=Noto Sans CJK）。与衬线大标题形成「衬线标题 + 黑体标语」的杂志式对比，
+         也比宋体细笔画在深底小字号下更结实。字重统一 400，不自行加粗 */
+      --font-label:   ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Menlo, Consolas,
+                      'PingFang SC', 'Hiragino Sans GB', SimHei, 'Microsoft YaHei',
+                      'Noto Sans CJK SC', 'Noto Sans SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei',
+                      system-ui, sans-serif;
+
+      --paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --container: 1200px;
+      --gutter: clamp(20px, 4vw, 44px);
+      --radius: 14px;
+      --radius-sm: 6px;
+    }
+
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--bg); color: var(--fg); }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+    }

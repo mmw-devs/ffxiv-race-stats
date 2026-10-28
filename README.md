@@ -33,12 +33,13 @@ npm run test:unit  # 前端纯函数 / 状态单测（Vitest）
 
 ## 技术栈
 
-Astro 7 + Vue 3，组件化架构（16 个页面组件 + `App.vue` 根组件；全局样式与 OKLCH token 集中在 `BaseLayout.astro`）。
+Astro 7 + Vue 3，组件化架构（16 个页面组件 + `App.vue` 根组件；全局样式与 OKLCH token 集中在 `src/styles/`）。
 
 ```
 src/
 ├── pages/index.astro         # 入口
-├── layouts/BaseLayout.astro  # 全局布局 + tokens
+├── layouts/BaseLayout.astro  # 全局布局 + head
+├── styles/                   # tokens / base / 区块 CSS（global.css 入口）
 ├── App.vue                   # 根组件（loading / error / ready 状态机）
 ├── components/               # 16 个 Vue 组件（PageView 承载 ready 后的页面主体）
 ├── composables/              # useRaceData / usePageMotion / useNow / useScroll / useExpandableList / useReveal / useTimer / usePageSeo

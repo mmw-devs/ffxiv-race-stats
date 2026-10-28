@@ -1,0 +1,105 @@
+    /* ═══════════ news 速报时间线 ═══════════ */
+    .az-news-wrap { border-top: 1px solid var(--border-2); --news-pad-y: 13px; }
+    .az-news { list-style: none; margin: 0; padding: 0; }
+    /* 三列：时间 │ 时间轴（竖线+节点） │ 正文 */
+    .az-news-item {
+      display: grid; grid-template-columns: 150px 18px minmax(0, 1fr);
+      padding: var(--news-pad-y) 4px; border-bottom: 1px solid var(--border);
+      align-items: baseline;
+    }
+    /* 竖线：每条目画自己那一段，负外边距抵消内边距 → 首尾相接成一条连续时间轴 */
+    .az-news-rail {
+      position: relative; width: 1px; justify-self: center; align-self: stretch;
+      background: var(--border); margin-block: calc(-1 * var(--news-pad-y));
+      transform-origin: top;
+    }
+    /* 节点：默认空心圆点 */
+    .az-news-rail::before {
+      content: ''; position: absolute; top: 19px; left: 50%;
+      width: 7px; height: 7px; border-radius: 50%;
+      transform: translateX(-50%);
+      background: var(--bg); border: 1px solid var(--border-2);
+    }
+    /* 强调条目：节点实心红 + 呼吸光环（取代原先正文前的小红点，正文本身不变） */
+    .az-news-rail::after {
+      content: ''; position: absolute; top: 19px; left: 50%;
+      width: 7px; height: 7px; border-radius: 50%;
+      transform: translateX(-50%);
+    }
+    .az-news-item.urgent .az-news-rail::before { background: var(--live); border-color: var(--live); }
+    .az-news-item.urgent .az-news-rail::after { animation: azNodePulse 2.2s ease-out infinite; }
+    @keyframes azNodePulse {
+      0%   { box-shadow: 0 0 0 0 color-mix(in oklch, var(--live) 55%, transparent); }
+      70%  { box-shadow: 0 0 0 9px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+    /* 入场：竖线自上而下「拉」出 → 节点弹出 → 文字轻微上浮（仅首批 10 条；展开新增的直接显示） */
+    html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-rail {
+      animation: azRailIn 0.55s var(--ease-out) both;
+      animation-delay: calc(min(var(--i, 0), 10) * 50ms);
+    }
+    html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-rail::before {
+      animation: azNodeIn 0.4s var(--ease-out) both;
+      animation-delay: calc(min(var(--i, 0), 10) * 50ms + 140ms);
+    }
+    html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-time,
+    html.js .az-news-wrap.in-view .az-news-item:nth-child(-n+10) .az-news-text {
+      animation: azNewsIn 0.6s var(--ease-out) both;
+      animation-delay: calc(min(var(--i, 0), 10) * 50ms + 70ms);
+    }
+    @keyframes azRailIn { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+    @keyframes azNodeIn {
+      from { opacity: 0; transform: translateX(-50%) scale(0.2); }
+      to   { opacity: 1; transform: translateX(-50%) scale(1); }
+    }
+    @keyframes azNewsIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: none; }
+    }
+    @keyframes azRowIn {
+      from { opacity: 0; transform: translateY(18px); }
+      to { opacity: 1; transform: none; }
+    }
+    .az-news-time { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 0.05em; text-align: right; line-height: 1.35; }
+    .az-news-text { font-size: 14px; line-height: 1.6; }
+    .az-news-text.urgent { color: var(--warn); font-weight: 600; }
+
+    /* ═══════════ sponsors ═══════════ */
+    .az-sponsor-panel { border-top: 1px solid var(--border-2); }
+    .az-sponsor-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 40px; }
+    .az-sponsor-item { padding: 14px 4px; border-bottom: 1px solid var(--border); }
+    html.js .az-sponsor-panel.in-view .az-sponsor-item:nth-child(-n+10) {
+      animation: azRowIn 0.7s var(--ease-out) both;
+      animation-delay: calc(min(var(--i, 0), 10) * 45ms);
+    }
+    .az-sponsor-name { font-size: 14px; font-weight: 600; }
+    .az-sponsor-desc { font-size: 11px; color: var(--muted); line-height: 1.5; margin-top: 3px; }
+
+    /* ═══════════ guides 占位面板 ═══════════ */
+    .az-guides {
+      position: relative; overflow: hidden;
+      border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+      padding: clamp(32px, 5vw, 60px);
+    }
+    .az-guides-lead { font-size: 15px; line-height: 1.85; color: var(--muted); max-width: 52ch; margin: 16px 0 24px; }
+    .az-tag {
+      display: inline-flex; align-items: center; padding: 6px 14px;
+      border: 1px solid var(--border); border-radius: 999px; font-family: var(--font-label); font-weight: 400;
+      font-size: 12px; letter-spacing: 0.14em; color: var(--muted);
+    }
+    .az-plate-halftone {
+      position: absolute; z-index: 2; top: 18%; bottom: 18%; right: 14px; width: 9px;
+      background-image: radial-gradient(color-mix(in oklch, var(--fg) 26%, transparent) 1.5px, transparent 1.7px);
+      background-size: 8px 8px;
+    }
+    .az-plate-glyph {
+      position: absolute; right: 4%; bottom: -22%; z-index: 1;
+      font-family: var(--font-display); font-size: clamp(180px, 24vw, 300px); line-height: 1;
+      color: color-mix(in oklch, var(--fg) 9%, transparent); user-select: none;
+    }
+    .az-plate-index {
+      font-family: var(--font-label); font-size: 12.5px; font-weight: 400; letter-spacing: 0.1em; color: var(--muted);
+      display: inline-flex; align-items: center; gap: 7px;
+    }
+    .az-plate-index::before { content: ''; width: 5px; height: 5px; background: var(--accent-bright); transform: rotate(45deg); }
+

@@ -1,0 +1,54 @@
+    /* ═══════════ 按钮 ═══════════ */
+    .az-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 14px; font-weight: 500; padding: 13px 22px; border-radius: 999px;
+      border: 1px solid var(--fg);
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .az-btn.az-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--fg); font-weight: 600; }
+    .az-btn-primary:hover { background: var(--accent-deep); border-color: var(--accent-deep); }
+    .az-btn-ghost { background: transparent; color: var(--fg); }
+    .az-btn-ghost:hover { background: var(--fg); color: var(--bg); }
+    .az-btn-arrow::after { content: '→'; transition: transform 0.15s ease; }
+    .az-btn-arrow:hover::after { transform: translateX(3px); }
+    .az-btn:active { transform: translateY(1px); }
+
+    .az-rules-link {
+      font-family: var(--font-label); font-size: 13px; font-weight: 400; letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--muted); background: none; border: 0; padding: 2px 0 2px 14px; cursor: pointer;
+      border-left: 1px solid var(--border); transition: color 0.15s ease;
+    }
+    .az-rules-link:hover { color: var(--accent); }
+    .az-expand {
+      display: block; width: 100%; padding: 14px 4px;
+      font-family: var(--font-label); font-size: 12.5px; font-weight: 400; letter-spacing: 0.1em;
+      color: var(--muted); text-align: left; cursor: pointer;
+      background: none; border: 0; border-bottom: 1px solid var(--border);
+      transition: color 0.15s ease;
+    }
+    .az-expand::before { content: '+'; margin-right: 10px; }
+    .az-expand.is-open::before { content: '–'; }
+    .az-expand:hover { color: var(--accent); }
+    .az-console #expandBroadcast {
+      display: block; width: 100%; padding: 12px 0 2px;
+      border: 0; margin-top: 8px;
+    }
+
+    /* ═══════════ section ═══════════ */
+    .az-section { padding-block: clamp(44px, 6.5vw, 84px); }
+    .az-hero + .az-section,
+    .az-section + .az-section { border-top: 1px solid var(--border); }
+    .az-section-head { display: flex; gap: clamp(18px, 2vw, 26px); align-items: center; margin-block: clamp(36px, 4.5vw, 56px) 32px; }
+    .az-index {
+      /* 编号：设计感黑体 + 放大到与右侧标题块等高对齐 + v2 灰色 */
+      font-family: var(--font-tech); font-size: clamp(54px, 6vw, 82px);
+      line-height: 1; font-weight: 700; letter-spacing: -0.03em;
+      color: color-mix(in oklch, var(--fg) 13%, transparent);
+      display: flex; align-items: center;
+    }
+    .az-folio {
+      margin-left: auto;
+      font-family: var(--font-label); font-size: 12px; font-weight: 400;
+      letter-spacing: 0.16em; color: var(--muted); white-space: nowrap;
+    }
+
