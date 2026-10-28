@@ -132,6 +132,7 @@ import BroadcastItem from './BroadcastItem.vue'
 import NoticeItem from './NoticeItem.vue'
 import { getSection } from '../sections'
 import { selectCoverage, selectFolio } from '../selectors'
+import { usePageMotion } from '../composables/usePageMotion'
 import { usePageSeo } from '../composables/usePageSeo'
 import { useReveal } from '../composables/useReveal'
 import type { RaceData } from '../types'
@@ -148,6 +149,9 @@ const sponsors = computed(() => props.data.sponsors)
 
 // SEO 只在 PageView 挂载（data ready）后执行，避免空 content 读取。
 usePageSeo(() => pageContent.value.seo)
+
+// 页面动效由 PageView 拥有；滚动复用 useScroll 的共享 rAF。
+usePageMotion()
 
 // 页面挂载后统一注册 reveal；PageView 只在 ready 时挂载，DOM 已就绪。
 const { setup: setupReveal } = useReveal()

@@ -39,10 +39,9 @@ Astro 7 + Vue 3，组件化架构（16 个页面组件 + `App.vue` 根组件；�
 src/
 ├── pages/index.astro         # 入口
 ├── layouts/BaseLayout.astro  # 全局布局 + tokens
-├── motion/page-motion.ts     # 导航 / 进度 / hero 动效（原 BaseLayout 内联脚本）
 ├── App.vue                   # 根组件（loading / error / ready 状态机）
 ├── components/               # 16 个 Vue 组件（PageView 承载 ready 后的页面主体）
-├── composables/              # useRaceData / useNow / useScroll / useExpandableList / useReveal / useTimer / usePageSeo
+├── composables/              # useRaceData / usePageMotion / useNow / useScroll / useExpandableList / useReveal / useTimer / usePageSeo
 ├── utils/                    # 纯函数（排名排序、阶段解析、时间格式化、数据校验/解析）
 ├── selectors.ts              # 派生值（coverage / live / folio / phase）
 ├── sections.ts               # 章节 id / 顺序 / 导航标签（站点结构）
