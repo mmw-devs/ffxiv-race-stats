@@ -106,12 +106,13 @@ dev 仓库（本仓库）
 | 场景 | 取数方式 | 入口 |
 |---|---|---|
 | 本地开发 `npm run dev` | Vite 代理 `/data.json` → 真源 | `astro.config.mjs` |
-| lighthouse / `build:preview` | 构建后下载到 `dist/data.json` | `scripts/fetch-preview-data.mjs` |
-| dev 预览站（CF Pages） | **同 `build:preview`**：构建时写入 `dist/data.json` | `npm run build:dev-preview` |
-| 生产站（CF Pages，ops 仓库） | 构建时 `cp public/data.json dist/data.json` | — |
+| lighthouse / `build:preview` | 构建前下载到 `.astro-data/data.json`，构建后复制到 `dist/data.json` | `scripts/fetch-build-data.mjs` / `scripts/copy-build-data.mjs` |
+| dev 预览站（CF Pages） | **同 `build:preview`**：构建时先取数、再构建、复制数据 | `npm run build:dev-preview` |
+| 生产站（CF Pages，ops 仓库） | dev `build-dist` 构建前取数生成 head；ops 构建时 `cp public/data.json dist/data.json` | `build-dist.yml` |
 
-`build:preview` 在写入 `dist/data.json` 前会跑完整 schema 校验，坏数据直接阻断构建；
-顶层 required 也直接来自 `root.schema.json`，不再在脚本里维护第二份。
+`build:preview` 先取数并跑完整 schema 校验，再构建（让 `content.seo` 进入首屏 head），最后把同一份数据复制到 `dist/data.json`；坏数据直接阻断构建。顶层 required 直接来自 `root.schema.json`，不在脚本里维护第二份。
+
+SEO head 是**构建时快照**：ops 只改 `data.json` 不会自动重跑 dev 构建，因此 head 可能滞后于 runtime 数据；runtime 内容仍由客户端 fetch 更新。若要求 head 与数据严格同步，应改 SSR 或在 ops 部署期改写 head。
 
 dev 预览站与生产站**产物同构**：两者都把自己的 `dist/data.json` 作为同源静态文件提供，
 不使用任何边缘 rewrite/代理。曾尝试用 `_redirects` 把 `/data.json` 200 重写到生产站，

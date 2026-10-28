@@ -75,5 +75,6 @@ undefined:/
 
 dist/
 .astro/
+.astro-data/
 # LHCI 临时 Chrome 用户数据目录（WSL 路径污染）
 \\wsl.localhost/**
