@@ -1,6 +1,7 @@
 import type { Dungeon, Meta, Team } from '../types/race-data'
 import type { Coverage } from './types'
 import { displayPhase, phaseStage } from './utils/phase'
+import { stageClass } from '../agent-src/shared/stage.mjs'
 
 /** 直播覆盖统计：由 teams 派生，不存 data.json。 */
 export function selectCoverage(teams: readonly Team[]): Coverage {
@@ -48,6 +49,6 @@ export interface PhaseView {
 export function selectPhaseView(phase: string, dungeons: readonly Dungeon[]): PhaseView {
   return {
     label: displayPhase(phase, dungeons),
-    className: phaseStage(phase).toLowerCase(),
+    className: stageClass(phaseStage(phase)),
   }
 }

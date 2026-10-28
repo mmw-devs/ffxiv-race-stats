@@ -20,7 +20,8 @@ scripts/                        ← 验证脚本（与 dev 同步）
 .github/workflows/              ← 2 个 workflow（validate / race-ops-jit-pem）
 .pi/                            ← 运营 Agent 配置
 .githooks/                      ← 运营工作流
-constants.js                    ← 数据校验白名单（单一真相来源）
+constants.js                    ← 数据校验值域白名单（阶段语法见 shared/stage.mjs）
+shared/stage.mjs                ← 阶段 P<n>/CLEAR 语法与排序（dev/ops 共享）
 AGENTS.md (本文件)              ← 运营语境文档
 README.md                       ← 运营 README
 LICENSE
@@ -56,10 +57,10 @@ PI Agent 在本仓库启动时进入**运营模式**，约束：
 
 ## 数据校验
 
-CI 在 PR 时跑三阶段校验（`scripts/validate-data.js`）：
+CI 在 PR 时跑三阶段校验（`scripts/validate-data.ts`）：
 
 - **Schema 结构**：对照 `schema/*.json` 用 Ajv 校验
-- **值域交叉**：`phase` ∈ `PHASE_ORDER`、`region` ∈ `VALID_REGIONS` 等
+- **值域交叉**：`phase` 符合 `P<正整数>` / `CLEAR`、`region` ∈ `VALID_REGIONS` 等
 - **业务规则**：`rank` 连续无跳号、`bossHP` ∈ [0, 100]、每队 `players[]` 恰好 8 人
 
 ## 部署流程
