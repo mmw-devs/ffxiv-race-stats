@@ -1,41 +1,28 @@
 import { onUnmounted, ref, type Ref } from 'vue'
-import { validateRaceData } from '../utils/validateRaceData'
+import { parseRaceData } from '../utils/parseRaceData'
 import { DATA_PUBLIC_PATH } from '../../shared/data-path.mjs'
-import type { Broadcaster, Content, Meta, NewsItem, Team } from '../../types/race-data'
-import type { RaceData, Sponsor } from '../types'
+import type { RaceData } from '../types'
+
+export type RaceDataState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; data: RaceData }
 
 export interface UseRaceDataReturn {
-  meta: Ref<Meta>
-  /** 运营文案；data.json 校验通过后必定存在 */
-  content: Ref<Content>
-  teams: Ref<Team[]>
-  news: Ref<NewsItem[]>
-  broadcasters: Ref<Broadcaster[]>
-  notices: Ref<string[]>
-  sponsors: Ref<Sponsor[]>
-  loading: Ref<boolean>
-  error: Ref<string | null>
+  state: Ref<RaceDataState>
   /** 拉取并校验数据；返回是否成功应用了本次结果（被新请求取代 / 卸载时返回 false） */
   load: () => Promise<boolean>
 }
 
 /**
- * data.json 的取数 / 校验 / 错误态。
+ * data.json 的取数 / 解析 / 状态机。
  *
  * - 用 AbortController + 递增 requestId 防止「重试时旧请求后到、覆盖新数据」
  * - 组件卸载时中止在途请求
- * - 校验失败和网络错误都收敛为 error 文案，由 App 渲染错误态
+ * - 校验失败和网络错误都收敛为 error 状态，由 App 渲染错误态
  */
 export function useRaceData(): UseRaceDataReturn {
-  const meta = ref<Meta>({} as Meta)
-  const content = ref<Content>({} as Content)
-  const teams = ref<Team[]>([])
-  const news = ref<NewsItem[]>([])
-  const broadcasters = ref<Broadcaster[]>([])
-  const notices = ref<string[]>([])
-  const sponsors = ref<Sponsor[]>([])
-  const loading = ref(true)
-  const error = ref<string | null>(null)
+  const state = ref<RaceDataState>({ status: 'loading' })
 
   let controller: AbortController | null = null
   let requestId = 0
@@ -47,34 +34,26 @@ export function useRaceData(): UseRaceDataReturn {
     const current = new AbortController()
     controller = current
 
-    loading.value = true
-    error.value = null
+    state.value = { status: 'loading' }
 
     try {
       const response = await fetch(DATA_PUBLIC_PATH, { signal: current.signal })
       if (!response.ok) throw new Error('加载失败: HTTP ' + response.status)
 
       const raw: unknown = await response.json()
-      const check = validateRaceData(raw)
-      if (!check.ok) throw new Error('数据形状校验失败: ' + check.errors.join('；'))
+      const parsed = parseRaceData(raw)
+      if (!parsed.ok) throw new Error('数据形状校验失败: ' + parsed.errors.join('；'))
       if (disposed || id !== requestId) return false
 
-      const data = raw as RaceData
-      meta.value = data.meta
-      content.value = data.content
-      teams.value = data.teams
-      news.value = data.news
-      broadcasters.value = data.broadcasters
-      notices.value = data.notices
-      sponsors.value = data.sponsors
+      state.value = { status: 'ready', data: parsed.data }
       return true
     } catch (err) {
       if (current.signal.aborted || disposed || id !== requestId) return false
       console.error('数据加载失败:', err)
-      error.value = err instanceof Error && err.message ? err.message : '未知错误，请稍后重试'
+      const message = err instanceof Error && err.message ? err.message : '未知错误，请稍后重试'
+      state.value = { status: 'error', message }
       return false
     } finally {
-      if (id === requestId && !disposed) loading.value = false
       if (controller === current) controller = null
     }
   }
@@ -86,5 +65,5 @@ export function useRaceData(): UseRaceDataReturn {
     controller = null
   })
 
-  return { meta, content, teams, news, broadcasters, notices, sponsors, loading, error, load }
+  return { state, load }
 }
