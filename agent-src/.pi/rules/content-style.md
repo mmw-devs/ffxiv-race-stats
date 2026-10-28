@@ -33,3 +33,10 @@ description: >
 - 禁止在数据中使用英文标点（使用中文全角标点）
 - 禁止在 `name` 字段使用日文/英文（除非是国际队伍原名）
 - 禁止编造非运营提供的真实数据——占位数据使用 `[...]` 格式
+
+## content 文案
+
+- `content.hero` / `content.rules` / `content.sections` 面向用户，使用简体中文与全角标点；
+- `content.seo.title` 是独立 SEO 文案，不强制等于 `meta.eventName`；
+- `content.media` 的站内路径以 `/` 开头，换片/换海报使用带版本的文件名；
+- 导航标签、列头、展开/加载/关闭等交互文案属于代码，不得写进 `content`。
