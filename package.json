@@ -25,6 +25,7 @@
     "size": "size-limit",
     "lhci": "node scripts/lhci.mjs",
     "test:validate-data": "cd agent-src && npx vitest run",
+    "test:business-rules": "node scripts/check-business-fixtures.mjs",
     "test:unit": "vitest run",
     "typegen": "node scripts/generate-types.mjs",
     "typecheck": "vue-tsc --noEmit",

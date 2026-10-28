@@ -66,6 +66,9 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
+      - name: Business rule fixtures
+        run: npm run test:business-rules
+
       - name: Lint
         run: npm run lint
 
