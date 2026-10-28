@@ -33,6 +33,12 @@ export function selectFolio(meta: Pick<Meta, 'edition'>, page: string): string {
   return `VOL.${meta.edition ?? ''} · ${page}`
 }
 
+/** 页脚版权年份：优先取赛事开赛年份，未知时回退当前年。 */
+export function selectCopyrightYear(meta: Pick<Meta, 'startTime'>): string {
+  const start = meta.startTime && meta.startTime !== '-' ? Date.parse(meta.startTime) : NaN
+  return String(Number.isNaN(start) ? new Date().getFullYear() : new Date(start).getFullYear())
+}
+
 export interface PhaseView {
   label: string
   className: string

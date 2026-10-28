@@ -128,6 +128,12 @@ dev 预览站与生产站**产物同构**：两者都把自己的 `dist/data.jso
 契约见 `agent-src/schema/content.schema.json`。`content` 是 required，前端不再保留代码兜底；
 ops 数据由 `content/*` PR 维护。
 
+内容归属补充：导航标签、排名列头、展开/加载/关闭等交互文案、Footer 品牌与版权、Guides 占位文案
+属于代码 chrome；`meta.boss` / `meta.dataCenter` 是预留字段，当前 UI 不渲染。
+
+运行时刷新：`useRaceData` 目前只在首次加载 / 手动重试时取数，不做轮询；live 赛事若需要自动刷新，
+应另加 visibility-aware polling + ETag，避免打断滚动、视频和弹窗。
+
 `build-verify` 带守卫：任何 PR 引入 `data.json` 副本都会失败。
 
 > 历史：dev 曾保留一份副本，靠「ops CI 同步 + PR 合并」维持一致。那条链路需要跨仓库

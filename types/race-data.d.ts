@@ -34,7 +34,13 @@ export interface Meta {
    * @minItems 1
    */
   dungeons: [Dungeon, ...Dungeon[]];
+  /**
+   * 预留字段：当前 UI 不渲染；启用前需补 selector / 视图
+   */
   boss?: string;
+  /**
+   * 预留字段：当前 UI 不渲染；启用前需补 selector / 视图
+   */
   dataCenter?: string;
   /**
    * ISO 8601 瞬时，需含时区（UTC 用 Z，或 ±HH:MM）；status=upcoming 且未知时用 "-" 占位

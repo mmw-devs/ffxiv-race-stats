@@ -66,7 +66,7 @@
       </PageSection>
     </main>
 
-    <AppFooter :event-name="meta.eventName" :edition="meta.edition ?? ''" />
+    <AppFooter :event-name="meta.eventName" :edition="meta.edition ?? ''" :year="copyrightYear" />
 
     <BackToTop />
 
@@ -131,7 +131,7 @@ import BackToTop from './BackToTop.vue'
 import BroadcastItem from './BroadcastItem.vue'
 import NoticeItem from './NoticeItem.vue'
 import { getSection } from '../sections'
-import { selectCoverage, selectFolio } from '../selectors'
+import { selectCopyrightYear, selectCoverage, selectFolio } from '../selectors'
 import { usePageMotion } from '../composables/usePageMotion'
 import { usePageSeo } from '../composables/usePageSeo'
 import { useReveal } from '../composables/useReveal'
@@ -170,4 +170,5 @@ function folio(page: string): string {
 
 // 直播覆盖统计
 const coverage = computed(() => selectCoverage(teams.value))
+const copyrightYear = computed(() => selectCopyrightYear(meta.value))
 </script>
