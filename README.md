@@ -24,6 +24,7 @@ Node 版本以 `.nvmrc` 为唯一事实源（当前 `24.11.0`，CI 也从该文�
 npm install        # 仅首次
 npm run dev        # Astro 开发服务器 + HMR
 npm run test:unit  # 前端纯函数 / 状态单测（Vitest）
+npm run test:business-rules  # 用 ops validator 跑全部 valid/invalid fixtures
 ```
 
 访问 `http://localhost:4321`。
@@ -84,7 +85,7 @@ dev 仓库（本仓库）
 
 | Workflow | 触发 | 职责 |
 |---|---|---|
-| `build-verify.yml` | dev PR | `npm ci` → typegen → typecheck → data-path:check → test:unit → lint → build → size |
+| `build-verify.yml` | dev PR | `npm ci` → typegen → typecheck → data-path:check → test:unit → test:business-rules → lint → build → size |
 | `build-dist.yml` | dev main push | 构建 dist/ 推送到 ops 仓库 |
 | `sync-agent-src.yml` | dev main push + agent-src/** | 同步 agent-src/ 到 ops 仓库 |
 | `sync-issue.yml` | dev issues 事件 | dev issues → 飞书多维表格 |
