@@ -13,10 +13,10 @@
  * 副本阶段绑定（feature/dungeon-phase-binding）：
  *   - team.phase 必须形如 `<副本id>-<阶段>`（如 M1S-P5、M2S-CLEAR）
  *   - 副本 id 必须在 meta.dungeons[] 中存在
- *   - 阶段必须在 PHASE_ORDER 中
+ *   - 阶段必须符合 shared/stage.mjs 的 P<正整数>/CLEAR 语法
  *   - status="ended" → 所有队伍 phase 必须是 lastDungeon-CLEAR
  *   - status="upcoming" → 所有队伍 phase 必须是 firstDungeon-P1
- *   - 跨队伍 phase 单调（按 rank 升序：(dungeonIndex, stageIndex) 非严格递增）
+ *   - 跨队伍 phase 单调（按 rank 升序：(dungeonIndex, stageRank) 非严格递增）
  *
  * 演进：
  *   - PR #1（scripts TS 化）：保持与 .js 完全等价；将 CLI 主体封装到 main() 便于测试
@@ -28,6 +28,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import vm from "node:vm";
 
 import Ajv from "ajv";
+
+import { parseStage, stageRank } from "../shared/stage.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -125,7 +127,6 @@ interface RaceDataRoot {
 }
 
 interface ConstantsExport {
-  PHASE_ORDER?: string[];
   VALID_REGIONS?: string[];
   VALID_ROLES?: string[];
   VALID_STATUSES?: string[];
@@ -178,7 +179,7 @@ export function main(dataPath?: string): number {
     const constantsRaw = readFileSync(constantsPath, "utf-8");
     const wrapped =
       constantsRaw +
-      "\n;({ PHASE_ORDER, VALID_REGIONS, VALID_ROLES, VALID_STATUSES, " +
+      "\n;({ VALID_REGIONS, VALID_ROLES, VALID_STATUSES, " +
       "TEAM_PLAYER_COUNT, SCHEMA_VERSION, " +
       "JOB_ROLES, PLATFORM_DOMAINS });";
     const script = new vm.Script(wrapped, { filename: "constants.js" });
@@ -190,7 +191,6 @@ export function main(dataPath?: string): number {
   }
 
   const {
-    PHASE_ORDER = [],
     VALID_REGIONS = [],
     VALID_ROLES = [],
     VALID_STATUSES = [],
@@ -419,14 +419,14 @@ export function main(dataPath?: string): number {
         const dungeonId = phaseText.slice(0, dashIdx);
         const stage = phaseText.slice(dashIdx + 1);
         const dungeonIndex = dungeonIds.indexOf(dungeonId);
-        const stageIndex = PHASE_ORDER ? PHASE_ORDER.indexOf(stage) : -1;
+        const parsedStage = parseStage(stage);
 
         if (dungeonIndex === -1) {
           fail(state, `${teamPrefix} phase 副本 id "${dungeonId}" 不在 meta.dungeons[] 中`);
-        } else if (stageIndex === -1) {
-          fail(state, `${teamPrefix} phase 阶段 "${stage}" 不在 PHASE_ORDER [${PHASE_ORDER.join(", ")}] 中`);
+        } else if (!parsedStage) {
+          fail(state, `${teamPrefix} phase 阶段 "${stage}" 不符合 P<正整数> / CLEAR 语法`);
         } else {
-          phaseParsed = { dungeonId, stage, dungeonIndex, stageIndex };
+          phaseParsed = { dungeonId, stage, dungeonIndex, stageIndex: parsedStage.rank };
         }
       }
 
@@ -521,7 +521,7 @@ export function main(dataPath?: string): number {
         ok(`status="ended" 校验通过：所有队伍 phase = "${expectedPhase}"`);
       } else if (status === "upcoming") {
         const firstDungeonId = dungeonIds[0]!;
-        const expectedPhase = dungeons.length === 1 ? PHASE_ORDER[0]! : `${firstDungeonId}-${PHASE_ORDER[0]}`;
+        const expectedPhase = dungeons.length === 1 ? "P1" : `${firstDungeonId}-P1`;
         for (const team of teams) {
           if (team.phase !== expectedPhase) {
             fail(state, `[${team.name || team.id}] meta.status="upcoming" 时所有队伍 phase 必须是 "${expectedPhase}"，但 rank ${team.rank} 是 "${team.phase}"`);
@@ -539,8 +539,8 @@ export function main(dataPath?: string): number {
       meta &&
       meta.status === "live"
     ) {
-      const clearStageIdx = PHASE_ORDER ? PHASE_ORDER.indexOf("CLEAR") : -1;
-      const firstStageIdx = 0; // P1 = index 0
+      const clearStageIdx = stageRank("CLEAR")!;
+      const firstStageIdx = stageRank("P1")!;
       let orderOk = true;
       for (const team of teams) {
         const parsed = phaseIndexByRank.get(team.rank);
@@ -579,7 +579,7 @@ export function main(dataPath?: string): number {
           const dashIdx = phase.indexOf("-");
           const did = phase.slice(0, dashIdx);
           const stage = phase.slice(dashIdx + 1);
-          return { rank: t.rank, d: dungeonIds.indexOf(did), s: PHASE_ORDER.indexOf(stage) };
+          return { rank: t.rank, d: dungeonIds.indexOf(did), s: stageRank(stage) ?? -1 };
         })
         .filter((p) => p.d >= 0 && p.s >= 0)
         .sort((a, b) => a.rank - b.rank);

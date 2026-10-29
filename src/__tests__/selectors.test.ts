@@ -80,4 +80,10 @@ describe('selectPhaseView', () => {
   it('单副本只显示阶段', () => {
     expect(selectPhaseView('P4', [multiDungeon[0]])).toEqual({ label: 'P4', className: 'p4' })
   })
+
+  it('P5+ 使用 late class，非法阶段不产生 class', () => {
+    expect(selectPhaseView('M1S-P5', multiDungeon)).toEqual({ label: 'M1S · P5', className: 'late' })
+    expect(selectPhaseView('M1S-P99', multiDungeon)).toEqual({ label: 'M1S · P99', className: 'late' })
+    expect(selectPhaseView('M1S-FINAL', multiDungeon)).toEqual({ label: 'M1S · FINAL', className: '' })
+  })
 })

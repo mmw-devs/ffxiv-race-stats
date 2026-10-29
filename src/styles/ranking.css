@@ -110,6 +110,7 @@
     .az-team-phase.p2 { color: var(--ph-2); border-color: color-mix(in oklch, var(--ph-2) 45%, transparent); }
     .az-team-phase.p3 { color: var(--ph-3); border-color: color-mix(in oklch, var(--ph-3) 45%, transparent); }
     .az-team-phase.p4 { color: var(--ph-4); border-color: color-mix(in oklch, var(--ph-4) 45%, transparent); }
+    .az-team-phase.late { color: var(--ph-late); border-color: color-mix(in oklch, var(--ph-late) 45%, transparent); }
     .az-team-phase.clear { color: var(--bg); border-color: var(--ph-clear); background: var(--ph-clear); }
     .az-ledger > .az-expand { grid-column: 1 / -1; }
 
