@@ -213,9 +213,11 @@ export function validateRaceData(data: unknown): ValidationResult {
       const p = `broadcasters[${i}]`
       if (!isObj(b)) { errors.push(`${p} 应为对象`); return }
       checkStr(b, 'id', p, errors)
-      checkStr(b, 'name', p, errors)
+      if (!isStr(b.name) || b.name.trim() === '') errors.push(`${p}.name 应为非空 string`)
       checkStr(b, 'platform', p, errors)
-      checkStr(b, 'url', p, errors)
+      if (!isStr(b.url) || !/^(#|https?:\/\/)/.test(b.url)) {
+        errors.push(`${p}.url 应为 # 或 http(s) URL`)
+      }
       checkStr(b, 'note', p, errors)
     })
   }

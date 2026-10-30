@@ -27,7 +27,7 @@
     <div class="az-console-cell">
       <p class="az-panel-label">合作转播台</p>
       <BroadcastItem v-for="(b, i) in visibleBroadcasters" :key="b.id" :broadcaster="b" :index="i" />
-      <button v-if="broadcasters.length > 3" type="button" class="az-expand" id="expandBroadcast" @click="emit('open-broadcast')">
+      <button v-if="broadcasters.length > BROADCAST_PREVIEW_LIMIT" type="button" class="az-expand" id="expandBroadcast" @click="emit('open-broadcast')">
         展开全部 {{ broadcasters.length }} 个转播台
       </button>
     </div>
@@ -40,6 +40,7 @@ import { useTimer } from '../composables/useTimer.js'
 import { prefersReducedMotion } from '../utils/motion'
 import { formatStartLabel } from '../utils/time'
 import BroadcastItem from './BroadcastItem.vue'
+import { BROADCAST_PREVIEW_LIMIT, selectPreviewBroadcasters } from '../domain/broadcast'
 import type { Coverage } from '../types'
 import type { Broadcaster } from '../../types/race-data'
 
@@ -57,7 +58,7 @@ const { elapsed } = useTimer(() => props.startTime)
 const startLabel = computed(() => formatStartLabel(props.startTime))
 
 /** 控制台仅展示前 3 个转播台，其余进入弹窗 */
-const visibleBroadcasters = computed(() => props.broadcasters.slice(0, 3))
+const visibleBroadcasters = computed(() => selectPreviewBroadcasters(props.broadcasters))
 
 // 数字滚动动画（尊重 reduced-motion）；coverage 变化时从当前值续加到新目标
 const COVERAGE_ANIM_MS = 700

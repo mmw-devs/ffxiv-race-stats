@@ -39,7 +39,7 @@ description: >
 ### Step 3: 校验
 
 - `platform` ∈ `PLATFORM_DOMAINS` 的 key（`constants.js`：bilibili/douyin/douyu/huya/twitch/youtube）
-- `url` 格式正确（以 `https://` 开头），且域名与 `platform` 匹配（白名单见 `constants.js` 的 `PLATFORM_DOMAINS`）
+- `url` 为 `#`（暂无直播间）或 `https://` 绝对地址；https 时域名与 `platform` 匹配（白名单见 `constants.js` 的 `PLATFORM_DOMAINS`）
 - 添加时：`id` 基于最大已有 id + 1
 - 无重复名称
 
