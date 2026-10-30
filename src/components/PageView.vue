@@ -17,52 +17,29 @@
       />
 
       <PageSection
-        id="ranking"
-        :index="getSection('ranking').index"
-        :kicker="pageContent.sections.ranking.kicker"
-        :title="pageContent.sections.ranking.title"
-        :folio="folio(getSection('ranking').page)"
+        v-for="section in SECTIONS"
+        :key="section.id"
+        :id="section.id"
+        :index="section.index"
+        :kicker="pageContent.sections[section.id].kicker"
+        :title="pageContent.sections[section.id].title"
+        :folio="folio(section.page)"
       >
-        <ConsoleBar
-          :start-time="meta.startTime ?? ''"
-          :coverage="coverage"
-          :team-count="teams.length"
-          :broadcasters="broadcasters"
-          @open-broadcast="openModal('broadcast')"
-        />
-        <div class="az-main-grid">
-          <RankingTable :teams="teams" :dungeons="meta.dungeons" />
-        </div>
-      </PageSection>
-
-      <PageSection
-        id="news"
-        :index="getSection('news').index"
-        :kicker="pageContent.sections.news.kicker"
-        :title="pageContent.sections.news.title"
-        :folio="folio(getSection('news').page)"
-      >
-        <NewsTicker :news="news" />
-      </PageSection>
-
-      <PageSection
-        id="sponsors"
-        :index="getSection('sponsors').index"
-        :kicker="pageContent.sections.sponsors.kicker"
-        :title="pageContent.sections.sponsors.title"
-        :folio="folio(getSection('sponsors').page)"
-      >
-        <SponsorsCard :sponsors="sponsors" />
-      </PageSection>
-
-      <PageSection
-        id="guides"
-        :index="getSection('guides').index"
-        :kicker="pageContent.sections.guides.kicker"
-        :title="pageContent.sections.guides.title"
-        :folio="folio(getSection('guides').page)"
-      >
-        <GuidesSection />
+        <template v-if="section.id === 'ranking'">
+          <ConsoleBar
+            :start-time="meta.startTime ?? ''"
+            :coverage="coverage"
+            :team-count="teams.length"
+            :broadcasters="broadcasters"
+            @open-broadcast="openModal('broadcast')"
+          />
+          <div class="az-main-grid">
+            <RankingTable :teams="teams" :dungeons="meta.dungeons" />
+          </div>
+        </template>
+        <NewsTicker v-else-if="section.id === 'news'" :news="news" />
+        <SponsorsCard v-else-if="section.id === 'sponsors'" :sponsors="sponsors" />
+        <GuidesSection v-else-if="section.id === 'guides'" />
       </PageSection>
     </main>
 
@@ -130,7 +107,7 @@ import Modal from './Modal.vue'
 import BackToTop from './BackToTop.vue'
 import BroadcastItem from './BroadcastItem.vue'
 import NoticeItem from './NoticeItem.vue'
-import { getSection } from '../sections'
+import { SECTIONS } from '../sections'
 import { selectCopyrightYear, selectFolio } from '../selectors'
 import { selectCoverage } from '../domain/coverage'
 import { usePageMotion } from '../composables/usePageMotion'
