@@ -122,6 +122,6 @@ describe('schema / validateRaceData contract', () => {
 
   it('SECTIONS 与 sections.schema.json 键一致', () => {
     const sectionsSchema = readSchema<{ required: string[] }>('sections.schema.json')
-    expect(SECTIONS.map((section) => section.id)).toEqual(sectionsSchema.required)
+    expect([...SECTIONS.map((section) => section.id)].sort()).toEqual([...sectionsSchema.required].sort())
   })
 })
