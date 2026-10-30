@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "prebuild": "node scripts/generate-redirects.mjs",
+    "prebuild": "node scripts/generate-redirects.mjs && node scripts/check-build-snapshot.mjs",
     "fetch:build-data": "node scripts/fetch-build-data.mjs",
     "fetch:build-data:optional": "node scripts/fetch-build-data.mjs --allow-missing",
     "fetch:preview-data": "node scripts/fetch-preview-data.mjs",

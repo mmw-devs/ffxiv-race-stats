@@ -3,30 +3,49 @@
 // 承载 HTML head、页面骨架与全局样式入口；token / 组件样式在 src/styles/*.css。
 // 所有 Vue 组件输出 .az-* 标记，保证单一设计源。
 // 首页大屏：底部宽幅视频带（浏览器本地播放）+ 标题浮层。
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Seo } from '../../types/race-data'
+import { DATA_BUILD_DATA_PATH, DATA_BUILD_META_PATH } from '../../shared/data-path.mjs'
 import '../styles/global.css'
 
-// 构建期 SEO：有 .astro-data/data.json 时用 data.json 的 content.seo，
-// 否则回退通用文案（普通 npm run build / build-verify 不强制出网）。
+// 方案 A：head 是构建时快照。
+// - 没有 .astro-data：普通 build / build-verify，使用通用 fallback；
+// - 有快照：必须带 meta.json 且 sha256 匹配，坏快照直接让构建失败，不再静默降级。
 const FALLBACK_SEO: Seo = {
-  title: 'FFXIV 高难首杀竞速',
-  description: 'FFXIV 高难首杀竞速排行聚合平台，追踪高难副本的世界首杀争夺战，提供队伍进度、选手直播、赛事速报一站式浏览。',
+  title: 'FFXIV 高难首杀竞速 · 赛事档案',
+  description: 'FFXIV 高难首杀竞速赛事档案与排行聚合。',
 }
 
-let seo: Seo = FALLBACK_SEO
-try {
-  const buildData = JSON.parse(
-    readFileSync(join(process.cwd(), '.astro-data', 'data.json'), 'utf8')
-  ) as { content?: { seo?: Partial<Seo> } }
-  const candidate = buildData.content?.seo
-  if (candidate && typeof candidate.title === 'string' && typeof candidate.description === 'string') {
-    seo = { ...FALLBACK_SEO, ...candidate }
+function loadBuildSeo(): Seo {
+  const dataPath = join(process.cwd(), DATA_BUILD_DATA_PATH)
+  if (!existsSync(dataPath)) return FALLBACK_SEO
+
+  const metaPath = join(process.cwd(), DATA_BUILD_META_PATH)
+  if (!existsSync(metaPath)) throw new Error(`缺少 ${DATA_BUILD_META_PATH}`)
+
+  const raw = readFileSync(dataPath, 'utf8')
+  const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as { sha256?: unknown }
+  const sha256 = createHash('sha256').update(raw).digest('hex')
+  if (typeof meta.sha256 !== 'string' || meta.sha256 !== sha256) {
+    throw new Error('构建数据快照哈希不匹配')
   }
-} catch {
-  // 构建期没有数据：保持静态 fallback，客户端 usePageSeo 仍会更新
+
+  const buildData = JSON.parse(raw) as { content?: { seo?: Partial<Seo> } }
+  const candidate = buildData.content?.seo
+  if (
+    !candidate ||
+    typeof candidate.title !== 'string' ||
+    typeof candidate.description !== 'string' ||
+    (candidate.ogImage !== undefined && typeof candidate.ogImage !== 'string')
+  ) {
+    throw new Error('快照缺少合法的 content.seo')
+  }
+  return { ...FALLBACK_SEO, ...candidate }
 }
+
+const seo: Seo = loadBuildSeo()
 ---
 <!doctype html>
 <html lang="zh-CN">
