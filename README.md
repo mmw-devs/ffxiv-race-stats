@@ -165,7 +165,7 @@ Cloudflare Pages 自动部署
 
 ## 部署
 
-Cloudflare Pages 监听 **ops 仓库** main 分支 → 自动构建（`npm run build` + `cp public/data.json dist/data.json`）→ CDN。
+Cloudflare Pages 监听 **ops 仓库** main 分支 → Build command 仅执行 `cp public/data.json dist/data.json` → CDN。ops 仓库不运行 `npm run build`；`dist/` 由 dev CI 预构建后推送。
 
 dev 仓库的 `build-dist.yml` 把 dist/ 推送到 ops 仓库后，ops 仓库重新部署。
 

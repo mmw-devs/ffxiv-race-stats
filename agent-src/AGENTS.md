@@ -53,7 +53,7 @@ PI Agent 在本仓库启动时进入**运营模式**，约束：
 - **提交通道**：`content/*` 分支 + PR（绝不可直推 main）
 - **凭证**：`race-ops-bot` GitHub App（生产 PEM）或开发者本人 PAT（开发测试）
 
-详见 `.pi/SKILL.md`。
+详见 `.pi/skills/` 与 `.pi/rules/`。
 
 ## 数据校验
 

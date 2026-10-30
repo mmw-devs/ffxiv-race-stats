@@ -1,5 +1,5 @@
 # Cloudflare Pages 缓存策略（本文件会被 Astro 原样复制到 dist/_headers）
-# 参考：docs/frontend-architecture.md §3.2
+# 与 README「部署」章节的静态产物约定保持一致
 
 # 构建产物文件名含内容 hash → 永久缓存，零风险
 /_astro/*

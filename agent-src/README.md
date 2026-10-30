@@ -75,12 +75,6 @@ npm run validate-op-log   # 校验操作日志
 
 详见 [`.pi/skills/`](./.pi/skills/)。
 
-## 设计文档
-
-| 文档 | 内容 |
-|------|------|
-| [.pi/SKILL.md](.pi/SKILL.md) | PI Agent 在本仓库的工作机制 |
-
 ## 相关链接
 
 - 站点：CF Pages 项目 URL（dashboard 查看）
