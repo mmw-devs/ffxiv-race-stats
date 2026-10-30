@@ -165,12 +165,11 @@ export function validateRaceData(data: unknown): ValidationResult {
       const p = `teams[${i}]`
       if (!isObj(t)) { errors.push(`${p} 应为对象`); return }
       checkStr(t, 'id', p, errors)
-      if (t.name !== undefined && !isStr(t.name)) errors.push(`${p}.name 应为 string`)
+      if (!isStr(t.name) || t.name.trim() === '') errors.push(`${p}.name 应为非空 string`)
       if (!isNum(t.rank)) errors.push(`${p}.rank 应为 number`)
       if (!isNum(t.bossHP)) errors.push(`${p}.bossHP 应为 number`)
       checkStr(t, 'phase', p, errors)
       checkStr(t, 'region', p, errors)
-      if (!isBool(t.isLive)) errors.push(`${p}.isLive 应为 boolean`)
       if (!isArr(t.players) || t.players.length !== 8) {
         errors.push(`${p}.players 应为恰好 8 项的数组`)
       } else {
@@ -180,8 +179,13 @@ export function validateRaceData(data: unknown): ValidationResult {
           checkStr(pl, 'job', q, errors)
           checkStr(pl, 'role', q, errors)
           checkStr(pl, 'stream', q, errors)
+          if (isStr(pl.stream) && pl.stream !== '#' && !/^https?:\/\//.test(pl.stream)) {
+            errors.push(`${q}.stream 应为 # 或 http(s) URL`)
+          }
           if (!isBool(pl.streaming)) errors.push(`${q}.streaming 应为 boolean`)
-          if (pl.isLive !== undefined && !isBool(pl.isLive)) errors.push(`${q}.isLive 应为 boolean`)
+          if (pl.streaming === true && pl.stream === '#') {
+            errors.push(`${q}.streaming=true 时 stream 不能为 #`)
+          }
         })
       }
     })

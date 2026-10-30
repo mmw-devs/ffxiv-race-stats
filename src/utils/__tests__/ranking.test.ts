@@ -5,15 +5,15 @@ import type { Team } from '../../../types/race-data'
 function makeTeam(id: string, rank: number): Team {
   return {
     id,
+    name: id,
     rank,
     bossHP: 50,
     phase: 'P1',
     region: 'NA',
-    isLive: false,
     players: Array.from({ length: 8 }, () => ({
       job: 'PLD',
       role: 'tank',
-      stream: '',
+      stream: '#',
       streaming: false,
     })) as unknown as Team['players'],
   }

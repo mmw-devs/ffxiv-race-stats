@@ -4,10 +4,10 @@
   "title": "Team",
   "description": "一支竞速队伍及其玩家",
   "type": "object",
-  "required": ["id", "rank", "bossHP", "phase", "region", "players", "isLive"],
+  "required": ["id", "name", "rank", "bossHP", "phase", "region", "players"],
   "properties": {
     "id":     { "type": "string" },
-    "name":   { "type": "string" },
+    "name":   { "type": "string", "minLength": 1 },
     "rank":   { "type": "integer", "minimum": 1 },
     "bossHP": { "type": "number", "minimum": 0, "maximum": 100 },
     "phase":  { "type": "string", "pattern": "^([A-Z0-9]+-)?(P[1-9][0-9]*|CLEAR)$", "description": "阶段：多副本为 <副本id>-<阶段>，单副本（绝境）为 <阶段>（不含副本前缀）；阶段语法为 P<正整数> 或 CLEAR" },
@@ -15,7 +15,6 @@
       "type": "string",
       "enum": ["JP", "NA", "EU", "OC", "CN", "KR"]
     },
-    "isLive": { "type": "boolean" },
     "players": {
       "type": "array",
       "minItems": 8,

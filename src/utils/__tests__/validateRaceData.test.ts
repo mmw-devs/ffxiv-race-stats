@@ -11,15 +11,15 @@ function makeValidData(): Record<string, unknown> {
     teams: [
       {
         id: 't1',
+        name: '测试队伍',
         rank: 1,
         bossHP: 50,
         phase: 'P1',
         region: 'NA',
-        isLive: false,
         players: Array.from({ length: 8 }, () => ({
           job: 'PLD',
           role: 'tank',
-          stream: '',
+          stream: '#',
           streaming: false,
         })),
       },
@@ -131,7 +131,7 @@ describe('validateRaceData', () => {
     expect(result.errors).toContain('sponsors[0].desc 应为 string')
   })
 
-  it('players 不是恰好 8 项时失败', () => {
+  it('teams[0].players 恰好 8 项', () => {
     const data = makeValidData()
     const teams = data.teams as Array<{ players: unknown[] }>
     teams[0].players = teams[0].players.slice(0, 7)
@@ -139,6 +139,37 @@ describe('validateRaceData', () => {
     const result = validateRaceData(data)
     expect(result.ok).toBe(false)
     expect(result.errors).toContain('teams[0].players 应为恰好 8 项的数组')
+  })
+
+  it('team.name 缺失时失败', () => {
+    const data = makeValidData()
+    const teams = data.teams as Array<Record<string, unknown>>
+    delete teams[0].name
+
+    const result = validateRaceData(data)
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain('teams[0].name 应为非空 string')
+  })
+
+  it('streaming=true 但 stream 为 # 时失败', () => {
+    const data = makeValidData()
+    const teams = data.teams as Array<{ players: Array<Record<string, unknown>> }>
+    teams[0].players[0].streaming = true
+    teams[0].players[0].stream = '#'
+
+    const result = validateRaceData(data)
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain('teams[0].players[0].streaming=true 时 stream 不能为 #')
+  })
+
+  it('非 http(s) stream 失败', () => {
+    const data = makeValidData()
+    const teams = data.teams as Array<{ players: Array<Record<string, unknown>> }>
+    teams[0].players[0].stream = 'javascript:alert(1)'
+
+    const result = validateRaceData(data)
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain('teams[0].players[0].stream 应为 # 或 http(s) URL')
   })
 
   it('meta.dungeons 为空数组时失败', () => {

@@ -13,6 +13,7 @@
   "teams": [
     {
       "id": "t1",
+      "name": "[队伍名 1]",
       "rank": 1,
       "bossHP": 0,
       "phase": "m1s-p5",

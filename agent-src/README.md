@@ -67,7 +67,7 @@ npm run validate-op-log   # 校验操作日志
 
 | Skill | 用途 |
 |---|---|
-| `update-team` | 更新队伍攻略进度（phase、bossHP、isLive） |
+| `update-team` | 更新队伍攻略进度（phase、bossHP） |
 | `add-news` | 添加赛事速报 |
 | `add-broadcaster` | 管理赛事转播方 |
 | `update-content` | 修改首页 hero / 规则 / SEO / 媒体 / 章节标题 |

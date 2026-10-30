@@ -156,7 +156,7 @@ export interface Section {
  */
 export interface Team {
   id: string;
-  name?: string;
+  name: string;
   rank: number;
   bossHP: number;
   /**
@@ -164,7 +164,6 @@ export interface Team {
    */
   phase: string;
   region: "JP" | "NA" | "EU" | "OC" | "CN" | "KR";
-  isLive: boolean;
   /**
    * @minItems 8
    * @maxItems 8
@@ -180,7 +179,6 @@ export interface Player {
   role: "tank" | "healer" | "dps";
   stream: string;
   streaming: boolean;
-  isLive?: boolean;
 }
 /**
  * 单条赛事速报

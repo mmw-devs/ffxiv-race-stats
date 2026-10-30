@@ -5,15 +5,15 @@ import type { Team } from '../../types/race-data'
 function makeTeam(id: string, streaming: boolean[]): Team {
   return {
     id,
+    name: `队伍 ${id}`,
     rank: 1,
     bossHP: 50,
     phase: 'P1',
     region: 'NA',
-    isLive: false,
     players: streaming.map((value) => ({
       job: 'PLD',
       role: 'tank',
-      stream: '',
+      stream: '#',
       streaming: value,
     })) as unknown as Team['players'],
   }
