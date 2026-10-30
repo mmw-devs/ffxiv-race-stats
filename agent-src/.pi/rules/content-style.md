@@ -17,7 +17,7 @@ description: >
 
 | 分类 | 规范 |
 |------|------|
-| **阶段命名** | 使用 `P1`、`P2`、`P3`、`P4`、`P5`、`P6`、`FINAL` 格式 |
+| **阶段命名** | `P<正整数>`（如 `P1`、`P5`、`P99`）或 `CLEAR`；不再使用固定阶段枚举 / `FINAL` |
 | **区域** | `JP`（日本）、`NA`（北美）、`EU`（欧洲）、`OC`（大洋洲）、`CN`（中国）、`KR`（韩国） |
 | **职业** | 使用官方三字母缩写：PLD/WAR/DRK/GNB/WHM/SCH/AST/SGE/MNK/DRG/NIN/SAM/RPR/BRD/MCH/DNC/BLM/SMN/RDM/VPR/PCT（以 `constants.js` 的 `JOB_ROLES` 为准） |
 | **平台** | `bilibili`、`douyin`、`douyu`、`huya`、`twitch`、`youtube`（以 `constants.js` 的 `PLATFORM_DOMAINS` 为准） |

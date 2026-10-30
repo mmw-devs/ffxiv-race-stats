@@ -6,6 +6,7 @@ import Ajv2020 from 'ajv/dist/2020.js'
 import { describe, expect, it } from 'vitest'
 import { validateRaceData } from '../utils/validateRaceData'
 import { SECTIONS } from '../sections'
+import { PHASE_PATTERN_SOURCE } from '../../agent-src/shared/stage.mjs'
 
 const SCHEMA_DIR = fileURLToPath(new URL('../../agent-src/schema/', import.meta.url))
 const FIXTURE_DIR = fileURLToPath(new URL('../../agent-src/scripts/__tests__/fixtures/', import.meta.url))
@@ -21,7 +22,7 @@ function readSchema<T>(file: string): T {
 
 function loadConstants(): Record<string, unknown> {
   const raw = readFileSync(CONSTANTS_PATH, 'utf8')
-  const wrapped = raw + '\n;({ PHASE_ORDER, VALID_REGIONS, VALID_ROLES, VALID_STATUSES });'
+  const wrapped = raw + '\n;({ VALID_REGIONS, VALID_ROLES, VALID_STATUSES });'
   return new Script(wrapped, { filename: 'constants.js' }).runInNewContext({}) as Record<string, unknown>
 }
 
@@ -116,11 +117,7 @@ describe('schema / validateRaceData contract', () => {
     )
 
     const phasePattern = teamSchema.properties.phase.pattern
-    if (!phasePattern) throw new Error('team.schema.json 缺少 phase pattern')
-    const phaseRegex = new RegExp(phasePattern)
-    for (const phase of constants.PHASE_ORDER as string[]) {
-      expect(phaseRegex.test(phase), `phase ${phase} 不符合 schema pattern`).toBe(true)
-    }
+    expect(phasePattern).toBe(PHASE_PATTERN_SOURCE)
   })
 
   it('SECTIONS 与 sections.schema.json 键一致', () => {
