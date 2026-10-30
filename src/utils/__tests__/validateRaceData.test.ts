@@ -172,6 +172,15 @@ describe('validateRaceData', () => {
     expect(result.errors).toContain('teams[0].players[0].stream 应为 # 或 http(s) URL')
   })
 
+  it('broadcaster.url 只允许 # 或 http(s)', () => {
+    const data = makeValidData()
+    data.broadcasters = [{ id: 'b1', name: '转播台', platform: 'bilibili', url: 'javascript:alert(1)', note: '' }]
+
+    const result = validateRaceData(data)
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain('broadcasters[0].url 应为 # 或 http(s) URL')
+  })
+
   it('meta.dungeons 为空数组时失败', () => {
     const data = makeValidData()
     ;(data.meta as { dungeons: unknown[] }).dungeons = []

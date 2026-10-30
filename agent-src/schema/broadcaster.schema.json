@@ -7,9 +7,9 @@
   "required": ["id", "name", "platform", "url", "note"],
   "properties": {
     "id":       { "type": "string" },
-    "name":     { "type": "string" },
-    "platform": { "type": "string" },
-    "url":      { "type": "string" },
+    "name":     { "type": "string", "minLength": 1 },
+    "platform": { "type": "string", "minLength": 1 },
+    "url":      { "type": "string", "pattern": "^(#|https?://)" },
     "note":     { "type": "string" }
   },
   "additionalProperties": true

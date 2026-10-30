@@ -1,25 +1,6 @@
-import type { Dungeon, Meta, Team } from '../types/race-data'
-import type { Coverage } from './types'
+import type { Dungeon, Meta } from '../types/race-data'
 import { displayPhase, phaseStage } from './utils/phase'
 import { stageClass } from '../agent-src/shared/stage.mjs'
-import { selectTeamIsLive } from './domain/team'
-
-/** 直播覆盖统计：由 teams 派生，不存 data.json。 */
-export function selectCoverage(teams: readonly Team[]): Coverage {
-  let totalPlayers = 0
-  let streamingPlayers = 0
-  let teamsWithCoverage = 0
-
-  for (const team of teams) {
-    for (const player of team.players) {
-      totalPlayers++
-      if (player.streaming) streamingPlayers++
-    }
-    if (selectTeamIsLive(team)) teamsWithCoverage++
-  }
-
-  return { totalPlayers, streamingPlayers, teamsWithCoverage }
-}
 
 /** LIVE 徽标是否显示。 */
 export function selectIsLive(status: Meta['status']): boolean {

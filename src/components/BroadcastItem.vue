@@ -1,9 +1,12 @@
 <!-- BroadcastItem.vue — 转播台条目（控制台 ↔ 弹窗共用同一条渲染路径） -->
 <script setup lang="ts">
+import { computed } from 'vue'
 import { broadcastMonogram, broadcastTone } from '../composables/useBroadcast.js'
+import { selectBroadcasterHref } from '../domain/broadcast'
 import type { Broadcaster } from '../../types/race-data'
 
-defineProps<{ broadcaster: Broadcaster; index: number }>()
+const props = defineProps<{ broadcaster: Broadcaster; index: number }>()
+const href = computed(() => selectBroadcasterHref(props.broadcaster))
 </script>
 
 <template>
@@ -13,6 +16,6 @@ defineProps<{ broadcaster: Broadcaster; index: number }>()
       <div class="az-broadcast-name">{{ broadcaster.name }}</div>
       <div class="az-broadcast-meta">{{ broadcaster.platform }} · {{ broadcaster.note }}</div>
     </div>
-    <a class="az-broadcast-link" :href="broadcaster.url || '#'" target="_blank" rel="noopener">进入 →</a>
+    <a class="az-broadcast-link" :href="href" target="_blank" rel="noopener">进入 →</a>
   </div>
 </template>
