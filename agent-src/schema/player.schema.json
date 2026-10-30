@@ -8,9 +8,8 @@
   "properties": {
     "job":       { "type": "string" },
     "role":      { "type": "string", "enum": ["tank", "healer", "dps"] },
-    "stream":    { "type": "string" },
-    "streaming": { "type": "boolean" },
-    "isLive":    { "type": "boolean" }
+    "stream":    { "type": "string", "pattern": "^(#|https?://)" },
+    "streaming": { "type": "boolean" }
   },
   "additionalProperties": false
 }

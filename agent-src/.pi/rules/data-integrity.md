@@ -37,8 +37,8 @@ description: >
 | `rank` | ≥1，≤ teams 数组长度 |
 | `phase` | 符合 `P<正整数>` / `CLEAR` 语法（可带 `<副本id>-` 前缀） |
 | `region` | 必须 ∈ `{JP, NA, EU, OC, CN, KR}` |
-| `streaming` | boolean |
-| `isLive` | boolean |
+| `streaming` | boolean；true 时 `stream` 不能为 `#` |
+| `team.isLive` | 不存 data；由 `players[].streaming` 派生 |
 
 ## 写入后自检
 

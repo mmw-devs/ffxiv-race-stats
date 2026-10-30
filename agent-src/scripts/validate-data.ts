@@ -105,12 +105,10 @@ interface RaceDataRoot {
     bossHP: number;
     phase: string;
     region: string;
-    isLive: boolean;
     players: Array<{
       job?: string;
       role: string;
       streaming: boolean;
-      isLive?: boolean;
       stream?: string;
     }>;
 }>;
@@ -490,19 +488,6 @@ export function main(dataPath?: string): number {
           if (typeof p.streaming !== "boolean") {
             fail(state, `${teamPrefix} 玩家 streaming 不是 boolean`);
           }
-          if (typeof p.isLive !== "undefined" && typeof p.isLive !== "boolean") {
-            fail(state, `${teamPrefix} 玩家 isLive 不是 boolean`);
-          }
-        }
-      }
-
-      // team.isLive：boolean + == players[] 任一 streaming
-      if (typeof team.isLive !== "boolean") {
-        fail(state, `${teamPrefix} isLive 不是 boolean`);
-      } else if (Array.isArray(team.players)) {
-        const anyStreaming = team.players.some((p) => p.streaming === true);
-        if (team.isLive !== anyStreaming) {
-          fail(state, `${teamPrefix} isLive=${team.isLive} 与 players[].streaming 不一致（应=${anyStreaming}）`);
         }
       }
     }

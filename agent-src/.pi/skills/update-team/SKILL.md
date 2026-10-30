@@ -1,8 +1,8 @@
 ---
 name: update-team
 description: >
-  更新队伍攻略进度。当运营要求修改某支队伍的 phase、bossHP、isLive 状态时触发。
-  触发词：更新队伍、修改进度、打到P几、血量、通关、灭团、isLive。
+  更新队伍攻略进度。当运营要求修改某支队伍的 phase、bossHP 时触发。
+  触发词：更新队伍、修改进度、打到P几、血量、通关、灭团。
 ---
 
 # update-team
@@ -17,13 +17,12 @@ description: >
 运营自然语言，例如：
 - "队伍1 打到 P5 了，血量 12%"
 - "Neverland 已经通关了"
-- "把 t3 的 isLive 改成 false"
 
 ## 工作流
 
 ### Step 1: 读取当前状态
 
-读取 `data.json` → 定位目标队伍 → 返回当前 phase / bossHP / isLive
+读取 `data.json` → 定位目标队伍 → 返回当前 phase / bossHP
 
 ### Step 2: 确认意图
 
@@ -37,12 +36,13 @@ description: >
 - phase 是否符合 `P<正整数>` / `CLEAR` 语法？（共享实现见 `shared/stage.mjs`）
 - 新 phase 的 `stageRank` 是否 ≥ 当前 phase？
 - bossHP 是否 ≤ 当前 HP？（进度不倒退）
-- 如果 HP = 0 且 phase = CLEAR：自动标记 isLive = false，该队已通关
 - 如果 HP < 30 且 phase 仍为 P1：提请运营确认是否数据有误
+
+> `team.isLive` 由 `players[].streaming` 派生，不能直接编辑。
 
 ### Step 4: 修改
 
-直接编辑 `data.json` 中该队伍的对应字段。
+直接编辑 `data.json` 中该队伍的 `phase` / `bossHP` 字段。
 
 ### Step 5: 提交
 
