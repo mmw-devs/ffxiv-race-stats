@@ -81,6 +81,8 @@ npm run validate-op-log   # 校验操作日志
 
 运行环境必须提供身份、确认、审计、PR、预览；L2 合并能力可选，L3 永远人工。
 
+首届赛事的人工骨架流程与字段清单见 [`.pi/ops/first-event.md`](./.pi/ops/first-event.md)。
+
 详见 [`.pi/skills/`](./.pi/skills/)。
 
 ## 相关链接
