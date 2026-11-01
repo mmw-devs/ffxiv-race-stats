@@ -35,11 +35,19 @@
             @open-broadcast="openModal('broadcast')"
           />
           <RankingToolbar
-            v-if="dungeonTabs.length > 0"
             :tabs="dungeonTabs"
             :selected="selectedDungeonId"
             @select="selectDungeon"
-          />
+          >
+            <template #sync>
+              <RankingSync
+                :status="meta.status"
+                :start-time="meta.startTime ?? ''"
+                :sync="sync"
+                @refresh="emit('refresh')"
+              />
+            </template>
+          </RankingToolbar>
           <p v-if="dungeonSummary" class="az-dungeon-summary">{{ dungeonSummary }}</p>
           <p v-if="rankingBadge" class="az-ranking-mode" :class="rankingBadge.className">
             <span class="az-ranking-mode-tag">{{ rankingBadge.label }}</span>
@@ -135,6 +143,7 @@ import PageSection from './PageSection.vue'
 import ConsoleBar from './ConsoleBar.vue'
 import RankingTable from './RankingTable.vue'
 import RankingToolbar from './RankingToolbar.vue'
+import RankingSync from './RankingSync.vue'
 import NewsTicker from './NewsTicker.vue'
 import SponsorsCard from './SponsorsCard.vue'
 import GuidesSection from './GuidesSection.vue'
@@ -152,9 +161,11 @@ import { selectCoverage } from '../domain/coverage'
 import { usePageMotion } from '../composables/usePageMotion'
 import { usePageSeo } from '../composables/usePageSeo'
 import { useReveal } from '../composables/useReveal'
+import type { RaceSyncState } from '../composables/useRaceData'
 import type { RaceData } from '../types'
 
-const props = defineProps<{ data: RaceData }>()
+const props = defineProps<{ data: RaceData; sync: RaceSyncState }>()
+const emit = defineEmits<{ (e: 'refresh'): void }>()
 
 const meta = computed(() => props.data.meta)
 const pageContent = computed(() => props.data.content)
