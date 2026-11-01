@@ -34,7 +34,7 @@ npm run test:business-rules  # 用 ops validator 跑全部 valid/invalid fixture
 
 ## 技术栈
 
-Astro 7 + Vue 3，组件化架构（18 个页面组件 + `App.vue` 根组件；全局样式与 OKLCH token 集中在 `src/styles/`）。
+Astro 7 + Vue 3，组件化架构（19 个页面组件 + `App.vue` 根组件；全局样式与 OKLCH token 集中在 `src/styles/`）。
 
 ```
 src/
@@ -42,8 +42,8 @@ src/
 ├── layouts/BaseLayout.astro  # 全局布局 + head
 ├── styles/                   # tokens / base / 区块 CSS（global.css 入口）
 ├── App.vue                   # 根组件（loading / error / ready 状态机）
-├── components/               # 18 个 Vue 组件（PageView 承载 ready 后的页面主体）
-├── composables/              # useRaceData / usePageMotion / useNow / useScroll / useExpandableList / useReveal / useTimer / usePageSeo
+├── components/               # 19 个 Vue 组件（PageView 承载 ready 后的页面主体）
+├── composables/              # useRaceData / useRaceDataRefresh / usePageMotion / useNow / useScroll / useExpandableList / useReveal / useTimer / usePageSeo
 ├── domain/                   # 业务读模型（队伍进度 / 名册 / 副本 / 赛事状态 / 刷新策略 / 直播覆盖）
 ├── utils/                    # 纯函数（排名排序、阶段解析、时间格式化、数据校验/解析）
 ├── selectors.ts              # 视图模型（coverage / live / folio / phase / timer / sync / medal）
@@ -58,8 +58,9 @@ src/
 - 多副本：按「当前所在层」筛选；tab 数字为该层队伍数；选中层只显示阶段，不带副本前缀；单副本不出现切换。
 - 队伍详情：点队名或行空白打开；点职业方块仍直接跳直播；弹窗展示完整阶段与 T/H/DPS 名册。
 - 速报：赛前为空时提示「暂无速报，开赛后实时更新」。
+- 自动同步：**仅进行中**每 60 秒静默检查；未开赛/已结束不轮询；页面隐藏时暂停、切回补一次；失败按 1/2/4/5 分钟退避并保留旧数据。
 
-> 当前版本仍只在首屏加载 / 手动重试时取数，未引入轮询。
+> 自动同步只替换数据，不重建页面：滚动位置、展开状态、弹窗与视频播放都保持。
 
 ## 仓库结构
 
@@ -145,8 +146,10 @@ ops 数据由 `content/*` PR 维护。
 内容归属补充：导航标签、排名列头、展开/加载/关闭等交互文案、Footer 品牌与版权、Guides 占位文案
 属于代码 chrome；`meta.boss` / `meta.dataCenter` 是预留字段，当前 UI 不渲染。
 
-运行时刷新：`useRaceData` 目前只在首次加载 / 手动重试时取数，不做轮询；live 赛事若需要自动刷新，
-应另加 visibility-aware polling + ETag，避免打断滚动、视频和弹窗。
+运行时刷新：数据就绪且赛事进行中时，每 60 秒静默检查一次（ETag 304 快路径 + 内容签名去抖）；
+未开赛 / 已结束不自动检查；页面隐藏时暂停，切回可见且距上次成功检查超过 60 秒时立即补一次。
+刷新失败保留旧数据，按 1/2/4/5 分钟退避，状态行提示并可手动刷新。刷新只替换 data、不重建 PageView，
+因此滚动、展开、弹窗和视频不受影响。
 
 `build-verify` 带守卫：任何 PR 引入 `data.json` 副本都会失败。
 
