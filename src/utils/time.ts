@@ -58,3 +58,37 @@ export function formatStartLabel(startTime: string): string {
   const date = parseInstant(startTime)
   return date ? `${formatLocalDate(date)} 起` : ''
 }
+
+/** 访客本地时钟 HH:MM:SS（用于「已同步 / 最近检查」）。 */
+export function formatLocalTime(ms: number): string {
+  const date = new Date(ms)
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
+}
+
+export type StartTimeState =
+  | { kind: 'unknown' }
+  | { kind: 'future'; start: Date; msUntil: number }
+  | { kind: 'passed'; start: Date; msSince: number }
+
+/**
+ * 开赛时间相对当前时刻的状态。
+ * "-"、空值、非法值统一视为未知，由调用方决定展示文案。
+ */
+export function resolveStartTime(startTime: string | undefined, now: number): StartTimeState {
+  const start = parseInstant(startTime ?? '')
+  if (!start) return { kind: 'unknown' }
+
+  const msUntil = start.getTime() - now
+  return msUntil > 0
+    ? { kind: 'future', start, msUntil }
+    : { kind: 'passed', start, msSince: -msUntil }
+}
+
+/** 倒计时格式化 HH:MM:SS；小时不进位到天，是否显示日期由调用方决定。 */
+export function formatCountdown(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  return `${pad2(h)}:${pad2(m)}:${pad2(s)}`
+}
