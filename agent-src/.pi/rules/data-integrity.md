@@ -20,7 +20,7 @@ description: >
 2. 只修改目标字段，保留其他字段与 JSON 结构
 3. 运行 `npm run validate`
 4. 通过 `ops-submit` 提交；不得直推 main
-5. 操作日志由 `larkbot_record_change` / `larkbot_commit_changes` 生成，不得手工构造
+5. 审计由当前运行环境提供（通过 `ops-submit` 适配器），不得手工构造或修改其格式
 
 校验不通过时修复后重跑，不通过不提交。
 

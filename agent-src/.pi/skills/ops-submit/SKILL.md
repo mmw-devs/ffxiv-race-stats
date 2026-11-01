@@ -1,92 +1,77 @@
 ---
 name: ops-submit
 description: >
-  运营写操作的统一提交通道：本地校验、结构化操作日志、content PR、预览与合并。
-  L2 指令在运营回复「合并」后由 Bot 合并；L3 生命周期指令只能由人在 GitHub 手动合并，Bot 永不合并。
-  触发词：提交、合并、PR、预览。业务域 skill 完成变更后调用本通道。
+  运营写操作的运行环境无关提交通道契约：校验、审计、content PR、预览与合并策略。
+  业务域 skill 完成变更后调用；具体平台工具由当前运行环境的适配器提供。
+  触发词：提交、合并、PR、预览。
 ---
 
-# ops-submit — 提交通道（平台能力）
+# ops-submit — 提交契约（与运行环境无关）
 
-本 skill 不解释业务。它只负责把**已经确认的 data.json 变更**安全送上生产。
+本 skill 规定“必须发生什么”，不规定“用哪个工具”。
+
+业务层 skill 与 `.pi/commands.md` 不得假设消息渠道、Agent 运行时或具体工具名。
+
+## 适配器
+
+按当前运行环境加载对应适配器：
+
+| 运行环境 | 适配器 |
+|---|---|
+| PI Agent + lark-bot（飞书） | `ops-submit-larkbot` |
+| DeepSeek Harness + mmw-tools | `ops-submit-dsh` |
+
+如果当前环境没有可用适配器，拒绝写操作，不要临时拼平台命令。
+
+## 运行环境必须提供的能力
+
+1. 稳定操作者身份；缺失或 `unknown` → 禁止写
+2. 显式确认交互
+3. 审计能力：操作人、指令、时间、字段变更、原因/影响
+4. `content` 分支 / PR 提交
+5. 预览链接
+6. 合并能力（可选）：L2 可用则用，不可用转人工；L3 永远人工
 
 ## 输入
 
-- `level`：`L2` 或 `L3`，由业务域按 `.pi/commands.md` 给出
-- `shortDesc`：一句话描述本次变更
-- 已应用、且已通过本地校验的 `public/data.json`
+- `level`：`L2` 或 `L3`
+- `command`：指令名（来自 `.pi/commands.md`）
+- `shortDesc`
+- `changeSet`
+- `operator`
+- `reason` / `impact`（如有）
 
-## 前置条件
+## 流程
 
-- 只允许修改 `public/data.json`；不得带其他文件
-- `npm run validate` 必须通过
-- 已用 `larkbot_record_change` 记录所有字段变更
-- operator 必须来自 lark-bot 注入的飞书 `user_id`；缺失或 `unknown` 时不得提交
+1. 运行环境执行本地校验
+2. 生成审计载荷
+3. 选择当前运行环境的适配器；不得假设固定平台
+   - 无法判断当前运行环境时，不得猜测；先确认可用工具或拒绝写操作
+4. 适配器创建 `content` 分支与 PR
+5. 获取预览
+6. 停止并报告；不要继续自动操作
+7. **L2**：适配器支持合并且操作者确认 → 合并；否则提示人工在 PR 平台合并
+8. **L3**：一律提示人工在 PR 平台合并；禁止自动合并
 
-## 工作流
+## 合并策略
 
-### 1. 校验
+| 级别 | 合并 |
+|---|---|
+| L2 | 运行环境可在操作者确认后合并；无合并能力时转人工 |
+| L3 | 只能人工在 PR 平台合并；任何运行环境不得自动合并 |
 
-```bash
-npm run validate
-```
+## 报告内容
 
-不通过则回到业务域修复，不创建 PR。
-
-### 2. 创建分支与提交
-
-1. 分支名：`content/<操作>-<目标>`，`content/` 后缀 ≤20 个 ASCII 字符
-2. 调 `larkbot_commit_changes` 获取 `commitMessage`
-3. **原样使用** `commitMessage` 提交，不得修改任何字符
-4. push 到 GitHub
-5. `gh pr create --base main`（`race-ops-bot[bot]` 身份）
-
-### 3. 汇报并硬停止
-
-**L2：**
-
-```
-✅ PR 已创建：#N — https://github.com/mmw-devs/ffxiv-race-ops/pull/N
-   预览链接：https://<净化分支名>.ffxiv-race-stats.pages.dev
-   CI 校验：https://github.com/mmw-devs/ffxiv-race-ops/actions
-
-⚠️ 生产站还没有更新。请确认预览后回复「合并」。
-```
-
-**L3：**
-
-```
-✅ L3 PR 已创建：#N — https://github.com/mmw-devs/ffxiv-race-ops/pull/N
-   预览链接：https://<净化分支名>.ffxiv-race-stats.pages.dev
-
-⚠️ 这是生命周期操作，Bot 不会合并。
-   请核对 PR 里的指令、影响与清单后，到 GitHub 手动合并。
-```
-
-L3 下即使运营回复「合并」，也不得执行合并；只能提示需要人工在 GitHub 操作。
-
-### 4. 合并循环（仅 L2）
-
-收到「合并」后：
-
-1. `gh pr view <N> --json state,statusCheckRollup`
-2. CI 通过 → `gh pr merge <N> --squash --delete-branch`
-3. 汇报生产更新中
-4. CI 未通过 → 读日志、诊断、修复 data.json、push；PR 自动更新；汇报后再次硬停止，等待「合并」
-
-L3 没有这个循环。
-
-## 预览链接
-
-- 格式：`https://<sanitized-branch>.ffxiv-race-stats.pages.dev`
-- 净化：`/` → `-`，其他非字母数字 → `-`，全小写，截断到 28 字符
-- 分支名过长会截断，命名时保持短
+- PR 链接
+- 预览链接（如有）
+- 审计摘要：指令、操作人、变更、影响标记
+- 合并方式：自动 / 人工
+- CI 链接（如有）
 
 ## 禁止
 
-- 直推 `main`
-- 修改或自行构造 `commitMessage`
-- L3 由 Bot 合并
-- 在临时私聊域未鉴权时提交
-- 提交 `public/data.json` 以外的文件
-- 在业务域未确认前提交
+- 假设消费者是飞书、lark-bot、DSH 或任何单一平台
+- 在业务 skill 里直接调用平台工具
+- 绕过审计
+- L3 自动合并
+- 在身份、确认、审计、提交或预览能力缺失时提交

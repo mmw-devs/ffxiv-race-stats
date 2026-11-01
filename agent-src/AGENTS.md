@@ -33,17 +33,29 @@ LICENSE
   - dev main push → dev CI 构建 → 推送 `dist/` 到本仓库 main
   - 本仓库的 dist/ 来自 dev，不在本仓库构建
 
+## 运行环境
+
+业务 skill 与 `.pi/commands.md` **不绑定消息渠道或 Agent 运行时**。
+
+| 运行环境 | 提交适配器 |
+|---|---|
+| PI Agent + lark-bot（飞书） | `ops-submit-larkbot` |
+| DeepSeek Harness + mmw-tools | `ops-submit-dsh` |
+
+运行环境必须提供：稳定操作者身份、显式确认、审计、`content` PR、预览。
+L2 合并能力是可选的（无则人工）；L3 永远人工在 PR 平台合并。
+
 ## 数据修改流程
 
 ```
-1. 运营人员通过飞书发送指令
-2. 运营 Agent (.pi/) 接收并解析
+1. 操作者通过当前渠道发送指令（飞书、DeepSeek Harness 等）
+2. 运行环境中的 Agent（.pi/）接收并解析
 3. 按 .pi/commands.md 识别业务域，加载对应 skill
    （ops-event / ops-progress / ops-roster / ops-publish / ops-site / ops-query）
-4. 读取 public/data.json → 校验 → 字段级预览 → 运营确认
-5. Agent 通过 ops-submit 创建 content/* 分支并修改 public/data.json
+4. 读取 public/data.json → 校验 → 字段级预览 → 操作者确认
+5. Agent 通过 ops-submit（当前环境的适配器）创建 content/* 分支并修改 public/data.json
 6. PR 触发 .github/workflows/validate.yml 校验（schema + 文件范围 + 操作日志）
-7. L2 由 Bot 在运营确认后合并；L3 只能 GitHub 手动合并
+7. L2 由运行环境在确认后合并（无能力则人工）；L3 只能人工在 PR 平台合并
 8. CF Pages 自动部署
 ```
 
@@ -51,11 +63,11 @@ LICENSE
 
 ## 运营 Agent 约束
 
-PI Agent 在本仓库启动时进入**运营模式**，约束：
+运行环境中的 Agent 在本仓库进入**运营模式**，约束：
 
 - **唯一允许修改**：`public/data.json`
 - **提交通道**：`content/*` 分支 + PR（绝不可直推 main），统一走 `ops-submit`
-- **凭证**：`race-ops-bot` GitHub App（生产 PEM）或开发者本人 PAT（开发测试）
+- **凭证**：lark-bot 运行时使用 `race-ops-bot` GitHub App（生产 PEM）或开发者本人 PAT；DSH 运行时使用 mmw-tools 的仓库授权
 
 详见 `.pi/commands.md`、`.pi/skills/` 与 `.pi/rules/`。
 
@@ -84,6 +96,8 @@ CF publish dist/ 到 CDN
 ```
 
 ## 文档操作规范
+
+以下流程仅在 lark-bot / 飞书运行环境适用；其他运行环境（如 DeepSeek Harness）按宿主能力或用户要求选择文档工具。
 
 创建文档时，**默认使用 `lark-cli` 在飞书云文档中进行**，而非本地文件：
 
