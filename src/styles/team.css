@@ -1,0 +1,49 @@
+    /* ═══════════ 队伍详情 ═══════════ */
+    .az-team-detail { position: relative; z-index: 2; }
+    .az-team-detail-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .az-detail-rank {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 34px; height: 34px; padding: 0 6px;
+      font-family: var(--font-display); font-size: 17px; font-weight: 700;
+      font-variant-numeric: tabular-nums; color: var(--muted); border-radius: 6px;
+    }
+    .az-detail-rank.n1 { color: var(--bg); background: var(--rank-first); }
+    .az-detail-rank.n2 { color: var(--bg); background: var(--silver); }
+    .az-detail-rank.n3 { color: var(--bg); background: var(--bronze); }
+    .az-detail-hp {
+      margin-left: auto; font-family: var(--font-mono); font-size: 13px;
+      color: var(--fg); font-variant-numeric: tabular-nums;
+    }
+    .az-detail-live {
+      margin: 14px 0 2px; font-family: var(--font-mono); font-size: 12px;
+      letter-spacing: 0.04em; color: var(--muted);
+    }
+    .az-roster { display: grid; gap: 18px; margin-top: 16px; }
+    .az-roster-group .az-panel-label { margin-bottom: 8px; }
+    .az-roster-list {
+      list-style: none; margin: 0; padding: 0;
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+    }
+    .az-roster-player {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+      background: color-mix(in oklch, var(--fg) 4%, transparent);
+    }
+    .az-roster-job {
+      font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+      letter-spacing: 0.06em; color: var(--fg);
+    }
+    .az-roster-player.tank .az-roster-job { color: var(--job-tank); }
+    .az-roster-player.healer .az-roster-job { color: var(--job-healer); }
+    .az-roster-player.dps .az-roster-job { color: var(--job-dps); }
+    .az-roster-link {
+      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em;
+      color: var(--accent); border-bottom: 1px solid color-mix(in oklch, var(--accent) 45%, transparent);
+      white-space: nowrap;
+    }
+    .az-roster-link:hover { color: var(--accent-bright); }
+    .az-roster-off { font-family: var(--font-mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+    @media (max-width: 560px) {
+      .az-roster-list { grid-template-columns: 1fr; }
+      .az-detail-hp { margin-left: 0; }
+    }

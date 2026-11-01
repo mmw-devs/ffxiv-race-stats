@@ -28,13 +28,18 @@
         <template v-if="section.id === 'ranking'">
           <ConsoleBar
             :start-time="meta.startTime ?? ''"
+            :status="meta.status"
             :coverage="coverage"
             :team-count="teams.length"
             :broadcasters="broadcasters"
             @open-broadcast="openModal('broadcast')"
           />
           <div class="az-main-grid">
-            <RankingTable :teams="teams" :dungeons="meta.dungeons" />
+            <RankingTable
+              :teams="teams"
+              :dungeons="meta.dungeons"
+              @select-team="openTeam"
+            />
           </div>
         </template>
         <NewsTicker v-else-if="section.id === 'news'" :news="news" />
@@ -89,11 +94,24 @@
         <NoticeItem v-for="(n, i) in notices" :key="i" :text="n" :index="i" />
       </div>
     </Modal>
+
+    <!-- 队伍详情弹窗 -->
+    <Modal
+      :open="selectedTeam !== null"
+      id="team"
+      :title="selectedTeam?.name ?? ''"
+      :kicker="selectedTeamKicker"
+      :folio="folio('P.01')"
+      wide
+      @close="closeTeam"
+    >
+      <TeamDetail v-if="selectedTeam" :team="selectedTeam" :dungeons="meta.dungeons" />
+    </Modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import NavBar from './NavBar.vue'
 import HeroSection from './HeroSection.vue'
 import PageSection from './PageSection.vue'
@@ -107,8 +125,10 @@ import Modal from './Modal.vue'
 import BackToTop from './BackToTop.vue'
 import BroadcastItem from './BroadcastItem.vue'
 import NoticeItem from './NoticeItem.vue'
+import TeamDetail from './TeamDetail.vue'
 import { SECTIONS } from '../sections'
 import { selectCopyrightYear, selectFolio } from '../selectors'
+import { pad2 } from '../utils/format'
 import { selectCoverage } from '../domain/coverage'
 import { usePageMotion } from '../composables/usePageMotion'
 import { usePageSeo } from '../composables/usePageSeo'
@@ -140,6 +160,30 @@ type ModalKey = 'rules' | 'broadcast' | 'notices' | null
 const activeModal = ref<ModalKey>(null)
 function openModal(key: Exclude<ModalKey, null>): void { activeModal.value = key }
 function closeModal(): void { activeModal.value = null }
+
+// 队伍详情：只存队伍 id，内容每次从最新数据读取（刷新后自动跟随/失效）。
+const selectedTeamId = ref<string | null>(null)
+const selectedTeam = computed(() =>
+  selectedTeamId.value === null
+    ? null
+    : teams.value.find((team) => team.id === selectedTeamId.value) ?? null
+)
+const selectedTeamKicker = computed(() =>
+  selectedTeam.value ? `RANK ${pad2(selectedTeam.value.rank)} · ${selectedTeam.value.region}` : ''
+)
+
+function openTeam(teamId: string): void {
+  activeModal.value = null
+  selectedTeamId.value = teamId
+}
+function closeTeam(): void {
+  selectedTeamId.value = null
+}
+
+// 刷新后队伍被删除时自动关闭；换层/改名则弹窗内容就地更新。
+watch(selectedTeam, (team) => {
+  if (selectedTeamId.value !== null && team === null) selectedTeamId.value = null
+})
 
 /** 页面 folio 统一格式，避免各 section 手拼 VOL/P.xx。 */
 function folio(page: string): string {

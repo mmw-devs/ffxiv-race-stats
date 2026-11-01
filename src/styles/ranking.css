@@ -31,8 +31,16 @@
       align-items: center;
       padding: 14px 4px; border-bottom: 1px solid var(--border);
       transition: background 0.18s ease;
+      cursor: pointer;
     }
     .az-team:hover { background: var(--surface); }
+    /* 队名按钮：承担键盘与读屏语义，外观与普通文本一致 */
+    .az-team-open {
+      font: inherit; color: inherit; background: none; border: 0; padding: 0;
+      text-align: left; cursor: pointer; min-width: 0;
+    }
+    .az-team-open:hover .az-name-t { text-decoration: underline; text-underline-offset: 3px; }
+    .az-team-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
     .az-team.n1, .az-team.n2, .az-team.n3 { background: color-mix(in oklch, var(--surface) 50%, transparent); }
     .az-team-rank {
       justify-self: center;

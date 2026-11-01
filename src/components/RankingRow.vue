@@ -1,9 +1,16 @@
 <!-- RankingRow.vue — 排名行（单支队伍：名次 / 队名 / 职业 / 血量 / 阶段） -->
 <template>
-  <div class="az-team" :class="medal">
+  <div class="az-team" :class="medal" @click="onRowClick">
     <span class="az-team-rank" :class="medal">{{ pad2(team.rank) }}</span>
     <span class="az-team-name">
-      <span class="az-name-t">{{ team.name }}</span>
+      <button
+        type="button"
+        class="az-team-open"
+        :aria-label="'查看 ' + team.name + ' 的详情'"
+        @click.stop="select"
+      >
+        <span class="az-name-t">{{ team.name }}</span>
+      </button>
       <span class="az-region" :class="region.className">{{ region.label }}</span>
     </span>
     <div class="az-team-comp">
@@ -19,6 +26,7 @@
             target="_blank"
             rel="noopener"
             :title="p.job + ' 第一视角直播'"
+            @click.stop
           >{{ p.job }}</a>
           <span v-else class="az-job" :class="p.role">{{ p.job }}</span>
         </template>
@@ -43,6 +51,8 @@ const props = defineProps<{
   dungeons?: Dungeon[]
 }>()
 
+const emit = defineEmits<{ (e: 'select', teamId: string): void }>()
+
 const medal = computed(() => selectRankMedal(props.team.rank))
 const region = computed(() => selectRegionView(props.team.region))
 const roster = computed(() => selectTeamRoster(props.team.players))
@@ -50,4 +60,18 @@ const roster = computed(() => selectTeamRoster(props.team.players))
 // 阶段/血量由 Team 聚合值对象统一解释。
 const progress = computed(() => selectTeamProgress(props.team))
 const phase = computed(() => selectPhaseView(progress.value.phase, props.dungeons ?? []))
+
+function select(): void {
+  emit('select', props.team.id)
+}
+
+/**
+ * 整行可点（触屏友好），但直播链接与队名按钮自己处理点击。
+ * 队名按钮承担键盘/读屏语义，行点击只是便利。
+ */
+function onRowClick(event: MouseEvent): void {
+  const target = event.target
+  if (target instanceof Element && target.closest('a, button')) return
+  select()
+}
 </script>
