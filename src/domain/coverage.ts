@@ -1,6 +1,6 @@
 import type { Coverage } from '../types'
 import type { Team } from '../../types/race-data'
-import { selectTeamIsLive } from './team'
+import { isPlayerLive, selectTeamIsLive } from './team'
 
 /**
  * 直播覆盖读模型：只从 Team.players 派生，不存 data.json。
@@ -15,7 +15,7 @@ export function selectCoverage(teams: readonly Team[]): Coverage {
   for (const team of teams) {
     for (const player of team.players) {
       totalPlayers++
-      if (player.streaming) streamingPlayers++
+      if (isPlayerLive(player)) streamingPlayers++
     }
     if (selectTeamIsLive(team)) teamsWithCoverage++
   }

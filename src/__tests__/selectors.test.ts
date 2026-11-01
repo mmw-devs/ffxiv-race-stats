@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { selectCopyrightYear, selectFolio, selectIsLive, selectPhaseView } from '../selectors'
+import {
+  selectCopyrightYear,
+  selectFolio,
+  selectIsLive,
+  selectPhaseView,
+  selectRankMedal,
+  selectRegionView,
+} from '../selectors'
 
 const multiDungeon = [
   { id: 'M1S', name: '阿罗阿罗岛' },
@@ -33,6 +40,22 @@ describe('selectCopyrightYear', () => {
   it('未知开赛时间回退当前年', () => {
     expect(selectCopyrightYear({ startTime: '-' })).toBe(String(new Date().getFullYear()))
     expect(selectCopyrightYear({})).toBe(String(new Date().getFullYear()))
+  })
+})
+
+describe('selectRankMedal', () => {
+  it('前三名给奖牌色，其余为空', () => {
+    expect(selectRankMedal(1)).toBe('n1')
+    expect(selectRankMedal(2)).toBe('n2')
+    expect(selectRankMedal(3)).toBe('n3')
+    expect(selectRankMedal(4)).toBe('')
+  })
+})
+
+describe('selectRegionView', () => {
+  it('区服转小写 class，空值显示 ?? 且不加色', () => {
+    expect(selectRegionView('JP')).toEqual({ label: 'JP', className: 'rg-jp' })
+    expect(selectRegionView('')).toEqual({ label: '??', className: '' })
   })
 })
 

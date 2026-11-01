@@ -18,6 +18,30 @@ export function selectCopyrightYear(meta: Pick<Meta, 'startTime'>): string {
   return String(Number.isNaN(start) ? new Date().getFullYear() : new Date(start).getUTCFullYear())
 }
 
+export type RankMedal = 'n1' | 'n2' | 'n3' | ''
+
+/** 前三名奖牌三色（金 n1 / 银 n2 / 铜 n3），其余名次无特殊色。 */
+export function selectRankMedal(rank: number): RankMedal {
+  if (rank === 1) return 'n1'
+  if (rank === 2) return 'n2'
+  if (rank === 3) return 'n3'
+  return ''
+}
+
+export interface RegionView {
+  label: string
+  className: string
+}
+
+/** 区服标签文本 + 配色 class；空值显示 "??" 且不加色。 */
+export function selectRegionView(region: string): RegionView {
+  const key = (region || '').toLowerCase()
+  return {
+    label: region || '??',
+    className: key ? `rg-${key}` : '',
+  }
+}
+
 export interface PhaseView {
   label: string
   className: string

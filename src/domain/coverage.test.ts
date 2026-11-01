@@ -13,7 +13,7 @@ function makeTeam(id: string, streaming: boolean[]): Team {
     players: streaming.map((value) => ({
       job: 'PLD',
       role: 'tank',
-      stream: '#',
+      stream: value ? 'https://www.twitch.tv/x' : '#',
       streaming: value,
     })) as unknown as Team['players'],
   }
@@ -29,6 +29,16 @@ describe('selectCoverage', () => {
       totalPlayers: 16,
       streamingPlayers: 1,
       teamsWithCoverage: 1,
+    })
+  })
+
+  it('streaming=true 但链接为 # 时不计入覆盖（坏数据不伪造在播）', () => {
+    const team = makeTeam('t1', [true, ...Array(7).fill(false)])
+    team.players[0]!.stream = '#'
+    expect(selectCoverage([team])).toEqual({
+      totalPlayers: 8,
+      streamingPlayers: 0,
+      teamsWithCoverage: 0,
     })
   })
 })

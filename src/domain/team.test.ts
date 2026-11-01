@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectTeamIsLive, selectTeamProgress } from '../domain/team'
+import { isPlayerLive, selectTeamIsLive, selectTeamProgress } from '../domain/team'
 import type { Team } from '../../types/race-data'
 
 function team(overrides: Partial<Team> = {}): Team {
@@ -38,9 +38,21 @@ describe('selectTeamProgress', () => {
   })
 })
 
+describe('isPlayerLive', () => {
+  it('只有在播且链接可用时才算在播', () => {
+    expect(isPlayerLive({ streaming: true, stream: 'https://www.twitch.tv/x' })).toBe(true)
+    expect(isPlayerLive({ streaming: true, stream: '#' })).toBe(false)
+    expect(isPlayerLive({ streaming: false, stream: 'https://www.twitch.tv/x' })).toBe(false)
+  })
+})
+
 describe('selectTeamIsLive', () => {
   it('由任意 player.streaming 派生', () => {
-    const players = team().players.map((p, i) => ({ ...p, streaming: i === 3 }))
+    const players = team().players.map((p, i) => ({
+      ...p,
+      streaming: i === 3,
+      stream: i === 3 ? 'https://www.twitch.tv/x' : p.stream,
+    }))
     expect(selectTeamIsLive(team({ players: players as Team['players'] }))).toBe(true)
     expect(selectTeamIsLive(team())).toBe(false)
   })

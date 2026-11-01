@@ -1,37 +1,40 @@
 <!-- RankingRow.vue — 排名行（单支队伍：名次 / 队名 / 职业 / 血量 / 阶段） -->
 <template>
-  <div class="az-team" :class="medalClass">
-    <span class="az-team-rank" :class="medalClass">{{ pad2(team.rank) }}</span>
+  <div class="az-team" :class="medal">
+    <span class="az-team-rank" :class="medal">{{ pad2(team.rank) }}</span>
     <span class="az-team-name">
       <span class="az-name-t">{{ team.name }}</span>
-      <span class="az-region" :class="regionKey ? 'rg-' + regionKey : ''">{{ team.region || '??' }}</span>
+      <span class="az-region" :class="region.className">{{ region.label }}</span>
     </span>
     <div class="az-team-comp">
-      <template v-for="(p, pi) in team.players" :key="pi">
-        <!-- pi===2/4 处插分组间隔：坦克(0-1) | 治疗(2-3) | DPS(4-7)，8 人分三组 -->
-        <span v-if="pi === 2 || pi === 4" class="az-role-gap"></span>
-        <a
-          v-if="p.streaming"
-          class="az-job is-live"
-          :class="p.role"
-          :href="p.stream || '#'"
-          target="_blank"
-          rel="noopener"
-          :title="p.job + ' 第一视角直播'"
-        >{{ p.job }}</a>
-        <span v-else class="az-job" :class="p.role">{{ p.job }}</span>
+      <!-- 分组来自名册模块，行内只负责在组间插间隔，不再硬编码 2T/2H/4DPS 位置 -->
+      <template v-for="(group, gi) in roster" :key="group.role">
+        <span v-if="gi > 0" class="az-role-gap"></span>
+        <template v-for="(p, pi) in group.players" :key="group.role + '-' + pi">
+          <a
+            v-if="isPlayerLive(p)"
+            class="az-job is-live"
+            :class="p.role"
+            :href="p.stream"
+            target="_blank"
+            rel="noopener"
+            :title="p.job + ' 第一视角直播'"
+          >{{ p.job }}</a>
+          <span v-else class="az-job" :class="p.role">{{ p.job }}</span>
+        </template>
       </template>
     </div>
-    <span class="az-team-hp">{{ progress.bossHP.toFixed(1) }}%</span>
+    <span class="az-team-hp">{{ formatBossHP(progress.bossHP) }}</span>
     <span class="az-team-phase" :class="phase.className">{{ phase.label }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { selectPhaseView } from '../selectors'
-import { selectTeamProgress } from '../domain/team'
-import { pad2 } from '../utils/format'
+import { selectPhaseView, selectRankMedal, selectRegionView } from '../selectors'
+import { isPlayerLive, selectTeamProgress } from '../domain/team'
+import { selectTeamRoster } from '../domain/roster'
+import { formatBossHP, pad2 } from '../utils/format'
 import type { Team, Dungeon } from '../../types/race-data'
 
 const props = defineProps<{
@@ -40,16 +43,9 @@ const props = defineProps<{
   dungeons?: Dungeon[]
 }>()
 
-// 前三名奖牌三色（金 n1 / 银 n2 / 铜 n3），其余名次无特殊色
-const medalClass = computed(() => {
-  if (props.team.rank === 1) return 'n1'
-  if (props.team.rank === 2) return 'n2'
-  if (props.team.rank === 3) return 'n3'
-  return ''
-})
-
-// 地区标签转小写，作为 CSS class 后缀（.rg-jp、.rg-na …）；空值不加色，文本仍显示 ??
-const regionKey = computed(() => (props.team.region || '').toLowerCase())
+const medal = computed(() => selectRankMedal(props.team.rank))
+const region = computed(() => selectRegionView(props.team.region))
+const roster = computed(() => selectTeamRoster(props.team.players))
 
 // 阶段/血量由 Team 聚合值对象统一解释。
 const progress = computed(() => selectTeamProgress(props.team))
