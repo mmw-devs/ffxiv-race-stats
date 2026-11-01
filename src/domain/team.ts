@@ -1,4 +1,4 @@
-import type { Team } from '../../types/race-data'
+import type { Player, Team } from '../../types/race-data'
 import { parsePhase } from '../utils/phase'
 
 /** Team 的进度值对象：phase 与 bossHP 属于同一个聚合状态。 */
@@ -21,7 +21,17 @@ export function selectTeamProgress(team: Pick<Team, 'phase' | 'bossHP'>): TeamPr
   }
 }
 
-/** Team 的 LIVE 状态由 Player.streaming 派生，不再存 data.json。 */
+/**
+ * 选手是否有可用的在播视角：标记在播且链接不是占位符 "#"。
+ *
+ * 榜单行、覆盖统计、详情弹窗都从这里判断，避免各自写
+ * `streaming && stream !== '#'`。
+ */
+export function isPlayerLive(player: Pick<Player, 'streaming' | 'stream'>): boolean {
+  return player.streaming && player.stream !== '#'
+}
+
+/** Team 的 LIVE 状态由 Player 派生，不再存 data.json。 */
 export function selectTeamIsLive(team: Pick<Team, 'players'>): boolean {
-  return team.players.some((player) => player.streaming)
+  return team.players.some(isPlayerLive)
 }

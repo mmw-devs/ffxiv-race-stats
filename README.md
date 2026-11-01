@@ -34,7 +34,7 @@ npm run test:business-rules  # 用 ops validator 跑全部 valid/invalid fixture
 
 ## 技术栈
 
-Astro 7 + Vue 3，组件化架构（16 个页面组件 + `App.vue` 根组件；全局样式与 OKLCH token 集中在 `src/styles/`）。
+Astro 7 + Vue 3，组件化架构（18 个页面组件 + `App.vue` 根组件；全局样式与 OKLCH token 集中在 `src/styles/`）。
 
 ```
 src/
@@ -42,13 +42,24 @@ src/
 ├── layouts/BaseLayout.astro  # 全局布局 + head
 ├── styles/                   # tokens / base / 区块 CSS（global.css 入口）
 ├── App.vue                   # 根组件（loading / error / ready 状态机）
-├── components/               # 16 个 Vue 组件（PageView 承载 ready 后的页面主体）
+├── components/               # 18 个 Vue 组件（PageView 承载 ready 后的页面主体）
 ├── composables/              # useRaceData / usePageMotion / useNow / useScroll / useExpandableList / useReveal / useTimer / usePageSeo
+├── domain/                   # 业务读模型（队伍进度 / 名册 / 副本 / 赛事状态 / 刷新策略 / 直播覆盖）
 ├── utils/                    # 纯函数（排名排序、阶段解析、时间格式化、数据校验/解析）
-├── selectors.ts              # 派生值（coverage / live / folio / phase）
+├── selectors.ts              # 视图模型（coverage / live / folio / phase / timer / sync / medal）
 ├── sections.ts               # 章节 id / 顺序 / 导航标签（站点结构）
 └── types.ts                  # 前端共享类型（schema 生成 + Coverage）
 ```
+
+## 前端业务行为（当前）
+
+- 计时：未开赛显示倒计时或「开赛时间待定」；进行中显示已开赛时长；已结束固定显示「已结束」。
+- 榜单：未开赛标注「种子序」，已结束标注「最终成绩」；名次始终是全局名次。
+- 多副本：按「当前所在层」筛选；tab 数字为该层队伍数；选中层只显示阶段，不带副本前缀；单副本不出现切换。
+- 队伍详情：点队名或行空白打开；点职业方块仍直接跳直播；弹窗展示完整阶段与 T/H/DPS 名册。
+- 速报：赛前为空时提示「暂无速报，开赛后实时更新」。
+
+> 当前版本仍只在首屏加载 / 手动重试时取数，未引入轮询。
 
 ## 仓库结构
 

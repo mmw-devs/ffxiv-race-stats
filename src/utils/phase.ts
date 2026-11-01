@@ -30,10 +30,16 @@ export function phaseStage(phase: string): string {
  * 阶段展示文本：
  * - 单副本：只显示阶段
  * - 多副本：显示 "副本id · 阶段"
+ * - 已按副本筛选且队伍就在该副本：只显示阶段，不重复副本名
  * - 旧数据 / 非法格式：原样显示
  */
-export function displayPhase(phase: string, dungeons: readonly Dungeon[] = []): string {
+export function displayPhase(
+  phase: string,
+  dungeons: readonly Dungeon[] = [],
+  focusDungeonId: string | null = null
+): string {
   const parsed = parsePhase(phase)
   if (!parsed) return phase
+  if (focusDungeonId !== null && parsed.dungeonId === focusDungeonId) return parsed.stage
   return dungeons.length <= 1 ? parsed.stage : `${parsed.dungeonId} · ${parsed.stage}`
 }

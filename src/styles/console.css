@@ -7,7 +7,9 @@
     .az-console-cell { padding: 18px 22px; }
     .az-console-cell + .az-console-cell { border-left: 1px solid var(--border); }
     .az-console .az-panel-label { margin-bottom: 12px; }
-    .az-timer-display { font-family: var(--font-mono); font-size: clamp(26px, 3vw, 34px); font-weight: 700; line-height: 1; letter-spacing: -0.01em; }
+    .az-timer-display { font-family: var(--font-mono); font-size: clamp(26px, 3vw, 34px); font-weight: 700; line-height: 1; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* 倒计时文案比 +HH:MM:SS 长：降字号并保持单行，极端窄屏才省略 */
+    .az-timer-display.is-countdown { font-size: clamp(18px, 2.2vw, 24px); line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .az-timer-meta { margin-top: 8px; font-size: 12px; color: var(--muted); letter-spacing: 0.05em; font-family: var(--font-mono); }
     .az-cover-stat { font-family: var(--font-mono); font-size: 22px; line-height: 1.1; }
     .az-cover-num { font-weight: 700; font-size: clamp(26px, 3vw, 32px); }

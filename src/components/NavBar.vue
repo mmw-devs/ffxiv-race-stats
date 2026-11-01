@@ -12,7 +12,7 @@
             <circle cx="6" cy="6" r="4.6" stroke="currentColor" stroke-width="1" />
             <path d="M6 3.6v2.4l1.7 1" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-          <span class="az-num">{{ elapsed }}</span>
+          <span class="az-num">{{ timer.text }}</span>
         </span>
         <span v-if="isLive" class="az-live-pill">
           <span class="az-live-dot" aria-hidden="true"></span>LIVE
@@ -34,7 +34,7 @@ import type { Meta } from '../../types/race-data'
 const props = defineProps<{ startTime: string; status: Meta['status'] }>()
 const emit = defineEmits<{ (e: 'open-rules'): void }>()
 
-const { elapsed } = useTimer(() => props.startTime)
+const { timer } = useTimer(() => props)
 const isLive = computed(() => selectIsLive(props.status))
 
 // 滚动超过 12px 后给导航加背景/阴影（is-scrolled class）；与 BackToTop 共享滚动监听

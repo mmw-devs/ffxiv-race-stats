@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { formatElapsed, formatLocalDate, formatLocalDateTime, formatNewsTime, formatStartLabel } from '../time'
+import {
+  formatCountdown,
+  formatElapsed,
+  formatLocalDate,
+  formatLocalDateTime,
+  formatLocalMonthDayTime,
+  formatLocalTime,
+  formatNewsTime,
+  formatStartLabel,
+  resolveStartTime,
+} from '../time'
 
 const now = new Date(2026, 9, 28, 12, 0, 0).getTime()
 
@@ -59,5 +69,41 @@ describe('本地时间格式化', () => {
     const d = new Date(2026, 0, 2, 3, 4)
     expect(formatLocalDate(d)).toBe('2026-01-02')
     expect(formatLocalDateTime(d)).toBe('2026-01-02 03:04')
+  })
+
+  it('时钟补零到秒', () => {
+    expect(formatLocalTime(new Date(2026, 0, 2, 3, 4, 5).getTime())).toBe('03:04:05')
+  })
+
+  it('月-日 时:分（不含年份）', () => {
+    expect(formatLocalMonthDayTime(new Date(2026, 10, 5, 20, 0))).toBe('11-05 20:00')
+  })
+})
+
+describe('resolveStartTime', () => {
+  const now = new Date(2026, 10, 1, 20, 0, 0).getTime()
+
+  it('占位符 / 空值 / 非法值视为未知', () => {
+    expect(resolveStartTime('-', now)).toEqual({ kind: 'unknown' })
+    expect(resolveStartTime(undefined, now)).toEqual({ kind: 'unknown' })
+    expect(resolveStartTime('not-a-date', now)).toEqual({ kind: 'unknown' })
+  })
+
+  it('未来与已过分别返回剩余/经过时长', () => {
+    expect(resolveStartTime(new Date(now + 90_000).toISOString(), now)).toMatchObject({
+      kind: 'future',
+      msUntil: 90_000,
+    })
+    expect(resolveStartTime(new Date(now - 5_000).toISOString(), now)).toMatchObject({
+      kind: 'passed',
+      msSince: 5_000,
+    })
+  })
+})
+
+describe('formatCountdown', () => {
+  it('格式化为 HH:MM:SS，负数按 0 处理', () => {
+    expect(formatCountdown(3_723_000)).toBe('01:02:03')
+    expect(formatCountdown(-5)).toBe('00:00:00')
   })
 })

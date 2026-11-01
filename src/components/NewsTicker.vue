@@ -9,6 +9,7 @@
         <span class="az-news-text" :class="{ urgent: n.urgent }">{{ n.text }}</span>
       </div>
     </div>
+    <p v-if="news.length === 0" class="az-news-empty">{{ emptyText }}</p>
     <button
       v-if="canExpand"
       type="button"
@@ -23,12 +24,18 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useExpandableList } from '../composables/useExpandableList'
 import { useNow } from '../composables/useNow'
 import { formatNewsTime } from '../utils/time'
-import type { NewsItem } from '../../types/race-data'
+import type { Meta, NewsItem } from '../../types/race-data'
 
-const props = defineProps<{ news: NewsItem[] }>()
+const props = defineProps<{ news: NewsItem[]; status: Meta['status'] }>()
+
+// 赛前不可能有速报（news.time 不得早于 startTime），空状态要说清原因。
+const emptyText = computed(() =>
+  props.status === 'upcoming' ? '暂无速报，开赛后实时更新' : '暂无速报'
+)
 
 // 默认只渲染前 10 条（与入场动画只对首批 10 条生效一致），展开后全量
 const { expanded, canExpand, visibleItems: visibleNews, toggle } = useExpandableList(() => props.news, 10)

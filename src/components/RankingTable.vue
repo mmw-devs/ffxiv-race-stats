@@ -9,7 +9,14 @@
       <span class="az-lh-phase">PHASE</span>
     </div>
 
-    <RankingRow v-for="team in visibleTeams" :key="team.id" :team="team" :dungeons="dungeons" />
+    <RankingRow
+      v-for="team in visibleTeams"
+      :key="team.id"
+      :team="team"
+      :dungeons="dungeons"
+      :focus-dungeon-id="focusDungeonId"
+      @select="emit('select-team', $event)"
+    />
 
     <button
       v-if="canExpand"
@@ -35,7 +42,11 @@ const props = defineProps<{
   teams: Team[]
   /** 副本列表（用于阶段显示，透传给 RankingRow） */
   dungeons?: Dungeon[]
+  /** 当前选中的副本（透传给 RankingRow，用于阶段去前缀） */
+  focusDungeonId?: string | null
 }>()
+
+const emit = defineEmits<{ (e: 'select-team', teamId: string): void }>()
 
 // 数据契约只保证 rank 为 1..n 连续整数，不保证 teams[] 的数组顺序；
 // 展示层始终按 rank 升序，默认收起时取前 15 名（而不是 rank <= 15）。

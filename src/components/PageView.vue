@@ -28,16 +28,38 @@
         <template v-if="section.id === 'ranking'">
           <ConsoleBar
             :start-time="meta.startTime ?? ''"
+            :status="meta.status"
             :coverage="coverage"
             :team-count="teams.length"
             :broadcasters="broadcasters"
             @open-broadcast="openModal('broadcast')"
           />
+          <RankingToolbar
+            v-if="dungeonTabs.length > 0"
+            :tabs="dungeonTabs"
+            :selected="selectedDungeonId"
+            @select="selectDungeon"
+          />
+          <p v-if="dungeonSummary" class="az-dungeon-summary">{{ dungeonSummary }}</p>
+          <p v-if="rankingBadge" class="az-ranking-mode" :class="rankingBadge.className">
+            <span class="az-ranking-mode-tag">{{ rankingBadge.label }}</span>
+            <span class="az-ranking-mode-note">{{ rankingBadge.note }}</span>
+          </p>
           <div class="az-main-grid">
-            <RankingTable :teams="teams" :dungeons="meta.dungeons" />
+            <RankingTable
+              v-if="visibleTeams.length > 0"
+              :teams="visibleTeams"
+              :dungeons="meta.dungeons"
+              :focus-dungeon-id="selectedDungeonId"
+              @select-team="openTeam"
+            />
+            <div v-else class="az-dungeon-empty">
+              <p>{{ selectedDungeonId === null ? '暂无队伍数据' : '该副本暂无队伍' }}</p>
+              <button v-if="selectedDungeonId !== null" type="button" class="az-expand" @click="selectDungeon(null)">查看全部</button>
+            </div>
           </div>
         </template>
-        <NewsTicker v-else-if="section.id === 'news'" :news="news" />
+        <NewsTicker v-else-if="section.id === 'news'" :news="news" :status="meta.status" />
         <SponsorsCard v-else-if="section.id === 'sponsors'" :sponsors="sponsors" />
         <GuidesSection v-else-if="section.id === 'guides'" />
       </PageSection>
@@ -89,16 +111,30 @@
         <NoticeItem v-for="(n, i) in notices" :key="i" :text="n" :index="i" />
       </div>
     </Modal>
+
+    <!-- 队伍详情弹窗 -->
+    <Modal
+      :open="selectedTeam !== null"
+      id="team"
+      :title="selectedTeam?.name ?? ''"
+      :kicker="selectedTeamKicker"
+      :folio="folio('P.01')"
+      wide
+      @close="closeTeam"
+    >
+      <TeamDetail v-if="selectedTeam" :team="selectedTeam" :dungeons="meta.dungeons" />
+    </Modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import NavBar from './NavBar.vue'
 import HeroSection from './HeroSection.vue'
 import PageSection from './PageSection.vue'
 import ConsoleBar from './ConsoleBar.vue'
 import RankingTable from './RankingTable.vue'
+import RankingToolbar from './RankingToolbar.vue'
 import NewsTicker from './NewsTicker.vue'
 import SponsorsCard from './SponsorsCard.vue'
 import GuidesSection from './GuidesSection.vue'
@@ -107,8 +143,11 @@ import Modal from './Modal.vue'
 import BackToTop from './BackToTop.vue'
 import BroadcastItem from './BroadcastItem.vue'
 import NoticeItem from './NoticeItem.vue'
+import TeamDetail from './TeamDetail.vue'
 import { SECTIONS } from '../sections'
-import { selectCopyrightYear, selectFolio } from '../selectors'
+import { selectCopyrightYear, selectDungeonSummary, selectFolio, selectRankingBadge } from '../selectors'
+import { pad2 } from '../utils/format'
+import { filterTeamsByDungeon, selectDungeonTabs } from '../domain/dungeon'
 import { selectCoverage } from '../domain/coverage'
 import { usePageMotion } from '../composables/usePageMotion'
 import { usePageSeo } from '../composables/usePageSeo'
@@ -141,6 +180,30 @@ const activeModal = ref<ModalKey>(null)
 function openModal(key: Exclude<ModalKey, null>): void { activeModal.value = key }
 function closeModal(): void { activeModal.value = null }
 
+// 队伍详情：只存队伍 id，内容每次从最新数据读取（刷新后自动跟随/失效）。
+const selectedTeamId = ref<string | null>(null)
+const selectedTeam = computed(() =>
+  selectedTeamId.value === null
+    ? null
+    : teams.value.find((team) => team.id === selectedTeamId.value) ?? null
+)
+const selectedTeamKicker = computed(() =>
+  selectedTeam.value ? `RANK ${pad2(selectedTeam.value.rank)} · ${selectedTeam.value.region}` : ''
+)
+
+function openTeam(teamId: string): void {
+  activeModal.value = null
+  selectedTeamId.value = teamId
+}
+function closeTeam(): void {
+  selectedTeamId.value = null
+}
+
+// 刷新后队伍被删除时自动关闭；换层/改名则弹窗内容就地更新。
+watch(selectedTeam, (team) => {
+  if (selectedTeamId.value !== null && team === null) selectedTeamId.value = null
+})
+
 /** 页面 folio 统一格式，避免各 section 手拼 VOL/P.xx。 */
 function folio(page: string): string {
   return selectFolio(meta.value, page)
@@ -149,4 +212,29 @@ function folio(page: string): string {
 // 直播覆盖统计
 const coverage = computed(() => selectCoverage(teams.value))
 const copyrightYear = computed(() => selectCopyrightYear(meta.value))
+
+// 副本切换：视图状态只在 PageView；计数/过滤全部来自 domain/dungeon。
+const selectedDungeonId = ref<string | null>(null)
+const dungeonTabs = computed(() => selectDungeonTabs(teams.value, meta.value.dungeons))
+const activeDungeonTab = computed(() =>
+  selectedDungeonId.value === null
+    ? null
+    : dungeonTabs.value.find((tab) => tab.id === selectedDungeonId.value) ?? null
+)
+const dungeonSummary = computed(() => selectDungeonSummary(activeDungeonTab.value))
+const rankingBadge = computed(() => selectRankingBadge(meta.value.status))
+const visibleTeams = computed(() =>
+  filterTeamsByDungeon(teams.value, meta.value.dungeons, selectedDungeonId.value)
+)
+
+function selectDungeon(dungeonId: string | null): void {
+  selectedDungeonId.value = dungeonId
+}
+
+// 刷新后副本列表变化：选中的层不存在时回到「全部」。
+watch(dungeonTabs, (tabs) => {
+  if (selectedDungeonId.value !== null && !tabs.some((tab) => tab.id === selectedDungeonId.value)) {
+    selectedDungeonId.value = null
+  }
+})
 </script>
