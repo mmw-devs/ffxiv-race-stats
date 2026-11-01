@@ -1,65 +1,45 @@
 ---
 description: >
-  数据完整性规则。在每次 data.json 写入操作前后自动生效。
-  检查范围：结构完整性、逻辑一致性、边界值、写入后自检。
+  数据写入前后的完整性要求。本文件不复述字段规则，只规定写入流程与单一来源。
 ---
 # 数据完整性规则
 
-此规则在每次 `data.json` 写入操作前后自动生效。
+## 唯一规则来源
 
-## 写入前自检
+以下文件是数据规则的唯一来源，本文件与任何 skill 都不得复述或改写：
 
-每次修改 `data.json` 后，在 push 前完成以下检查：
+- `schema/*.json` — 结构、必填、值域
+- `scripts/validate-data.ts` — 跨字段与业务规则
+- `shared/stage.mjs` — 阶段 `P<n>` / `CLEAR` 语法与排序
 
-### 结构完整性
+如果本文件、`commands.md` 或 skill 与上述来源冲突，以代码为准，并修正文档。
 
-- `RACE_DATA` 对象包含全部七个顶层 key：`meta`、`teams`、`news`、`broadcasters`、`notices`、`sponsors`、`content`
-- `meta.status` ∈ `{ "upcoming", "live", "ended" }`
-- 每支队伍的 `players[]` 恰好 8 人
-- 每个 player 的 `job` 为合法三字母缩写
-- 每个 player 的 `role` ∈ `{ "tank", "healer", "dps" }`
+## 写入流程
 
-### 逻辑一致性
+1. 读取当前 `public/data.json`
+2. 只修改目标字段，保留其他字段与 JSON 结构
+3. 运行 `npm run validate`
+4. 通过 `ops-submit` 提交；不得直推 main
+5. 审计由当前运行环境提供（通过 `ops-submit` 适配器），不得手工构造或修改其格式
 
-- `rank` 从 1 开始连续，无重复，无跳号
-- `bossHP` ∈ [0, 100]，且只能随更新减少（进度不可倒退）
-- `phase` 只能前进不能后退（按 `stageRank` 数值顺序，`CLEAR` 为最高）
-- 如果 `bossHP === 0` 且 `phase` 以 `CLEAR` 结尾，则该队已通关
-- `news[]` 按 `time` 降序排列（`time` 为含时区的 ISO 8601 瞬时，比较时先解析为时间戳）
-- 每条 news 的 `id` 唯一
-- `broadcasters[]` 每条 `id` 唯一
-
-### 边界值
-
-| 字段 | 约束 |
-|------|------|
-| `bossHP` | 0–100，允许 1 位小数 |
-| `rank` | ≥1，≤ teams 数组长度 |
-| `phase` | 符合 `P<正整数>` / `CLEAR` 语法（可带 `<副本id>-` 前缀） |
-| `region` | 必须 ∈ `{JP, NA, EU, OC, CN, KR}` |
-| `streaming` | boolean；true 时 `stream` 不能为 `#` |
-| `team.isLive` | 不存 data；由 `players[].streaming` 派生 |
-
-## 写入后自检
-
-- 重新读取 `data.json`，确认写入内容与意图一致
-- 运行 `node --experimental-strip-types scripts/validate-data.ts` 自检（确保通过 schema + 值域 + 业务规则三阶段校验）
-- 如有任一检查不通过，修复后重新自检，不通过不 push
-- push 后 CI（GitHub Actions）会再次运行相同检查作为独立防线
-
-**阶段语法来源：** `P<正整数>` / `CLEAR` 的解析与排序定义在 `shared/stage.mjs`（开发者维护），Agent 不可修改；schema pattern 由 contract test 锁定。
+校验不通过时修复后重跑，不通过不提交。
 
 ## 时区约定
 
-- **存储**：`data.json` 中所有时间字段（`meta.startTime`、`news[].time`）一律为 UTC 的 ISO 8601 瞬时（以 `Z` 结尾，如 `2026-09-04T16:04:52Z`）。
-- **运营交互**：与运营确认、展示时间时一律使用**北京时间（UTC+8，无夏令时）**；运营给出的时间也默认按北京时间理解（若运营明确说明其他时区则按其时区）。
-- **换算**：写入时 UTC = 北京时间 − 8 小时；展示时 北京时间 = UTC + 8 小时。换算由 Agent 内部完成，运营无需接触 UTC。
+- **存储**：`meta.startTime`、`news[].time` 一律为 UTC 的 ISO 8601 瞬时（`Z` 结尾）
+- **运营交互**：展示与确认使用北京时间（UTC+8）；运营给出的时间默认按北京时间理解
+- **换算**：写入时 UTC = 北京时间 − 8 小时；由 Agent 内部完成
 
 ## CI 失败处理
 
-如果 PR 的 CI 检查不通过：
-1. 读取 CI 错误日志：`gh run view <run_id> --log`
-2. 诊断问题（语法错误？值越界？文件范围违规？）
-3. 修复 `data.json`
-4. Commit + push 到同一 `content/*` 分支（PR 自动更新，CI 自动重跑）
+1. 读取 CI 错误日志
+2. 定位是结构、值域还是业务规则问题
+3. 修复 `public/data.json`
+4. push 到同一 `content/*` 分支，PR 自动更新
 5. 重新请求运营确认
+
+## 禁止
+
+- 在文档或 skill 里复制字段清单、长度限制、排序规则
+- 修改 `schema/`、`scripts/`、`shared/stage.mjs` 来迁就某次操作
+- 绕过 `ops-submit` 直接提交

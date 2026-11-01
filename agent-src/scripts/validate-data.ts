@@ -14,7 +14,7 @@
  *   - team.phase 必须形如 `<副本id>-<阶段>`（如 M1S-P5、M2S-CLEAR）
  *   - 副本 id 必须在 meta.dungeons[] 中存在
  *   - 阶段必须符合 shared/stage.mjs 的 P<正整数>/CLEAR 语法
- *   - status="ended" → 所有队伍 phase 必须是 lastDungeon-CLEAR
+ *   - status="ended" → 保留各队最终进度（不要求全员 lastDungeon-CLEAR）
  *   - status="upcoming" → 所有队伍 phase 必须是 firstDungeon-P1
  *   - 跨队伍 phase 单调（按 rank 升序：(dungeonIndex, stageRank) 非严格递增）
  *
@@ -493,27 +493,17 @@ export function main(dataPath?: string): number {
     }
 
     // 4h. status ↔ phase 关联性
-    if (meta && dungeons && dungeons.length > 0) {
-      const status = meta.status;
-      if (status === "ended") {
-        const lastDungeonId = dungeonIds[dungeonIds.length - 1]!;
-        const expectedPhase = dungeons.length === 1 ? "CLEAR" : `${lastDungeonId}-CLEAR`;
-        for (const team of teams) {
-          if (team.phase !== expectedPhase) {
-            fail(state, `[${team.name || team.id}] meta.status="ended" 时所有队伍 phase 必须是 "${expectedPhase}"，但 rank ${team.rank} 是 "${team.phase}"`);
-          }
+    // ended = 最终快照：允许各队停留在不同进度，由通用规则校验阶段/血量/名次；
+    // 不再要求全员最后一层 CLEAR（真实赛事中常有队伍未通关）。
+    if (meta && dungeons && dungeons.length > 0 && meta.status === "upcoming") {
+      const firstDungeonId = dungeonIds[0]!;
+      const expectedPhase = dungeons.length === 1 ? "P1" : `${firstDungeonId}-P1`;
+      for (const team of teams) {
+        if (team.phase !== expectedPhase) {
+          fail(state, `[${team.name || team.id}] meta.status="upcoming" 时所有队伍 phase 必须是 "${expectedPhase}"，但 rank ${team.rank} 是 "${team.phase}"`);
         }
-        ok(`status="ended" 校验通过：所有队伍 phase = "${expectedPhase}"`);
-      } else if (status === "upcoming") {
-        const firstDungeonId = dungeonIds[0]!;
-        const expectedPhase = dungeons.length === 1 ? "P1" : `${firstDungeonId}-P1`;
-        for (const team of teams) {
-          if (team.phase !== expectedPhase) {
-            fail(state, `[${team.name || team.id}] meta.status="upcoming" 时所有队伍 phase 必须是 "${expectedPhase}"，但 rank ${team.rank} 是 "${team.phase}"`);
-          }
-        }
-        ok(`status="upcoming" 校验通过：所有队伍 phase = "${expectedPhase}"`);
       }
+      ok(`status="upcoming" 校验通过：所有队伍 phase = "${expectedPhase}"`);
     }
 
     // 4i. 副本顺序推进：副本 N+1 出现 → 副本 N 必须全 CLEAR

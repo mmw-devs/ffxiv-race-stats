@@ -7,7 +7,7 @@ Agent 约束通过多层机制实现，Prompt 层为第一道防线，平台层�
 | 层 | 机制 | 拦截场景 |
 |---|------|---------|
 | Prompt | SYSTEM.md + dev.md/ops.md + rules/ | Agent 操作前主动拒绝 |
-| Skill | `content-pr` 硬停止规则 | PR 创建后必须等用户确认 |
+| Skill | `ops-submit-larkbot` 硬停止规则 | PR 创建后必须等用户确认；L3 只能 GitHub 手动合并 |
 | Ruleset | `content/**` 仅 App + Admin | 个人推 content/* → 物理拒绝 |
 | CI | `validate.yml` 文件范围 + 双向阻断 | 越界文件 → FAIL |
 | Branch Protection | main: PR + CI required | 无法直推 main |

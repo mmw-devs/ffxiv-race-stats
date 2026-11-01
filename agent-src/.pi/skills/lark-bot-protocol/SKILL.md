@@ -261,9 +261,11 @@ lark-bot 维护两个域：
 
 1. LLM 调 `larkbot_commit_changes({chatId, shortDesc})` — buffer 非空校验
 2. lark-bot 返回 commitMessage + journalReset=true
-3. LLM 拿到 commitMessage 调 content-pr skill 完成：git commit / push / gh pr create / 等待合并 / gh pr merge
+3. LLM 拿到 commitMessage 调 ops-submit-larkbot skill 完成：git commit / push / gh pr create / 等待合并 / gh pr merge
+   - **L2 指令**：可以按「合并」回复执行 `gh pr merge`
+   - **L3 生命周期指令**：只创建 PR，**禁止**执行 `gh pr merge`；必须由人在 GitHub 手动合并
    - **commitMessage 必须 100% 原样使用，不得修改任何字符**（包括 shortDesc / 字段顺序 / JSON 缩进 / 反引号数量）
-   - content-pr skill 负责 git 操作；LLM 不负责构造或修改 commit message
+   - ops-submit-larkbot skill 负责 git 操作；LLM 不负责构造或修改 commit message
 4. 会话保持，业务变更继续累积到 buffer
 
 **场景 B：结束任务（不提交 PR）**
@@ -275,7 +277,7 @@ lark-bot 维护两个域：
 **场景 C：提交并结束**
 
 1. LLM 先调 `larkbot_commit_changes`（场景 A 步骤 1-2）
-2. LLM 调 content-pr skill 提交 git
+2. LLM 调 ops-submit-larkbot skill 提交 git
 3. LLM 调 `larkbot_close_business_session`（场景 B 步骤 1-2）
 
 **场景 D：无变更提交**
@@ -301,7 +303,7 @@ content: <shortDesc>
 ````
 ```
 
-LLM 拿到后必须调用 content-pr skill 用该 commitMessage 提交 PR（不修改 message 内容）。
+LLM 拿到后必须调用 ops-submit-larkbot skill 用该 commitMessage 提交 PR（不修改 message 内容）。
 
 ### 6.5 校验机制
 

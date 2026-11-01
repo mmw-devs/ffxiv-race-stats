@@ -18,7 +18,7 @@ dist/                           ← 由 dev CI 推送的预构建产物
 schema/                         ← 数据契约（与 dev 同步）
 scripts/                        ← 验证脚本（与 dev 同步）
 .github/workflows/              ← 2 个 workflow（validate / race-ops-jit-pem）
-.pi/                            ← 运营 Agent 配置
+.pi/                            ← 运营 Agent 配置（commands.md 为指令唯一来源）
 .githooks/                      ← 运营工作流
 constants.js                    ← 数据校验值域白名单（阶段语法见 shared/stage.mjs）
 shared/stage.mjs                ← 阶段 P<n>/CLEAR 语法与排序（dev/ops 共享）
@@ -33,27 +33,43 @@ LICENSE
   - dev main push → dev CI 构建 → 推送 `dist/` 到本仓库 main
   - 本仓库的 dist/ 来自 dev，不在本仓库构建
 
+## 运行环境
+
+业务 skill 与 `.pi/commands.md` **不绑定消息渠道或 Agent 运行时**。
+
+| 运行环境 | 提交适配器 |
+|---|---|
+| PI Agent + lark-bot（飞书） | `ops-submit-larkbot` |
+| DeepSeek Harness + mmw-tools | `ops-submit-dsh` |
+
+运行环境必须提供：稳定操作者身份、显式确认、审计、`content` PR、预览。
+L2 合并能力是可选的（无则人工）；L3 永远人工在 PR 平台合并。
+
 ## 数据修改流程
 
 ```
-1. 运营人员通过飞书发送指令
-2. 运营 Agent (.pi/) 接收并解析
-3. Agent 调用 .pi/skills/* 工具（update-team / add-news / add-broadcaster / update-content）
-4. Agent 通过 gh cli 创建 content/* 分支并修改 public/data.json
-5. PR 触发 .github/workflows/validate.yml 校验（schema + 文件范围 + 操作日志）
-6. Review/合并 → main
-7. CF Pages 自动部署
+1. 操作者通过当前渠道发送指令（飞书、DeepSeek Harness 等）
+2. 运行环境中的 Agent（.pi/）接收并解析
+3. 按 .pi/commands.md 识别业务域，加载对应 skill
+   （ops-event / ops-progress / ops-roster / ops-publish / ops-site / ops-query）
+4. 读取 public/data.json → 校验 → 字段级预览 → 操作者确认
+5. Agent 通过 ops-submit（当前环境的适配器）创建 content/* 分支并修改 public/data.json
+6. PR 触发 .github/workflows/validate.yml 校验（schema + 文件范围 + 操作日志）
+7. L2 由运行环境在确认后合并（无能力则人工）；L3 只能人工在 PR 平台合并
+8. CF Pages 自动部署
 ```
+
+指令的级别、确认强度、影响标记、前置条件与跨域交接，唯一来源是 `.pi/commands.md`。
 
 ## 运营 Agent 约束
 
-PI Agent 在本仓库启动时进入**运营模式**，约束：
+运行环境中的 Agent 在本仓库进入**运营模式**，约束：
 
 - **唯一允许修改**：`public/data.json`
-- **提交通道**：`content/*` 分支 + PR（绝不可直推 main）
-- **凭证**：`race-ops-bot` GitHub App（生产 PEM）或开发者本人 PAT（开发测试）
+- **提交通道**：`content/*` 分支 + PR（绝不可直推 main），统一走 `ops-submit`
+- **凭证**：lark-bot 运行时使用 `race-ops-bot` GitHub App（生产 PEM）或开发者本人 PAT；DSH 运行时使用 mmw-tools 的仓库授权
 
-详见 `.pi/skills/` 与 `.pi/rules/`。
+详见 `.pi/commands.md`、`.pi/skills/` 与 `.pi/rules/`。
 
 ## 数据校验
 
@@ -80,6 +96,8 @@ CF publish dist/ 到 CDN
 ```
 
 ## 文档操作规范
+
+以下流程仅在 lark-bot / 飞书运行环境适用；其他运行环境（如 DeepSeek Harness）按宿主能力或用户要求选择文档工具。
 
 创建文档时，**默认使用 `lark-cli` 在飞书云文档中进行**，而非本地文件：
 

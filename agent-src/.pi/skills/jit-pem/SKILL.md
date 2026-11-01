@@ -85,7 +85,7 @@ description: >
 **方式 B — 手动触发**
 
 ```bash
-tsx .pi/scripts/get-jit-pem.ts "测试 PI Agent content-pr Skill"
+tsx .pi/scripts/get-jit-pem.ts "测试 PI Agent ops-submit Skill"
 ```
 
 ### Step 2: 脚本行为
