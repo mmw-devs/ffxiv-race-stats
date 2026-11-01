@@ -1,0 +1,200 @@
+{
+  "meta": {
+    "eventName": "FFXIV 高难首杀竞速",
+    "edition": "03",
+    "dungeons": [
+      {
+        "id": "M1S",
+        "name": "零式 1 层"
+      },
+      {
+        "id": "M2S",
+        "name": "零式 2 层"
+      },
+      {
+        "id": "M3S",
+        "name": "零式 3 层"
+      },
+      {
+        "id": "M4S",
+        "name": "零式 4 层"
+      }
+    ],
+    "boss": "欧米茄",
+    "dataCenter": "Aether",
+    "status": "ended"
+  },
+  "content": {
+    "hero": {
+      "kicker": "x",
+      "lead": "x",
+      "primaryCta": {
+        "label": "x",
+        "href": "#"
+      },
+      "secondaryCta": {
+        "label": "x",
+        "href": "#"
+      }
+    },
+    "rules": {
+      "title": "x",
+      "kicker": "x",
+      "items": [
+        "x"
+      ]
+    },
+    "seo": {
+      "title": "x",
+      "description": "x"
+    },
+    "media": {
+      "heroVideo": "/x",
+      "heroPoster": "/x"
+    },
+    "sections": {
+      "ranking": {
+        "kicker": "x",
+        "title": "x"
+      },
+      "news": {
+        "kicker": "x",
+        "title": "x"
+      },
+      "sponsors": {
+        "kicker": "x",
+        "title": "x"
+      },
+      "guides": {
+        "kicker": "x",
+        "title": "x"
+      }
+    }
+  },
+  "teams": [
+    {
+      "id": "t1",
+      "name": "Alpha",
+      "rank": 1,
+      "bossHP": 0,
+      "phase": "M4S-CLEAR",
+      "region": "NA",
+      "isLive": false,
+      "players": [
+        {
+          "job": "PLD",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "WAR",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "WHM",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "SCH",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "MNK",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "DRG",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "NIN",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "BRD",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        }
+      ]
+    },
+    {
+      "id": "t2",
+      "name": "Beta",
+      "rank": 2,
+      "bossHP": 35,
+      "phase": "M3S-P2",
+      "region": "NA",
+      "isLive": false,
+      "players": [
+        {
+          "job": "PLD",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "WAR",
+          "role": "tank",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "WHM",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "SCH",
+          "role": "healer",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "MNK",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "DRG",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "NIN",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        },
+        {
+          "job": "BRD",
+          "role": "dps",
+          "stream": "#",
+          "streaming": false
+        }
+      ]
+    }
+  ],
+  "news": [],
+  "broadcasters": [],
+  "notices": [
+    "本赛事数据由运营团队人工维护，如发现队伍进度或比分有误，请及时联系赛事管理员进行核对与更正。"
+  ],
+  "sponsors": []
+}

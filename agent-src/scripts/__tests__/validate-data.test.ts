@@ -44,6 +44,7 @@ describe("validate-data.ts", () => {
       "valid/single-dungeon.json",
       "valid/multi-dungeon.json",
       "valid/ended-all-clear.json",
+      "valid/ended-mixed.json",
       "valid/upcoming-first-dungeon.json",
     ];
 
@@ -76,9 +77,9 @@ describe("validate-data.ts", () => {
         expectErrorContains: "副本顺序违反",
       },
       {
-        file: "invalid/ended-with-non-clear.json",
-        desc: "status=ended 但 phase 非 lastDungeon-CLEAR",
-        expectErrorContains: 'status="ended"',
+        file: "invalid/ended-rank-gap.json",
+        desc: "status=ended 时名次仍必须连续（结束不是免检）",
+        expectErrorContains: "rank 存在重复或跳号",
       },
       {
         file: "invalid/duplicate-dungeon-id.json",

@@ -1066,8 +1066,8 @@ export default function (pi: any) {
     label: "提交业务变更（生成 commit message）",
     description:
       "把 task_journal buffer 转换为 LogEntry，生成 commit message 返回给 LLM。" +
-      "LLM 拿到 commitMessage 后必须调用 content-pr skill 完成 git 操作。" +
-      "**commitMessage 必须 100% 原样使用，不得修改任何字符**（content-pr skill 负责 git 操作；" +
+      "LLM 拿到 commitMessage 后必须调用 ops-submit skill 完成 git 操作。" +
+      "**commitMessage 必须 100% 原样使用，不得修改任何字符**（ops-submit skill 负责 git 操作；" +
       "LLM 不构造或修改 commit message）。" +
       "提交成功后 buffer.changes 清空，会话元数据保留（支持多次 PR）。" +
       "**issue#184 双域会话机制**：临时私聊域调用返回“未鉴权”错误。" +
@@ -1109,7 +1109,7 @@ export default function (pi: any) {
         reason: `shortDesc=${params.shortDesc} changesCount=${changesCount}`,
       });
       return {
-        content: [{ type: "text", text: `✅ 已生成 commit message（changes=${changesCount}）。请用 content-pr skill 提交 PR。` }],
+        content: [{ type: "text", text: `✅ 已生成 commit message（changes=${changesCount}）。请用 ops-submit skill 提交 PR。` }],
         details: {
           ok: true,
           logEntry,
