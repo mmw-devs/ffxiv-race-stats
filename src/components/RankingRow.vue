@@ -49,6 +49,8 @@ const props = defineProps<{
   team: Team
   /** 副本列表（用于阶段显示：单副本隐藏名称、多副本显示 "id · stage"） */
   dungeons?: Dungeon[]
+  /** 当前选中的副本；与队伍当前层一致时阶段列去掉副本前缀 */
+  focusDungeonId?: string | null
 }>()
 
 const emit = defineEmits<{ (e: 'select', teamId: string): void }>()
@@ -59,7 +61,9 @@ const roster = computed(() => selectTeamRoster(props.team.players))
 
 // 阶段/血量由 Team 聚合值对象统一解释。
 const progress = computed(() => selectTeamProgress(props.team))
-const phase = computed(() => selectPhaseView(progress.value.phase, props.dungeons ?? []))
+const phase = computed(() =>
+  selectPhaseView(progress.value.phase, props.dungeons ?? [], props.focusDungeonId ?? null)
+)
 
 function select(): void {
   emit('select', props.team.id)

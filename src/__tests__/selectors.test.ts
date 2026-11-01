@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   selectCopyrightYear,
+  selectDungeonSummary,
   selectFolio,
   selectIsLive,
   selectPhaseView,
@@ -82,6 +83,40 @@ describe('selectPhaseView', () => {
     expect(selectPhaseView('M1S-P5', multiDungeon)).toEqual({ label: 'M1S · P5', className: 'late' })
     expect(selectPhaseView('M1S-P99', multiDungeon)).toEqual({ label: 'M1S · P99', className: 'late' })
     expect(selectPhaseView('M1S-FINAL', multiDungeon)).toEqual({ label: 'M1S · FINAL', className: '' })
+  })
+
+  it('按副本聚焦时去掉同副本前缀', () => {
+    expect(selectPhaseView('M1S-P4', multiDungeon, 'M1S')).toEqual({ label: 'P4', className: 'p4' })
+    expect(selectPhaseView('M2S-CLEAR', multiDungeon, 'M1S')).toEqual({
+      label: 'M2S · CLEAR',
+      className: 'clear',
+    })
+  })
+})
+
+describe('selectDungeonSummary', () => {
+  const tab = {
+    id: 'M1S',
+    name: '零式 1 层',
+    index: 0,
+    count: 4,
+    cleared: 8,
+    inProgress: 3,
+    total: 12,
+  }
+
+  it('全部视图没有说明', () => {
+    expect(selectDungeonSummary(null)).toBeNull()
+  })
+
+  it('说明已通过、仍在此层与已 CLEAR 数量', () => {
+    expect(selectDungeonSummary(tab)).toBe('查看 M1S：已通过 8/12 · 4 队仍在此层（1 队已 CLEAR）')
+  })
+
+  it('没有等待进入下一层的队伍时不加括号', () => {
+    expect(selectDungeonSummary({ ...tab, count: 3, inProgress: 3 })).toBe(
+      '查看 M1S：已通过 8/12 · 3 队仍在此层'
+    )
   })
 })
 

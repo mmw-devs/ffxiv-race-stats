@@ -8,6 +8,7 @@ import {
   resolveStartTime,
 } from './utils/time'
 import { selectRankingMode } from './domain/status'
+import type { DungeonTab } from './domain/dungeon'
 import { stageClass } from '../agent-src/shared/stage.mjs'
 
 /** LIVE 徽标是否显示。 */
@@ -56,11 +57,24 @@ export interface PhaseView {
 }
 
 /** 阶段的展示文本 + CSS class，避免组件各自解释 phase。 */
-export function selectPhaseView(phase: string, dungeons: readonly Dungeon[]): PhaseView {
+export function selectPhaseView(
+  phase: string,
+  dungeons: readonly Dungeon[],
+  focusDungeonId: string | null = null
+): PhaseView {
   return {
-    label: displayPhase(phase, dungeons),
+    label: displayPhase(phase, dungeons, focusDungeonId),
     className: stageClass(phaseStage(phase)),
   }
+}
+
+/** 选中副本后的列表说明：已通过 / 仍在此层 / 已 CLEAR 等待进入下一层。 */
+export function selectDungeonSummary(tab: DungeonTab | null): string | null {
+  if (!tab) return null
+
+  const waitingClear = tab.count - tab.inProgress
+  const clearNote = waitingClear > 0 ? `（${waitingClear} 队已 CLEAR）` : ''
+  return `查看 ${tab.id}：已通过 ${tab.cleared}/${tab.total} · ${tab.count} 队仍在此层${clearNote}`
 }
 
 export type TimerKind = 'countdown' | 'elapsed' | 'ended' | 'unknown' | 'waiting'

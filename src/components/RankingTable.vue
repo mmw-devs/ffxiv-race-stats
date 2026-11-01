@@ -14,6 +14,7 @@
       :key="team.id"
       :team="team"
       :dungeons="dungeons"
+      :focus-dungeon-id="focusDungeonId"
       @select="emit('select-team', $event)"
     />
 
@@ -41,6 +42,8 @@ const props = defineProps<{
   teams: Team[]
   /** 副本列表（用于阶段显示，透传给 RankingRow） */
   dungeons?: Dungeon[]
+  /** 当前选中的副本（透传给 RankingRow，用于阶段去前缀） */
+  focusDungeonId?: string | null
 }>()
 
 const emit = defineEmits<{ (e: 'select-team', teamId: string): void }>()

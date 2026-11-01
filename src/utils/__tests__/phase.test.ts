@@ -43,4 +43,11 @@ describe('displayPhase', () => {
   it('旧数据无副本前缀时原样显示', () => {
     expect(displayPhase('P2', multi)).toBe('P2')
   })
+
+  it('按副本筛选时，同副本去掉前缀，不同副本仍带前缀', () => {
+    expect(displayPhase('M1S-P2', multi, 'M1S')).toBe('P2')
+    expect(displayPhase('M1S-CLEAR', multi, 'M1S')).toBe('CLEAR')
+    expect(displayPhase('M2S-P1', multi, 'M1S')).toBe('M2S · P1')
+    expect(displayPhase('M1S-P2', multi, null)).toBe('M1S · P2')
+  })
 })
