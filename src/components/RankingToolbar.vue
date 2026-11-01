@@ -1,7 +1,7 @@
 <!-- RankingToolbar.vue — 排行榜工具栏（副本切换 + 右侧状态区插槽） -->
 <template>
   <div class="az-ranking-toolbar">
-    <div class="az-dungeon-switch" role="group" aria-label="按副本查看">
+    <div v-if="tabs.length > 0" class="az-dungeon-switch" role="group" aria-label="按副本查看">
       <button type="button" class="az-dungeon-tab" :class="{ 'is-active': selected === null }" :aria-pressed="selected === null" @click="emit('select', null)">全部</button>
       <button
         v-for="tab in tabs"
