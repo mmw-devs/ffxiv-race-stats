@@ -135,6 +135,7 @@ export interface SyncLineInput {
   sync: {
     refreshing: boolean
     lastSyncedAt: number | null
+    lastManualAt: number | null
     error: string | null
   }
 }
@@ -163,9 +164,10 @@ export function selectSyncLineView(input: SyncLineInput, now: number): SyncLineV
 
   if (status === 'upcoming') {
     const start = resolveStartTime(input.startTime, now)
-    if (sync.lastSyncedAt !== null) {
+    // 首屏 load 也会写 lastSyncedAt；只有用户/自动 refresh 才算「最近检查」。
+    if (sync.lastManualAt !== null) {
       return {
-        text: `未开赛 · 最近检查 ${formatLocalTime(sync.lastSyncedAt)}`,
+        text: `未开赛 · 最近检查 ${formatLocalTime(sync.lastManualAt)}`,
         tone: 'neutral',
         ...action,
       }
@@ -201,4 +203,14 @@ export function selectRankingBadge(status: Meta['status']): RankingBadge | null 
     return { label: '最终成绩', className: 'final', note: '赛事已结束' }
   }
   return null
+}
+
+/** 榜单空状态文案：未开赛且还没有队伍时，提示名单确认中。 */
+export function selectRankingEmptyText(
+  status: Meta['status'],
+  teamCount: number,
+  dungeonId: string | null
+): string {
+  if (teamCount === 0 && status === 'upcoming') return '参赛名单确认中'
+  return dungeonId === null ? '暂无队伍数据' : '该副本暂无队伍'
 }

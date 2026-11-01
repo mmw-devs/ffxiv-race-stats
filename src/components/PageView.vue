@@ -62,7 +62,7 @@
               @select-team="openTeam"
             />
             <div v-else class="az-dungeon-empty">
-              <p>{{ selectedDungeonId === null ? '暂无队伍数据' : '该副本暂无队伍' }}</p>
+              <p>{{ emptyTeamsText }}</p>
               <button v-if="selectedDungeonId !== null" type="button" class="az-expand" @click="selectDungeon(null)">查看全部</button>
             </div>
           </div>
@@ -154,7 +154,7 @@ import BroadcastItem from './BroadcastItem.vue'
 import NoticeItem from './NoticeItem.vue'
 import TeamDetail from './TeamDetail.vue'
 import { SECTIONS } from '../sections'
-import { selectCopyrightYear, selectDungeonSummary, selectFolio, selectRankingBadge } from '../selectors'
+import { selectCopyrightYear, selectDungeonSummary, selectFolio, selectRankingBadge, selectRankingEmptyText } from '../selectors'
 import { pad2 } from '../utils/format'
 import { filterTeamsByDungeon, selectDungeonTabs } from '../domain/dungeon'
 import { selectCoverage } from '../domain/coverage'
@@ -234,6 +234,9 @@ const activeDungeonTab = computed(() =>
 )
 const dungeonSummary = computed(() => selectDungeonSummary(activeDungeonTab.value))
 const rankingBadge = computed(() => selectRankingBadge(meta.value.status))
+const emptyTeamsText = computed(() =>
+  selectRankingEmptyText(meta.value.status, teams.value.length, selectedDungeonId.value)
+)
 const visibleTeams = computed(() =>
   filterTeamsByDungeon(teams.value, meta.value.dungeons, selectedDungeonId.value)
 )

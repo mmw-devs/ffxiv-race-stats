@@ -7,6 +7,7 @@ import {
   selectPhaseView,
   selectRankMedal,
   selectRankingBadge,
+  selectRankingEmptyText,
   selectRegionView,
   selectSyncLineView,
   selectTimerView,
@@ -184,8 +185,8 @@ describe('selectSyncLineView', () => {
   const futureStart = new Date(now + 3_600_000).toISOString()
   const passedStart = new Date(now - 60_000).toISOString()
 
-  function sync(overrides: Partial<{ refreshing: boolean; lastSyncedAt: number | null; error: string | null }> = {}) {
-    return { refreshing: false, lastSyncedAt: null, error: null, ...overrides }
+  function sync(overrides: Partial<{ refreshing: boolean; lastSyncedAt: number | null; lastManualAt: number | null; error: string | null }> = {}) {
+    return { refreshing: false, lastSyncedAt: null, lastManualAt: null, error: null, ...overrides }
   }
 
   it('刷新中优先展示同步中并禁用按钮', () => {
@@ -227,9 +228,18 @@ describe('selectSyncLineView', () => {
     })
   })
 
+  it('首屏 load 写入 lastSyncedAt 时仍提示手动刷新', () => {
+    expect(
+      selectSyncLineView({ status: 'upcoming', startTime: futureStart, sync: sync({ lastSyncedAt: syncedAt }) }, now)
+    ).toMatchObject({ text: '未开赛 · 开赛后请点「立即刷新」' })
+  })
+
   it('手动刷新后展示最近检查时间', () => {
     expect(
-      selectSyncLineView({ status: 'upcoming', startTime: passedStart, sync: sync({ lastSyncedAt: syncedAt }) }, now)
+      selectSyncLineView(
+        { status: 'upcoming', startTime: passedStart, sync: sync({ lastSyncedAt: syncedAt, lastManualAt: syncedAt }) },
+        now
+      )
     ).toMatchObject({ text: '未开赛 · 最近检查 21:03:12' })
   })
 
@@ -262,5 +272,18 @@ describe('selectRankingBadge', () => {
       note: '赛事已结束',
     })
     expect(selectRankingBadge('live')).toBeNull()
+  })
+})
+
+describe('selectRankingEmptyText', () => {
+  it('未开赛且没有队伍时提示名单确认中', () => {
+    expect(selectRankingEmptyText('upcoming', 0, null)).toBe('参赛名单确认中')
+    expect(selectRankingEmptyText('upcoming', 0, 'M1S')).toBe('参赛名单确认中')
+  })
+
+  it('其他情况按副本筛选状态区分', () => {
+    expect(selectRankingEmptyText('upcoming', 12, null)).toBe('暂无队伍数据')
+    expect(selectRankingEmptyText('live', 0, null)).toBe('暂无队伍数据')
+    expect(selectRankingEmptyText('live', 0, 'M1S')).toBe('该副本暂无队伍')
   })
 })

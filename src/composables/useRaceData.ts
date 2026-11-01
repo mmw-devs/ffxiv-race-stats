@@ -15,6 +15,8 @@ export interface RaceSyncState {
   refreshing: boolean
   /** 最近一次成功检查（200 或 304）的时间戳 */
   lastSyncedAt: number | null
+  /** 最近一次由用户触发/自动触发的 refresh 成功时间；首屏 load 不写入 */
+  lastManualAt: number | null
   /** 最近一次刷新失败原因；成功后清空 */
   error: string | null
 }
@@ -43,6 +45,7 @@ export function useRaceData(): UseRaceDataReturn {
   const sync = reactive<RaceSyncState>({
     refreshing: false,
     lastSyncedAt: null,
+    lastManualAt: null,
     error: null,
   })
 
@@ -97,6 +100,7 @@ export function useRaceData(): UseRaceDataReturn {
     controller = current
 
     state.value = { status: 'loading' }
+    sync.lastManualAt = null
 
     try {
       const result = await requestSnapshot(current.signal, false)
@@ -138,12 +142,14 @@ export function useRaceData(): UseRaceDataReturn {
 
       if (result.kind === 'unchanged') {
         sync.lastSyncedAt = Date.now()
+        sync.lastManualAt = sync.lastSyncedAt
         sync.error = null
         return 'unchanged'
       }
 
       const changed = applyData(result.data)
       sync.lastSyncedAt = Date.now()
+      sync.lastManualAt = sync.lastSyncedAt
       sync.error = null
       return changed ? 'updated' : 'unchanged'
     } catch (err) {
