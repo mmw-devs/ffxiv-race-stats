@@ -41,6 +41,10 @@
             @select="selectDungeon"
           />
           <p v-if="dungeonSummary" class="az-dungeon-summary">{{ dungeonSummary }}</p>
+          <p v-if="rankingBadge" class="az-ranking-mode" :class="rankingBadge.className">
+            <span class="az-ranking-mode-tag">{{ rankingBadge.label }}</span>
+            <span class="az-ranking-mode-note">{{ rankingBadge.note }}</span>
+          </p>
           <div class="az-main-grid">
             <RankingTable
               v-if="visibleTeams.length > 0"
@@ -55,7 +59,7 @@
             </div>
           </div>
         </template>
-        <NewsTicker v-else-if="section.id === 'news'" :news="news" />
+        <NewsTicker v-else-if="section.id === 'news'" :news="news" :status="meta.status" />
         <SponsorsCard v-else-if="section.id === 'sponsors'" :sponsors="sponsors" />
         <GuidesSection v-else-if="section.id === 'guides'" />
       </PageSection>
@@ -141,7 +145,7 @@ import BroadcastItem from './BroadcastItem.vue'
 import NoticeItem from './NoticeItem.vue'
 import TeamDetail from './TeamDetail.vue'
 import { SECTIONS } from '../sections'
-import { selectCopyrightYear, selectDungeonSummary, selectFolio } from '../selectors'
+import { selectCopyrightYear, selectDungeonSummary, selectFolio, selectRankingBadge } from '../selectors'
 import { pad2 } from '../utils/format'
 import { filterTeamsByDungeon, selectDungeonTabs } from '../domain/dungeon'
 import { selectCoverage } from '../domain/coverage'
@@ -218,6 +222,7 @@ const activeDungeonTab = computed(() =>
     : dungeonTabs.value.find((tab) => tab.id === selectedDungeonId.value) ?? null
 )
 const dungeonSummary = computed(() => selectDungeonSummary(activeDungeonTab.value))
+const rankingBadge = computed(() => selectRankingBadge(meta.value.status))
 const visibleTeams = computed(() =>
   filterTeamsByDungeon(teams.value, meta.value.dungeons, selectedDungeonId.value)
 )

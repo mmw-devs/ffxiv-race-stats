@@ -63,6 +63,10 @@
     .az-news-time { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 0.05em; text-align: right; line-height: 1.35; }
     .az-news-text { font-size: 14px; line-height: 1.6; }
     .az-news-text.urgent { color: var(--warn); font-weight: 600; }
+    .az-news-empty {
+      margin: 0; padding: 26px 0; border-bottom: 1px solid var(--border);
+      font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em; color: var(--muted);
+    }
 
     /* ═══════════ sponsors ═══════════ */
     .az-sponsor-panel { border-top: 1px solid var(--border-2); }

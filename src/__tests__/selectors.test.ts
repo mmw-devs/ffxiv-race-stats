@@ -137,11 +137,11 @@ describe('selectTimerView', () => {
     })
   })
 
-  it('未开赛且超过 24h 显示开赛日期', () => {
+  it('未开赛且超过 24h 显示开赛日期（年份由日期标签保留）', () => {
     const start = new Date(2026, 10, 5, 20, 0, 0)
     expect(selectTimerView({ status: 'upcoming', startTime: start.toISOString() }, now)).toEqual({
       kind: 'countdown',
-      text: '2026-11-05 20:00 开赛',
+      text: '11-05 20:00 开赛',
     })
   })
 
@@ -251,8 +251,16 @@ describe('selectSyncLineView', () => {
 
 describe('selectRankingBadge', () => {
   it('未开赛种子序、已结束最终成绩、进行中无徽标', () => {
-    expect(selectRankingBadge('upcoming')).toEqual({ label: '种子序', className: 'seed' })
-    expect(selectRankingBadge('ended')).toEqual({ label: '最终成绩', className: 'final' })
+    expect(selectRankingBadge('upcoming')).toEqual({
+      label: '种子序',
+      className: 'seed',
+      note: '未开赛，名次不代表比赛成绩',
+    })
+    expect(selectRankingBadge('ended')).toEqual({
+      label: '最终成绩',
+      className: 'final',
+      note: '赛事已结束',
+    })
     expect(selectRankingBadge('live')).toBeNull()
   })
 })

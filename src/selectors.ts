@@ -3,7 +3,7 @@ import { displayPhase, phaseStage } from './utils/phase'
 import {
   formatCountdown,
   formatElapsed,
-  formatLocalDateTime,
+  formatLocalMonthDayTime,
   formatLocalTime,
   resolveStartTime,
 } from './utils/time'
@@ -106,7 +106,7 @@ export function selectTimerView(meta: Pick<Meta, 'status' | 'startTime'>, now: n
   if (meta.status === 'upcoming') {
     if (start.kind === 'future') {
       return start.msUntil > COUNTDOWN_DATE_THRESHOLD_MS
-        ? { kind: 'countdown', text: `${formatLocalDateTime(start.start)} 开赛` }
+        ? { kind: 'countdown', text: `${formatLocalMonthDayTime(start.start)} 开赛` }
         : { kind: 'countdown', text: `距开赛 ${formatCountdown(start.msUntil)}` }
     }
     // 本地时间已过开赛时刻，但页面数据仍是未开赛：等待用户刷新。
@@ -188,12 +188,17 @@ export function selectSyncLineView(input: SyncLineInput, now: number): SyncLineV
 export interface RankingBadge {
   label: string
   className: string
+  note: string
 }
 
 /** 榜单语义徽标：未开赛「种子序」、已结束「最终成绩」，进行中不显示。 */
 export function selectRankingBadge(status: Meta['status']): RankingBadge | null {
   const mode = selectRankingMode(status)
-  if (mode === 'seed') return { label: '种子序', className: 'seed' }
-  if (mode === 'final') return { label: '最终成绩', className: 'final' }
+  if (mode === 'seed') {
+    return { label: '种子序', className: 'seed', note: '未开赛，名次不代表比赛成绩' }
+  }
+  if (mode === 'final') {
+    return { label: '最终成绩', className: 'final', note: '赛事已结束' }
+  }
   return null
 }

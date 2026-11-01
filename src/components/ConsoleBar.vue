@@ -4,7 +4,7 @@
     <!-- 开赛计时 -->
     <div class="az-console-cell">
       <p class="az-panel-label">开赛计时</p>
-      <div class="az-timer-display az-num">{{ elapsed }}</div>
+      <div class="az-timer-display az-num" :class="'is-' + timer.kind">{{ timer.text }}</div>
       <div class="az-timer-meta">{{ startLabel }}</div>
     </div>
 
@@ -42,17 +42,18 @@ import { formatStartLabel } from '../utils/time'
 import BroadcastItem from './BroadcastItem.vue'
 import { BROADCAST_PREVIEW_LIMIT, selectPreviewBroadcasters } from '../domain/broadcast'
 import type { Coverage } from '../types'
-import type { Broadcaster } from '../../types/race-data'
+import type { Broadcaster, Meta } from '../../types/race-data'
 
 const props = defineProps<{
   startTime: string
+  status: Meta['status']
   coverage?: Coverage
   teamCount?: number
   broadcasters: Broadcaster[]
 }>()
 const emit = defineEmits<{ (e: 'open-broadcast'): void }>()
 
-const { elapsed } = useTimer(() => props.startTime)
+const { timer } = useTimer(() => ({ status: props.status, startTime: props.startTime }))
 
 // "-" 是 schema 里「开赛时间未知」的占位符；直接 slice 会显示成 "- 起"。
 const startLabel = computed(() => formatStartLabel(props.startTime))

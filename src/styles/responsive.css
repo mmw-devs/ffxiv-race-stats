@@ -12,7 +12,7 @@
       .az-notices-scroll { height: 120px; }
       .az-ledger { grid-template-columns: 44px minmax(0, 1fr) minmax(88px, 112px); column-gap: 10px; }
       .az-lh-comp, .az-lh-phase { display: none; }
-      .az-team-comp, .az-team-phase { display: none; }
+      .az-ledger .az-team-comp, .az-ledger .az-team-phase { display: none; }
       .az-team-name { font-size: 14px; }
       .az-news-item { grid-template-columns: 78px 14px minmax(0, 1fr); column-gap: 10px; }
       .az-news-time { font-size: 10px; }

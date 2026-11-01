@@ -65,6 +65,11 @@ export function formatLocalTime(ms: number): string {
   return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
 }
 
+/** 月-日 时:分（用于「XX-XX HH:MM 开赛」；年份由开赛日期标签保留）。 */
+export function formatLocalMonthDayTime(date: Date): string {
+  return `${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}
+
 export type StartTimeState =
   | { kind: 'unknown' }
   | { kind: 'future'; start: Date; msUntil: number }

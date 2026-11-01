@@ -4,6 +4,7 @@ import {
   formatElapsed,
   formatLocalDate,
   formatLocalDateTime,
+  formatLocalMonthDayTime,
   formatLocalTime,
   formatNewsTime,
   formatStartLabel,
@@ -72,6 +73,10 @@ describe('本地时间格式化', () => {
 
   it('时钟补零到秒', () => {
     expect(formatLocalTime(new Date(2026, 0, 2, 3, 4, 5).getTime())).toBe('03:04:05')
+  })
+
+  it('月-日 时:分（不含年份）', () => {
+    expect(formatLocalMonthDayTime(new Date(2026, 10, 5, 20, 0))).toBe('11-05 20:00')
   })
 })
 
