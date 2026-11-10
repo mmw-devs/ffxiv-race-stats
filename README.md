@@ -81,12 +81,11 @@ dev 仓库（本仓库）
 │   ├── sync-agent-src.yml  agent-src → ops 仓库
 │   ├── sync-issue.yml      dev issues → 飞书
 │   └── sync-pr.yml         dev PRs → 飞书
-├── .githooks/              本地 git hook 脚手架
 ├── .pi/                    dev 侧 agent 配置
 │   ├── skills/             开发者工具（jit-pem）
 │   ├── scripts/            开发者工具（get-jit-pem.ts）
 │   └── npm/                agent runtime npm 依赖
-├── agent-src/              ops 仓库镜像（dev → ops 推送源）
+├── agent-src/              ops 结构性文件源（同步到 ops）
 ```
 
 ## 分支规范
