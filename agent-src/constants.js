@@ -1,5 +1,5 @@
 // FFXIV 高难首杀竞速 — 运营仓库数据校验白名单
-// 运营 agent 维护，content/* 分支可改。运营数据请修改 public/data.json。
+// 结构性文件：只在 dev 仓库修改，随 agent-src 同步到 ops；content/* 分支只能改 public/data.json。
 //
 // 此文件被 scripts/validate-data.ts 引用，作为值域校验的单一真相来源。
 // 新增合法值请修改此处，校验逻辑自动同步。

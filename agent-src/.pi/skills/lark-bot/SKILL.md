@@ -12,16 +12,16 @@ description: >
 ```
 飞书用户 ──消息──→ lark-cli event consume
                         │
-                   lark-bot.ts (过滤/清洗/翻译)
+                   lark-bot/main.ts (过滤/清洗/翻译)
                         │
                    pi --mode rpc (PI Agent)
                         │
-                   lark-bot.ts (提取回复)
+                   lark-bot/main.ts (提取回复)
                         │
                    lark-cli im +messages-reply ──→ 飞书用户
 ```
 
-**lark-bot 不持有一行业务逻辑。** 只做三件事：
+**lark-bot 负责飞书通道、会话与任务状态；业务规则以 `.pi/commands.md` 与 `ops-*` skill 为准。** 通道侧主要做三件事：
 1. 接收飞书事件 → 清洗为 agent 可读格式
 2. 通过 pi RPC 协议发送 prompt
 3. 提取 agent 回复 → 发回飞书
@@ -33,7 +33,7 @@ description: >
 ### 手动启动（开发/临时使用）
 
 ```bash
-tsx .pi/scripts/lark-bot.ts &
+tsx .pi/scripts/lark-bot/main.ts &
 ```
 
 ### 随 pi 自动启动（生产环境）

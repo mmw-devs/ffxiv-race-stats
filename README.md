@@ -16,6 +16,12 @@
 - **ops 仓库完全独立**：不引用、不 checkout、不包含 dev 仓库的任何内容
 - **单向同步**：dev 通过 `sync-agent-src.yml` 把 `agent-src/` 内容推送到 ops 仓库
 
+## Agent 入口
+
+- `agent-src/` 是 ops 结构性文件的唯一作者；同步到 ops 根目录。
+- `agent-src/AGENTS.md` 中的“本仓库”指 ops，不是本仓库。
+- 本仓库不保存 `public/data.json`；不要在这里创建数据副本。
+
 ## 本地预览
 
 Node 版本以 `.nvmrc` 为唯一事实源（当前 `24.11.0`，CI 也从该文件读取）。

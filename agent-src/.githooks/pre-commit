@@ -2,19 +2,21 @@
 # ============================================================
 # pre-commit — 提交前自动备份受保护的本地文件
 #
-# 受保护文件（仅存在于本地，不提交到远程）：
-#   AGENTS.md（已纳入版本控制，git 自身保护）
+# 受保护文件（仅存在于 ops 本地，不提交到远程）：
+#   .pi/settings.json（本地凭证）
 #
+# AGENTS.md 由 agent-src 同步并纳入版本控制，不需要备份。
 # 备份位置：.git/safe/ （Git clean 无法触及）
 # ============================================================
 
 SAFE_DIR=".git/safe"
-PROTECTED=""
+PROTECTED=".pi/settings.json"
 
 mkdir -p "$SAFE_DIR"
 
 for f in $PROTECTED; do
   if [ -f "$f" ]; then
+    mkdir -p "$(dirname "$SAFE_DIR/$f")"
     cp "$f" "$SAFE_DIR/$f"
   fi
 done

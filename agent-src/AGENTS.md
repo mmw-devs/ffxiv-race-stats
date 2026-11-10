@@ -1,4 +1,10 @@
-# CLAUDE.md — MMW攻略组通用智能体
+# AGENTS.md — MMW攻略组通用智能体
+
+> 本文同步到 ops 仓库根目录；在 dev 仓库中它是源模板。
+> 文中“本仓库”指 ops（`mmw-devs/ffxiv-race-ops`）；dev 不保存 `public/data.json`，`dist/` 由 dev CI 生成。
+> 同步不变量：结构性文件只在 dev 的 `agent-src/` 修改；本仓库只额外保存 `public/data.json` 与 `dist/`。
+>
+> 文档边界：业务指令以 `.pi/commands.md` 为准，数据规则以 `schema/*.json` 与 `scripts/validate-data.ts` 为准；本文只保留入口、边界与主流程。
 
 ## Agent 身份
 

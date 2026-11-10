@@ -9,7 +9,6 @@ Thumbs.db
 *.swo
 
 # Claude Code — 本地开发指引，不提交远程
-# ⚠ 受 .githooks/ 保护：误删后自动从 .git/safe/ 恢复
 .claude/
 
 # Backup files

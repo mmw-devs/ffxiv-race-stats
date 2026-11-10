@@ -1,5 +1,11 @@
 # FFXIV 高难首杀竞速 — 运营仓库
 
+> 本文同步到 ops 仓库根目录；在 dev 仓库中它是源模板。
+> 文中“本仓库”指 ops（`mmw-devs/ffxiv-race-ops`）；dev 不保存 `public/data.json`，`dist/` 由 dev CI 生成。
+> 同步不变量：结构性文件只在 `agent-src/` 修改；ops-only 只有 `public/data.json` 与 `dist/`，其余 ops 文件会被同步删除。
+>
+> 规则入口：`.pi/commands.md`（业务指令）、`schema/*.json` 与 `scripts/validate-data.ts`（数据校验）、`.pi/skills/ops-submit/SKILL.md`（提交契约）。
+
 Final Fantasy XIV 世界首杀竞速排行平台的**运营仓库**。负责日常运营全流程：数据维护、Agent 自动化、构建部署。
 
 ## 与开发仓库的分工
@@ -10,7 +16,7 @@ Final Fantasy XIV 世界首杀竞速排行平台的**运营仓库**。负责日�
 | **主体** | 数据 + Agent + 工作流 + 部署 | 应用源码 + 构建 |
 | **高频改动** | `public/data.json` | `src/`、`schema/` |
 | **分支前缀** | `content/*` | `feature/*`、`fix/*` |
-| **触发角色** | PI Agent（代表运营人员） | 开发者本人 |
+| **触发角色** | 运营 Agent（适配器由运行环境决定） | 开发者本人 |
 
 ## 日常运营流程
 
@@ -22,7 +28,7 @@ Final Fantasy XIV 世界首杀竞速排行平台的**运营仓库**。负责日�
    │
    ▼ 按 .pi/commands.md 识别业务域，加载 ops-* skill
    │
-   ▼ gh cli 创建 content/* 分支 → 修改 public/data.json → 开 PR（ops-submit）
+   ▼ 通过当前环境的 ops-submit 适配器创建 content/* 分支 → 修改 public/data.json → 开 PR
    │
    ▼ CI 校验（schema + 范围 + 操作日志）
    │
