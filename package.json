@@ -68,7 +68,7 @@
     "@vue/eslint-config-typescript": "^14.9.0",
     "ajv": "^8.20.0",
     "astro": "^7.2.9",
-    "dependency-cruiser": "^16.10.0",
+    "dependency-cruiser": "^18.7.2",
     "eslint": "^10.9.1",
     "eslint-plugin-vue": "^10.10.0",
     "json-schema-to-typescript": "^16.0.0",
