@@ -1,0 +1,59 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+---
+<BaseLayout>
+  <main class="az-404">
+    <p class="az-404__code">404</p>
+    <h1 class="az-404__title">这条记录不存在</h1>
+    <p class="az-404__hint">页面可能已移动，或链接有误。</p>
+    <a class="az-404__link" href="/">返回赛事档案</a>
+  </main>
+</BaseLayout>
+
+<style>
+  .az-404 {
+    min-height: 100vh;
+    display: grid;
+    align-content: center;
+    justify-items: start;
+    gap: 12px;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 var(--gutter);
+  }
+
+  .az-404__code {
+    margin: 0;
+    font-family: var(--font-tech);
+    font-size: clamp(64px, 14vw, 160px);
+    line-height: 0.9;
+    color: var(--accent-bright);
+    letter-spacing: -0.04em;
+  }
+
+  .az-404__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: clamp(28px, 4vw, 44px);
+    font-weight: 500;
+    color: var(--fg);
+  }
+
+  .az-404__hint {
+    margin: 0;
+    color: var(--muted);
+    font-size: 16px;
+  }
+
+  .az-404__link {
+    margin-top: 12px;
+    color: var(--fg);
+    text-decoration: none;
+    border-bottom: 1px solid var(--border-2);
+    padding-bottom: 2px;
+  }
+
+  .az-404__link:hover {
+    border-bottom-color: var(--fg);
+  }
+</style>
