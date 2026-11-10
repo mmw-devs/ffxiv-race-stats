@@ -33,9 +33,15 @@ jobs:
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            agent-src/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install agent-src dependencies
+        run: npm ci --prefix agent-src
 
       - name: Guard — dev 不得保存数据副本
         run: |
@@ -59,6 +65,12 @@ jobs:
 
       - name: Type-check
         run: npm run typecheck
+
+      - name: Type-check ops scripts
+        run: npm --prefix agent-src run typecheck:scripts
+
+      - name: Ops script unit tests
+        run: npm --prefix agent-src run test:scripts
 
       - name: Check data path consistency
         run: npm run data-path:check

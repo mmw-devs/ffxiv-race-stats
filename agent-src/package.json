@@ -8,7 +8,9 @@
     "validate": "tsx scripts/validate-data.ts",
     "validate-op-log": "tsx scripts/validate-op-log.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "test:scripts": "vitest run scripts/__tests__",
+    "typecheck": "tsc --noEmit",
+    "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
