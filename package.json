@@ -24,6 +24,7 @@
     "lint:fix": "eslint src/ --fix",
     "size": "size-limit",
     "lhci": "node scripts/lhci.mjs",
+    "check:github-settings": "node scripts/check-github-settings.mjs",
     "test:validate-data": "npm --prefix agent-src run test:scripts",
     "test:business-rules": "node scripts/check-business-fixtures.mjs",
     "test:unit": "vitest run",

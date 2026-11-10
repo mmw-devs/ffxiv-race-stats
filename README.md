@@ -31,6 +31,7 @@ npm install        # 仅首次
 npm run dev        # Astro 开发服务器 + HMR
 npm run test:unit  # 前端纯函数 / 状态单测（Vitest）
 npm run test:business-rules  # 用 ops validator 跑全部 valid/invalid fixtures
+npm run check:github-settings  # 校验 main 保护、必需 check、Actions 权限、secrets 与 content/* ruleset
 ```
 
 访问 `http://localhost:4321`。
