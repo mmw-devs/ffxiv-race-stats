@@ -25,7 +25,6 @@ schema/                         ← 数据契约（与 dev 同步）
 scripts/                        ← 验证脚本（与 dev 同步）
 .github/workflows/              ← 2 个 workflow（validate / race-ops-jit-pem）
 .pi/                            ← 运营 Agent 配置（commands.md 为指令唯一来源）
-.githooks/                      ← 运营工作流
 constants.js                    ← 数据校验值域白名单（阶段语法见 shared/stage.mjs）
 shared/stage.mjs                ← 阶段 P<n>/CLEAR 语法与排序（dev/ops 共享）
 AGENTS.md (本文件)              ← 运营语境文档
