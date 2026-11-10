@@ -50,7 +50,7 @@ jobs:
           EXTRA=$(echo "$CHANGED" | grep -Ev '^public/data\.json$' || true)
           if [ -n "$EXTRA" ]; then
             echo "::error::content/* PR 只能包含 public/data.json 变更，发现额外文件："
-            echo "$EXTRA" | while read f; do
+            echo "$EXTRA" | while read -r f; do
               echo "::error::  - $f"
             done
             exit 1
