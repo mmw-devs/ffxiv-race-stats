@@ -3,8 +3,8 @@ name: actionlint
 # ────────────────────────────────────────────────────────────────
 # 用途: 静态检查 .github/workflows/*.yml，防止低级 YAML 错误进 CI
 # 触发:
-#   - PR 涉及 .github/workflows/**
-#   - push main 涉及 .github/workflows/**
+#   - PR 涉及 .github/workflows/** 或 agent-src/.github/workflows/**
+#   - push main 涉及上述路径
 #   - workflow_dispatch（手动重跑）
 # 行为: 仅 fast-fail 报告错误，不修改业务逻辑
 # 依赖: rhysd/actionlint@v1.7.12（specific pin，Dependabot 跟 minor 升级）
@@ -16,10 +16,12 @@ on:
   pull_request:
     paths:
       - '.github/workflows/**'
+      - 'agent-src/.github/workflows/**'
   push:
     branches: [main]
     paths:
       - '.github/workflows/**'
+      - 'agent-src/.github/workflows/**'
   workflow_dispatch:
 
 permissions:
@@ -28,9 +30,18 @@ permissions:
 jobs:
   actionlint:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 
-      - name: Run actionlint
+      - name: Run actionlint (root)
         uses: rhysd/actionlint@v1.7.12
+
+      # agent-src 的 workflow 同步到 ops 后在 ops 运行，语法错误同样会阻塞运营。
+      # 用 Docker 直接跑 actionlint，避免依赖 Action 的 args 输入。
+      - name: Run actionlint (agent-src)
+        run: |
+          mapfile -t files < <(find agent-src/.github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \))
+          if [ ${#files[@]} -gt 0 ]; then
+            docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color "${files[@]}"
+          fi

@@ -1,8 +1,8 @@
 # Dependabot 配置 — 自动升级项目依赖
 #
 # 范围：
-#   - github-actions：升级 .github/workflows/*.yml 里 uses: ... 的 action 版本
-#   - npm：升级 package.json 里的 devDependencies
+#   - github-actions：升级 .github/workflows/*.yml 与 agent-src/.github/workflows/*.yml 里 uses: ... 的 action 版本
+#   - npm：升级 package.json 里的 devDependencies（根目录与 agent-src）
 #
 # 策略：
 #   - 频率 weekly（每周一上午 09:00 UTC，避免周末堆积）
@@ -55,3 +55,29 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@astrojs/vue"
         update-types: ["version-update:semver-major"]
+
+  # 3. agent-src 的 Actions 版本
+  - package-ecosystem: "github-actions"
+    directory: "/agent-src"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci(agent-src)"
+    labels:
+      - "dependencies"
+
+  # 4. agent-src 的 npm 依赖（ops 结构性文件，升级后由 build-verify 的 scripts 任务验证）
+  - package-ecosystem: "npm"
+    directory: "/agent-src"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(agent-src)"
+    labels:
+      - "dependencies"
