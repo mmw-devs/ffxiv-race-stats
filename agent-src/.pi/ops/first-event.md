@@ -194,4 +194,4 @@ npm run validate
 
 - 旧数据打归档标记：`archive/<届次>-<赛事短名>`
 - 把本骨架固化为第二届的模板
-- 第二届起使用 `ops-event` 的换届继承/重置规则；详见 `.pi/commands.md`
+- 第二届起使用 `ops-event` 的换届继承/重置规则；详见 `COMMANDS.md`

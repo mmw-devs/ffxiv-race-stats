@@ -2,45 +2,46 @@
 
 > 本文同步到 ops 仓库根目录；在 dev 仓库中它是源模板。
 > 文中“本仓库”指 ops（`mmw-devs/ffxiv-race-ops`）；dev 不保存 `public/data.json`，`dist/` 由 dev CI 生成。
-> 同步不变量：结构性文件只在 dev 的 `agent-src/` 修改；本仓库只额外保存 `public/data.json` 与 `dist/`。
->
-> 文档边界：业务指令以 `.pi/commands.md` 为准，数据规则以 `schema/*.json` 与 `scripts/validate-data.ts` 为准；本文只保留入口、边界与主流程。
+> 结构性文件只在 dev 的 `agent-src/` 修改；本仓库只额外保存 `public/data.json` 与 `dist/`。
+> 文档边界：业务指令见 `COMMANDS.md`（由 `contract/operations.json` 生成），数据规则见 `schema/*.json` 与 `scripts/validate-data.ts`；本文只保留入口、边界与主流程。
 
 ## Agent 身份
 
-**MMW攻略组通用智能体**，服务于 MMW攻略组的日常运营与技术工作。赛事运营是本 Agent 的核心业务场景之一，但并非全部。
+**MMW攻略组通用智能体**，服务日常运营与技术工作。赛事运营是核心业务场景之一，并非全部。
 
-## 仓库职责
+## 仓库职责与结构
 
-本仓库负责**运营全流程**：运营数据维护、运营 Agent 自动化、构建部署。
-
-## 仓库结构
+本仓库负责运营全流程：数据维护、运营 Agent 自动化、构建部署。
 
 ```
-public/data.json                ← 唯一高频改动文件
-public/scripts/                 ← 运行时公共脚本
-public/inspect-*.html           ← Agent 调试用
-dist/                           ← 由 dev CI 推送的预构建产物
-schema/                         ← 数据契约（与 dev 同步）
-scripts/                        ← 验证脚本（与 dev 同步）
-.github/workflows/              ← 2 个 workflow（validate / race-ops-jit-pem）
-.pi/                            ← 运营 Agent 配置（commands.md 为指令唯一来源）
-constants.js                    ← 数据校验值域白名单（阶段语法见 shared/stage.mjs）
-shared/stage.mjs                ← 阶段 P<n>/CLEAR 语法与排序（dev/ops 共享）
-AGENTS.md (本文件)              ← 运营语境文档
-README.md                       ← 运营 README
-LICENSE
+public/data.json          ← 唯一高频改动文件
+schema/ scripts/          ← 数据契约与验证脚本（与 dev 同步）
+dist/                     ← dev CI 推送的预构建产物
+.github/workflows/        ← validate / race-ops-jit-pem
+.pi/                      ← 运营 Agent 配置与 skills
+COMMANDS.md               ← 运营指令目录（生成物，勿手改）
+AGENTS.md README.md       ← 运营语境文档
 ```
 
 ## 相关仓库
 
-- **dev 仓库**：`mmw-devs/ffxiv-race-stats`（应用源码 + 构建 dev CI）
-  - dev main push → dev CI 构建 → 推送 `dist/` 到本仓库 main
-  - 本仓库的 dist/ 来自 dev，不在本仓库构建
+- **dev**：`mmw-devs/ffxiv-race-stats`（源码 + 构建 CI）；push 后构建 `dist/` 推送到本仓库 main。
+
+## 指令级别（摘要）
+
+完整表与前置条件见 `COMMANDS.md`；级别以契约 `contract/operations.json` 为准，Agent 不得自行判断。
+
+| 级别 | 含义 | 合并 |
+|---|---|---|
+| L1 | 只读 | 无 |
+| L2 | 常规写 | 确认后由运行环境合并；无能力则人工 |
+| L3 | 生命周期 | 只能人工在 PR 平台合并 |
+
+- L3 仅四条：新建赛事 / 换届、预热上线、开赛（兜底）、结束赛事；其他写操作一律 L2。
 
 ## 运行环境
 
-业务 skill 与 `.pi/commands.md` **不绑定消息渠道或 Agent 运行时**。
+业务 skill 与 `COMMANDS.md` 不绑定消息渠道或 Agent 运行时。
 
 | 运行环境 | 提交适配器 |
 |---|---|
@@ -48,70 +49,36 @@ LICENSE
 | DeepSeek Harness + mmw-tools | `ops-submit-dsh` |
 
 运行环境必须提供：稳定操作者身份、显式确认、审计、`content` PR、预览。
-L2 合并能力是可选的（无则人工）；L3 永远人工在 PR 平台合并。
 
 ## 数据修改流程
 
-```
-1. 操作者通过当前渠道发送指令（飞书、DeepSeek Harness 等）
-2. 运行环境中的 Agent（.pi/）接收并解析
-3. 按 .pi/commands.md 识别业务域，加载对应 skill
-   （ops-event / ops-progress / ops-roster / ops-publish / ops-site / ops-query）
-4. 读取 public/data.json → 校验 → 字段级预览 → 操作者确认
-5. Agent 通过 ops-submit（当前环境的适配器）创建 content/* 分支并修改 public/data.json
-6. PR 触发 .github/workflows/validate.yml 校验（schema + 文件范围 + 操作日志）
-7. L2 由运行环境在确认后合并（无能力则人工）；L3 只能人工在 PR 平台合并
-8. CF Pages 自动部署
-```
-
-指令的级别、确认强度、影响标记、前置条件与跨域交接，唯一来源是 `.pi/commands.md`。
+1. 操作者通过当前渠道发指令（飞书、DeepSeek Harness 等）。
+2. Agent（`.pi/`）按 `COMMANDS.md` 识别业务域，加载对应 skill。
+3. 读 `public/data.json` → 校验 → 字段级预览 → 操作者确认。
+4. 经 `ops-submit`（当前环境适配器）创建 `content/*` 分支并修改 `public/data.json`。
+5. PR 触发 `validate.yml`（schema + 文件范围 + 操作日志）。
+6. L2 确认后合并（无能力则人工）；L3 只能人工在 PR 平台合并。
+7. CF Pages 自动部署。
 
 ## 运营 Agent 约束
 
-运行环境中的 Agent 在本仓库进入**运营模式**，约束：
-
 - **唯一允许修改**：`public/data.json`
-- **提交通道**：`content/*` 分支 + PR（绝不可直推 main），统一走 `ops-submit`
-- **凭证**：lark-bot 运行时使用 `race-ops-bot` GitHub App（生产 PEM）或开发者本人 PAT；DSH 运行时使用 mmw-tools 的仓库授权
+- **提交通道**：`content/*` 分支 + PR（绝不直推 main），统一走 `ops-submit`
+- **凭证**：lark-bot 用 `race-ops-bot` GitHub App 或开发者 PAT；DSH 用 mmw-tools 仓库授权
 
-详见 `.pi/commands.md`、`.pi/skills/` 与 `.pi/rules/`。
+详见 `COMMANDS.md`、`.pi/skills/` 与 `.pi/rules/`。
 
 ## 数据校验
 
-CI 在 PR 时跑三阶段校验（`scripts/validate-data.ts`）：
-
-- **Schema 结构**：对照 `schema/*.json` 用 Ajv 校验
-- **值域交叉**：`phase` 符合 `P<正整数>` / `CLEAR`、`region` ∈ `VALID_REGIONS` 等
-- **业务规则**：`rank` 连续无跳号、`bossHP` ∈ [0, 100]、每队 `players[]` 恰好 8 人
+PR 时跑三阶段（`scripts/validate-data.ts`）：Schema 结构（Ajv）→ 值域交叉（`phase`/`region` 等）→ 业务规则（名次连续、血量、每队 8 人）。
 
 ## 部署流程
 
-```
-Dev Repo (push src/)
-   ↓
-Dev CI (npm ci && npm run build) → 产出 dist/
-   ↓
-Dev CI 推送 dist/ 到本仓库 main（用 OPS_PUSH_TOKEN）
-   ↓
-CF Pages 监听本仓库 main
-   ↓
-CF 跑 Build command: cp public/data.json dist/data.json
-   ↓
-CF publish dist/ 到 CDN
-```
+dev push → dev CI 构建 `dist/` → 推送到本仓库 main → CF Pages 执行 `cp public/data.json dist/data.json` → 发布。
 
 ## 文档操作规范
 
-以下流程仅在 lark-bot / 飞书运行环境适用；其他运行环境（如 DeepSeek Harness）按宿主能力或用户要求选择文档工具。
-
-创建文档时，**默认使用 `lark-cli` 在飞书云文档中进行**，而非本地文件：
-
-1. 使用 `lark-cli docs +create --title "文档标题"` 创建飞书文档
-2. 使用 `lark-cli docs +update --doc <doc-id> --command append --content @file.md --doc-format markdown` 写入内容
-3. 仅在本地需要临时文件时，才写入 `docs/` 目录（如用于 lark-cli 读取）
-4. 创建的飞书文档需要向所有人开放编辑权限
-
-> 飞书文档 URL 格式：`https://mmw-ffxiv.feishu.cn/docx/<document_id>`
+仅 lark-bot / 飞书环境适用；其他环境按宿主能力选择工具。默认用 `lark-cli` 创建飞书云文档（而非本地文件），创建后向所有人开放编辑。
 
 ## 注释语言
 

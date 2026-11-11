@@ -8,7 +8,7 @@ description: >
 
 # ops-progress — 战况与名次
 
-先加载 `.pi/commands.md` 的「战况域」；本 skill 只负责流程与话术。
+先加载 `COMMANDS.md` 的「战况域」；本 skill 只负责流程与话术。
 
 ## 职责边界
 
@@ -42,7 +42,7 @@ description: >
 
 ### 2. 读取并校验
 
-按 `.pi/commands.md` 的战况前置条件检查：
+按 `COMMANDS.md` 的战况前置条件检查：
 
 - 阶段/副本合法；同层只能前进，血量不高于当前
 - 跨层必须当前层 CLEAR；进入新层血量重置
@@ -78,7 +78,7 @@ description: >
 ### 6. 记录并提交
 
 - 把变更、指令和原因/影响交给 `ops-submit`；审计由当前运行环境的适配器生成
-- 调 `ops-submit`，级别 **L2**
+- 调 `ops-submit`，传 `command`（指令 id）与变更；级别由适配器查契约，不由本 skill 声明
 - 普通进度用「确认」；调名次用短语；修正用「确认修正」+ 原因
 
 ## 拒绝模板

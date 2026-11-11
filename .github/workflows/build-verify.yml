@@ -9,6 +9,7 @@ name: build-verify
 #   - npm ci 依赖安装
 #   - 数据副本守卫（dev 不得保存 data.json，唯一真源在 ops 仓库）
 #   - typegen / typecheck / data-path:check / test:unit / lint / build / size
+#   - 运营指令契约校验（contract:check：契约合法 + COMMANDS.md 未漂移）
 # 这是 dev 仓库 branch protection 的唯一必需状态检查
 # ────────────────────────────────────────────────────────────────
 
@@ -71,6 +72,9 @@ jobs:
 
       - name: Ops script unit tests
         run: npm --prefix agent-src run test:scripts
+
+      - name: Check operations contract (generated docs in sync)
+        run: npm --prefix agent-src run contract:check
 
       - name: Check data path consistency
         run: npm run data-path:check

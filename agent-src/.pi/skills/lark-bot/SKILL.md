@@ -21,7 +21,7 @@ description: >
                    lark-cli im +messages-reply ──→ 飞书用户
 ```
 
-**lark-bot 负责飞书通道、会话与任务状态；业务规则以 `.pi/commands.md` 与 `ops-*` skill 为准。** 通道侧主要做三件事：
+**lark-bot 负责飞书通道、会话与任务状态；业务规则以 `COMMANDS.md` 与 `ops-*` skill 为准。** 通道侧主要做三件事：
 1. 接收飞书事件 → 清洗为 agent 可读格式
 2. 通过 pi RPC 协议发送 prompt
 3. 提取 agent 回复 → 发回飞书

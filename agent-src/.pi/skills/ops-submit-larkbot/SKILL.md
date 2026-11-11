@@ -17,9 +17,17 @@ description: >
 - operator 来自 lark-bot 注入的飞书 `user_id`；缺失或 `unknown` 时不得提交
 - 只修改 `public/data.json`
 - `npm run validate` 通过
-- 业务域已给出 `changeSet`、`command`、`level`、`shortDesc`
+- 业务域已给出 `changeSet`、`command`（指令 id）、`shortDesc`；`level` 由本适配器查得，不接受业务域自报
 
 ## 工作流
+
+### 0. 查级别
+
+按 `command` 在 `COMMANDS.md` 查级别、确认强度与影响标记：
+
+- 查不到该 id → 拒绝提交
+- 级别不是 `L2` / `L3` → 拒绝提交
+- L3 只允许人工在 GitHub 合并，本适配器不执行合并
 
 ### 1. 写审计
 

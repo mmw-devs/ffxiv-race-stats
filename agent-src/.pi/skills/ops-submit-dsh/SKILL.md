@@ -18,9 +18,17 @@ description: >
 - 能从宿主获得稳定操作者身份（GitHub 账号或会话用户）；无法确定时禁止写
 - 只修改 `public/data.json`
 - 本地校验通过
-- 业务域已给出 `changeSet`、`command`、`level`、`shortDesc`
+- 业务域已给出 `changeSet`、`command`（指令 id）、`shortDesc`；`level` 由本适配器查得，不接受业务域自报
 
 ## 工作流
+
+### 0. 确定级别
+
+按 `command` 在 `COMMANDS.md`（或 `contract/operations.json`）查级别、确认强度与影响标记：
+
+- 查不到该 id → 拒绝提交
+- 级别不是 `L2` / `L3` → 拒绝提交
+- 以下 `draft` / 合并策略均由查得的级别决定，不得由调用方覆盖
 
 ### 1. 读取约束
 
@@ -49,7 +57,7 @@ content: <shortDesc>
 {
   "operator": "<稳定操作者身份>",
   "timestamp": "<ISO 8601 UTC>",
-  "command": "<指令名>",
+  "command": "<指令 id>",
   "changes": [
     { "field": "<字段路径>", "from": <旧值>, "to": <新值> }
   ],
@@ -59,7 +67,7 @@ content: <shortDesc>
 ```
 
 - `operator` 必须来自宿主身份，不得编造
-- `command` 记录指令名，便于审计
+- `command` 记录指令 id（如 `progress.update`），便于审计与查级别
 - 修正类必须有 `reason`
 
 ### 4. 提交

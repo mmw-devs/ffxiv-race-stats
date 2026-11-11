@@ -8,7 +8,7 @@ description: >
 
 # ops-publish — 对外发布
 
-先加载 `.pi/commands.md` 的「发布域」；本 skill 只负责流程与话术。
+先加载 `COMMANDS.md` 的「发布域」；本 skill 只负责流程与话术。
 
 ## 职责边界
 
@@ -46,7 +46,7 @@ description: >
 
 ### 2. 校验
 
-按 `.pi/commands.md` 与 validator：
+按 `COMMANDS.md` 与 validator：
 
 - 速报：当前必须是 live 或 ended；时间/长度/标点合法
 - 公告：条数与长度合法、不重复
@@ -62,7 +62,7 @@ description: >
 ### 4. 确认并提交
 
 - 普通确认「确认」
-- 记录变更，调 `ops-submit`，级别 **L2**
+- 记录变更，调 `ops-submit`，传 `command` 与变更；级别由适配器查契约
 
 ## 拒绝模板
 
