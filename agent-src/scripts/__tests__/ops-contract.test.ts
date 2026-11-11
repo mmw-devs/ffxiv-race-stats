@@ -66,6 +66,18 @@ describe("contract — 语义不变量", () => {
     broken.domains[0].commands[0].confirmation = "plain";
     expect(checkInvariants(broken).join("\n")).toContain("不得声明 confirmation");
   });
+
+  it("L3 声明 agent 可代合被拒绝", () => {
+    const broken = clone();
+    broken.levels.L3.agentMerge = true;
+    expect(checkInvariants(broken).join("\n")).toContain("agentMerge");
+  });
+
+  it("L2 关闭 agent 代合被拒绝", () => {
+    const broken = clone();
+    broken.levels.L2.agentMerge = false;
+    expect(checkInvariants(broken).join("\n")).toContain("agentMerge");
+  });
 });
 
 describe("contract — 生成物", () => {

@@ -37,6 +37,8 @@ export interface LevelDef {
   name: string;
   merge: "none" | "after-confirm" | "human-only";
   mergeText: string;
+  /** agent 是否可以代操作者合并该级别的 PR；L2 为 true，L1/L3 为 false。 */
+  agentMerge: boolean;
 }
 
 export interface DocDef {
@@ -178,7 +180,21 @@ export function validateContract(contract: unknown): string[] {
 export function checkInvariants(contract: OperationsContract): string[] {
   const errors: string[] = [];
 
-  // 0. 引用表自身唯一
+  // 0. 级别与 agentMerge 的对应关系：只有 L2 允许 agent 代合
+  for (const level of ["L1", "L2", "L3"] as const) {
+    const definition = contract.levels[level];
+    if (!definition) {
+      errors.push(`levels 缺少 ${level}`);
+      continue;
+    }
+    if (definition.agentMerge !== (level === "L2")) {
+      errors.push(
+        `${level} 的 agentMerge 必须是 ${level === "L2"}：L2 允许 agent 代合，L1/L3 禁止`,
+      );
+    }
+  }
+
+  // 1. 引用表自身唯一
   const confirmationIds = new Set<string>();
   for (const item of contract.confirmations) {
     if (confirmationIds.has(item.id)) errors.push(`确认强度 id 重复：${item.id}`);
@@ -315,11 +331,12 @@ export function renderCommandsDoc(contract: OperationsContract): string {
   lines.push("## 1. 三级指令", "");
   lines.push(
     table(
-      ["级别", "含义", "合并方式"],
+      ["级别", "含义", "合并方式", "agent 可代合"],
       (["L1", "L2", "L3"] as const).map((level) => [
         `**${level}**`,
         contract.levels[level].name,
         contract.levels[level].mergeText,
+        contract.levels[level].agentMerge ? "可（须操作者看过预览并明确要求）" : "禁止",
       ]),
     ),
     "",

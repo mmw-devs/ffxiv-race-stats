@@ -264,7 +264,7 @@
     "level": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "merge", "mergeText"],
+      "required": ["name", "merge", "mergeText", "agentMerge"],
       "properties": {
         "name": {
           "type": "string",
@@ -276,6 +276,10 @@
         "mergeText": {
           "type": "string",
           "minLength": 1
+        },
+        "agentMerge": {
+          "type": "boolean",
+          "description": "agent 是否可以代操作者合并该级别的 PR；L2 true，L1/L3 false"
         }
       }
     },

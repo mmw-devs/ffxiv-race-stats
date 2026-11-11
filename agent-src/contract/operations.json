@@ -16,17 +16,20 @@
     "L1": {
       "name": "只读",
       "merge": "none",
-      "mergeText": "无"
+      "mergeText": "无",
+      "agentMerge": false
     },
     "L2": {
       "name": "常规写",
       "merge": "after-confirm",
-      "mergeText": "运行环境在操作者确认后合并；无合并能力则人工"
+      "mergeText": "agent 可代合，但必须在操作者看过预览 URL、明确要求合并之后；无合并能力则人工",
+      "agentMerge": true
     },
     "L3": {
       "name": "生命周期",
       "merge": "human-only",
-      "mergeText": "**只能人工在 PR 平台合并**；任何运行环境不得自动合并"
+      "mergeText": "**只能人工在 PR 平台合并**；agent 不得调用合并",
+      "agentMerge": false
     }
   },
   "levelPolicy": {
@@ -113,7 +116,7 @@
         "text": "运行环境必须提供：稳定操作者身份、显式确认、审计、content PR、预览。"
       },
       {
-        "text": "合并能力是可选的：L2 有则可在确认后自动合并，无则转人工；L3 永远人工。"
+        "text": "合并：L2 允许 agent 代合，前提是操作者看过预览 URL 并明确要求合并（不得 PR 一提就合）；L3 禁止 agent 合并，只能人工。级别表里的 agentMerge 字段是判据。"
       },
       {
         "text": "任一能力缺失（身份/确认/审计/提交/预览）→ 拒绝写操作，不要临时拼命令。"
