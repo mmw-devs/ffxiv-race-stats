@@ -370,8 +370,12 @@ export function renderCommandsDoc(contract: OperationsContract): string {
     if (domain.level === "L1") {
       lines.push(
         table(
-          ["指令", "说明"],
-          domain.commands.map((command) => [command.title, command.description ?? ""]),
+          ["指令", "id", "说明"],
+          domain.commands.map((command) => [
+            command.title,
+            `\`${command.id}\``,
+            command.description ?? "",
+          ]),
         ),
         "",
       );
@@ -381,9 +385,10 @@ export function renderCommandsDoc(contract: OperationsContract): string {
 
     lines.push(
       table(
-        ["指令", "级别", "确认", "影响", "前置条件", "拒绝后下一步"],
+        ["指令", "id", "级别", "确认", "影响", "前置条件", "拒绝后下一步"],
         domain.commands.map((command) => [
           `**${command.title}**`,
+          `\`${command.id}\``,
           command.level,
           confirmationLabel(contract, command.confirmation),
           impactsText(contract, command.impacts),
