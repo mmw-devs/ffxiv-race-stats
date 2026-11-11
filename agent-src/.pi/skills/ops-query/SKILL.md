@@ -8,7 +8,7 @@ description: >
 
 # ops-query — 只读查询
 
-先加载 `.pi/commands.md` 的「查询域」。
+先加载 `COMMANDS.md` 的「查询域」。
 
 ## 职责
 

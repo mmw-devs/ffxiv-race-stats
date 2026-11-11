@@ -8,7 +8,7 @@ description: >
 
 # ops-site — 站点内容
 
-先加载 `.pi/commands.md` 的「站点域」；本 skill 只负责流程与话术。
+先加载 `COMMANDS.md` 的「站点域」；本 skill 只负责流程与话术。
 
 ## 职责边界
 
@@ -40,7 +40,7 @@ description: >
 
 ### 2. 校验
 
-按 `.pi/commands.md` 与 validator：
+按 `COMMANDS.md` 与 validator：
 
 - 文案非空、中文全角标点
 - 链接/路径合法
@@ -55,7 +55,7 @@ description: >
 ### 4. 确认并提交
 
 - 普通确认「确认」
-- 记录变更，调 `ops-submit`，级别 **L2**
+- 记录变更，调 `ops-submit`，传 `command` 与变更；级别由适配器查契约
 
 ## 注意
 

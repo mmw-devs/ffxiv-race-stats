@@ -12,7 +12,7 @@ description: >
 - `scripts/validate-data.ts` — 跨字段与业务规则
 - `shared/stage.mjs` — 阶段 `P<n>` / `CLEAR` 语法与排序
 
-如果本文件、`commands.md` 或 skill 与上述来源冲突，以代码为准，并修正文档。
+如果本文件、`COMMANDS.md` 或 skill 与上述来源冲突，以代码为准，并修正文档。
 
 ## 写入流程
 

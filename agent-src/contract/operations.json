@@ -1,0 +1,697 @@
+{
+  "$schema": "./operations.schema.json",
+  "version": 1,
+  "doc": {
+    "title": "运营指令目录（唯一来源）",
+    "paragraphs": [
+      "本文件是运营指令的**唯一业务定义**：级别、确认强度、影响标记、前置条件、跨域交接。"
+    ],
+    "bullets": [
+      "**数值、格式、结构规则不在本文件复述**；唯一来源是 `schema/*.json`、`scripts/validate-data.ts`、`shared/stage.mjs`。",
+      "业务域 skill 只负责识别指令、收集参数、展示预览和交接；**不得自行定义级别、合并方式或复述规则**。",
+      "所有写操作统一走 `ops-submit`。"
+    ]
+  },
+  "levels": {
+    "L1": {
+      "name": "只读",
+      "merge": "none",
+      "mergeText": "无"
+    },
+    "L2": {
+      "name": "常规写",
+      "merge": "after-confirm",
+      "mergeText": "运行环境在操作者确认后合并；无合并能力则人工"
+    },
+    "L3": {
+      "name": "生命周期",
+      "merge": "human-only",
+      "mergeText": "**只能人工在 PR 平台合并**；任何运行环境不得自动合并"
+    }
+  },
+  "levelPolicy": {
+    "defaultWrite": "L2",
+    "l3Commands": [
+      "event.create-or-rotate",
+      "event.preheat",
+      "event.start",
+      "event.end"
+    ]
+  },
+  "confirmations": [
+    {
+      "id": "plain",
+      "label": "普通",
+      "text": "「确认」"
+    },
+    {
+      "id": "phrase",
+      "label": "短语",
+      "text": "「确认名单调整」/「确认修改赛程」/「确认调名次」等"
+    },
+    {
+      "id": "phrase-reason",
+      "label": "短语 + 原因",
+      "text": "「确认修正」+ 原因"
+    },
+    {
+      "id": "phrase-human-merge",
+      "label": "短语 + 人工合并",
+      "text": "「确认开赛/结束/换届」→ 人工在 PR 平台合并"
+    }
+  ],
+  "impacts": [
+    {
+      "id": "podium-change",
+      "label": "前三名发生变化",
+      "mode": "dynamic",
+      "calc": "按变更结果动态计算"
+    },
+    {
+      "id": "final-standings-change",
+      "label": "结束后最终名次/阶段变化",
+      "mode": "dynamic",
+      "calc": "动态计算"
+    },
+    {
+      "id": "schedule-change",
+      "label": "开赛时间变化",
+      "mode": "fixed",
+      "calc": "指令固定"
+    },
+    {
+      "id": "data-replacement",
+      "label": "新建/换届替换数据",
+      "mode": "fixed",
+      "calc": "指令固定"
+    }
+  ],
+  "rules": [
+    "先读当前数据，再计算变更；不得凭记忆写值。",
+    "变更必须字段级预览：旧值 → 新值、前置检查、名次影响、影响标记。",
+    "本地校验不通过不得提交；提交后 CI 是第二道防线。",
+    "同一时间只允许一个内容 PR；有未合并 PR 时拒绝新写指令并返回 PR 号。",
+    "所有写操作必须记录审计：指令、操作人、时间、原因（修正类）、字段变更、影响标记；审计能力由运行环境提供，缺失时不得提交。",
+    "L3 创建 PR 后停止，不自动合并；必须由人工在 PR 平台合并。",
+    "拒绝时给出下一步可执行指令，不只是报错。",
+    "任何情况下不得直推 main。"
+  ],
+  "runtime": {
+    "intro": "业务域 skill 与指令目录**不绑定消息渠道或 Agent 运行时**。",
+    "bullets": [
+      {
+        "text": "所有写操作统一交给 `ops-submit`；它只定义契约，不定义工具。"
+      },
+      {
+        "text": "当前运行环境负责选择自己的适配器：",
+        "children": [
+          "lark-bot → `ops-submit-larkbot`",
+          "DeepSeek Harness + mmw-tools → `ops-submit-dsh`"
+        ]
+      },
+      {
+        "text": "运行环境必须提供：稳定操作者身份、显式确认、审计、content PR、预览。"
+      },
+      {
+        "text": "合并能力是可选的：L2 有则可在确认后自动合并，无则转人工；L3 永远人工。"
+      },
+      {
+        "text": "任一能力缺失（身份/确认/审计/提交/预览）→ 拒绝写操作，不要临时拼命令。"
+      }
+    ]
+  },
+  "domains": [
+    {
+      "id": "query",
+      "title": "查询域",
+      "level": "L1",
+      "summary": "查询不产生分支、不产生 PR；如果用户随后要求修改，交给对应业务域。",
+      "commands": [
+        {
+          "id": "query.event-status",
+          "title": "查赛事状态 / 开赛时间",
+          "level": "L1",
+          "description": "只读"
+        },
+        {
+          "id": "query.ranking",
+          "title": "查排名",
+          "level": "L1",
+          "description": "只读"
+        },
+        {
+          "id": "query.team-progress",
+          "title": "查某队进度",
+          "level": "L1",
+          "description": "只读"
+        },
+        {
+          "id": "query.layer-remaining",
+          "title": "查某层剩余 / 谁没过",
+          "level": "L1",
+          "description": "只读"
+        },
+        {
+          "id": "query.stream-coverage",
+          "title": "查直播覆盖",
+          "level": "L1",
+          "description": "只读"
+        },
+        {
+          "id": "query.pending-prs",
+          "title": "查待合并 PR / 冲突",
+          "level": "L1",
+          "description": "只读，并提示下一步"
+        }
+      ]
+    },
+    {
+      "id": "event",
+      "title": "赛事域",
+      "level": "L2",
+      "notes": [
+        "开赛前 10 分钟预热；到达开赛时刻不需要再改数据，计时自然跨过 0。",
+        "结束是冻结当前战况，**不要求全员通关，也不把未通关队伍改成 CLEAR**。",
+        "首届赛事由人工骨架（C 方案）；本域的换届指令用于第二届起。"
+      ],
+      "commands": [
+        {
+          "id": "event.create-or-rotate",
+          "title": "新建赛事 / 换届",
+          "level": "L3",
+          "confirmation": "phrase-human-merge",
+          "impacts": [
+            "data-replacement"
+          ],
+          "preconditions": [
+            "当前赛事已结束，或显式确认覆盖",
+            "旧数据已归档",
+            "模板完整"
+          ],
+          "onReject": "仍在进行 → 先结束，或显式覆盖"
+        },
+        {
+          "id": "event.schedule-set",
+          "title": "设置 / 修改开赛时间",
+          "level": "L2",
+          "confirmation": "phrase",
+          "impacts": [
+            "schedule-change"
+          ],
+          "preconditions": [
+            "upcoming；或 live 且全员仍在第一层 P1"
+          ],
+          "onReject": "已开打 → 不允许改时间"
+        },
+        {
+          "id": "event.preheat",
+          "title": "预热上线",
+          "level": "L3",
+          "confirmation": "phrase-human-merge",
+          "impacts": [],
+          "preconditions": [
+            "upcoming",
+            "全员第一层 P1 满血",
+            "开赛时间已设置且在未来"
+          ],
+          "onReject": "缺时间 → 先设置；已有进度 → 先修正"
+        },
+        {
+          "id": "event.start",
+          "title": "开赛（兜底）",
+          "level": "L3",
+          "confirmation": "phrase-human-merge",
+          "impacts": [],
+          "preconditions": [
+            "同预热",
+            "已 live 则幂等"
+          ],
+          "onReject": "同上"
+        },
+        {
+          "id": "event.end",
+          "title": "结束赛事",
+          "level": "L3",
+          "confirmation": "phrase-human-merge",
+          "impacts": [
+            "final-standings-change"
+          ],
+          "preconditions": [
+            "live",
+            "当前数据构成合法最终快照（阶段/血量/名次合法）"
+          ],
+          "onReject": "数据非法 → 先修正"
+        }
+      ]
+    },
+    {
+      "id": "progress",
+      "title": "战况域",
+      "level": "L2",
+      "commands": [
+        {
+          "id": "progress.update",
+          "title": "更新进度",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [
+            "podium-change"
+          ],
+          "preconditions": [
+            "live",
+            "阶段/副本/血量合法",
+            "同层只能前进",
+            "跨层要求当前层 CLEAR",
+            "更新后名次与进度单调"
+          ],
+          "onReject": "未 CLEAR 跨层 → 先通关；超车 → 预览名次调整"
+        },
+        {
+          "id": "progress.bulk-update",
+          "title": "批量更新",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [
+            "podium-change"
+          ],
+          "preconditions": [
+            "同更新进度",
+            "全部变更原子应用"
+          ],
+          "onReject": "任一冲突 → 全部不写，列出冲突"
+        },
+        {
+          "id": "progress.clear",
+          "title": "通关",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [
+            "podium-change"
+          ],
+          "preconditions": [
+            "live",
+            "目标当前在该层"
+          ],
+          "onReject": "已 CLEAR → 幂等"
+        },
+        {
+          "id": "progress.next-layer",
+          "title": "进入下一层",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [
+            "podium-change"
+          ],
+          "preconditions": [
+            "当前层 CLEAR",
+            "存在下一层"
+          ],
+          "onReject": "未 CLEAR → 先通关；最后一层 → 用通关"
+        },
+        {
+          "id": "progress.set-hp",
+          "title": "改血量",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "同层",
+            "血量合法且不高于当前"
+          ],
+          "onReject": "血量归零 → 用通关"
+        },
+        {
+          "id": "progress.fix",
+          "title": "修正进度",
+          "level": "L2",
+          "confirmation": "phrase-reason",
+          "impacts": [
+            "podium-change",
+            "final-standings-change"
+          ],
+          "preconditions": [
+            "阶段/血量合法",
+            "必须给原因",
+            "修正后名次单调"
+          ],
+          "onReject": "名次冲突 → 预览调整方案，确认后一并写"
+        },
+        {
+          "id": "progress.reorder",
+          "title": "调整名次",
+          "level": "L2",
+          "confirmation": "phrase",
+          "impacts": [
+            "podium-change",
+            "final-standings-change"
+          ],
+          "preconditions": [
+            "名次连续",
+            "与进度单调"
+          ],
+          "onReject": "冲突 → 先修正进度"
+        }
+      ]
+    },
+    {
+      "id": "roster",
+      "title": "名单域",
+      "level": "L2",
+      "commands": [
+        {
+          "id": "roster.bulk-add",
+          "title": "批量加队",
+          "level": "L2",
+          "confirmation": "phrase",
+          "impacts": [],
+          "preconditions": [
+            "upcoming 或 live",
+            "名次连续",
+            "每队阵容完整",
+            "第一层 P1 满血"
+          ],
+          "onReject": "缺阵容 → 先设置阵容"
+        },
+        {
+          "id": "roster.add",
+          "title": "加队",
+          "level": "L2",
+          "confirmation": "phrase",
+          "impacts": [],
+          "preconditions": [
+            "同上"
+          ],
+          "onReject": "同上"
+        },
+        {
+          "id": "roster.remove",
+          "title": "删队 / 退赛",
+          "level": "L2",
+          "confirmation": "phrase",
+          "impacts": [
+            "podium-change",
+            "final-standings-change"
+          ],
+          "preconditions": [
+            "队伍存在",
+            "删除后名次连续",
+            "至少保留 1 队"
+          ],
+          "onReject": "最后一队 → 不允许"
+        },
+        {
+          "id": "roster.rename",
+          "title": "改队名 / 区服",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "名称/区服合法"
+          ],
+          "onReject": "—"
+        },
+        {
+          "id": "roster.set-lineup",
+          "title": "设置阵容",
+          "level": "L2",
+          "confirmation": "phrase",
+          "impacts": [],
+          "preconditions": [
+            "阵容完整",
+            "位置顺序与职业对应",
+            "直播链接合法"
+          ],
+          "onReject": "不合规 → 指出第几位、应填什么"
+        },
+        {
+          "id": "roster.stream-toggle",
+          "title": "直播开关",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "选手存在",
+            "链接平台合法",
+            "开播必须有链接"
+          ],
+          "onReject": "缺链接 → 补链接或改下播"
+        }
+      ]
+    },
+    {
+      "id": "publish",
+      "title": "发布域",
+      "level": "L2",
+      "commands": [
+        {
+          "id": "publish.news",
+          "title": "发速报",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "live 或 ended",
+            "时间合法且不早于开赛",
+            "正文合规"
+          ],
+          "onReject": "赛前 → 改用公告"
+        },
+        {
+          "id": "publish.announcement",
+          "title": "发公告",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "公告条数与长度合法",
+            "不重复"
+          ],
+          "onReject": "—"
+        },
+        {
+          "id": "publish.sponsor",
+          "title": "赞助管理",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "名称/描述合法"
+          ],
+          "onReject": "—"
+        },
+        {
+          "id": "publish.relay",
+          "title": "转播台管理",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "平台/域名合法",
+            "名称唯一"
+          ],
+          "onReject": "—"
+        }
+      ]
+    },
+    {
+      "id": "site",
+      "title": "站点域",
+      "level": "L2",
+      "commands": [
+        {
+          "id": "site.copy",
+          "title": "改首页文案 / CTA",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "只改运营文案",
+            "链接合法"
+          ],
+          "onReject": "—"
+        },
+        {
+          "id": "site.rules",
+          "title": "改赛事规则",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "规则至少 1 条"
+          ],
+          "onReject": "—"
+        },
+        {
+          "id": "site.seo",
+          "title": "改 SEO",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "title/description 非空",
+            "说明首屏 head 需下次构建"
+          ],
+          "onReject": "—"
+        },
+        {
+          "id": "site.media",
+          "title": "换媒体",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "素材已由 dev 仓库提供",
+            "文件名带版本"
+          ],
+          "onReject": "缺素材 → 先提交 dev 素材"
+        },
+        {
+          "id": "site.sections",
+          "title": "改章节标题",
+          "level": "L2",
+          "confirmation": "plain",
+          "impacts": [],
+          "preconditions": [
+            "只改已有四个章节"
+          ],
+          "onReject": "新增/删除章节 → 不支持"
+        }
+      ]
+    }
+  ],
+  "handoffs": [
+    {
+      "scenario": "新建赛事要创建队伍",
+      "owner": "名单域",
+      "note": "赛事只建事件壳；队伍由名单域批量加"
+    },
+    {
+      "scenario": "新建赛事要默认文案/公告",
+      "owner": "站点/发布",
+      "note": "赛事调用两域模板，不自带文案"
+    },
+    {
+      "scenario": "加减队要重排名次",
+      "owner": "战况域",
+      "note": "名单调用战况的名次规则，不自己算"
+    },
+    {
+      "scenario": "开赛要检查进度",
+      "owner": "战况域",
+      "note": "赛事只读取校验结果，不重写规则"
+    },
+    {
+      "scenario": "结束要冻结最终状态",
+      "owner": "战况域",
+      "note": "赛事只改状态，快照合法性由通用规则保证"
+    },
+    {
+      "scenario": "查询“谁没过某层”",
+      "owner": "战况域",
+      "note": "查询复用规则，不另写算法"
+    }
+  ],
+  "resetMatrix": [
+    {
+      "block": "赛事名",
+      "default": "重填",
+      "note": "必须新赛事名"
+    },
+    {
+      "block": "届次",
+      "default": "自动 +1",
+      "note": "运营确认"
+    },
+    {
+      "block": "副本列表",
+      "default": "沿用待确认",
+      "note": "换赛制时队伍清空重来"
+    },
+    {
+      "block": "开赛时间",
+      "default": "重填",
+      "note": "可先待定"
+    },
+    {
+      "block": "状态",
+      "default": "固定 upcoming",
+      "note": "不继承"
+    },
+    {
+      "block": "队伍 / 阵容 / 名次 / 进度 / 血量 / 直播",
+      "default": "全部重置",
+      "note": "报名后加真实队伍"
+    },
+    {
+      "block": "速报",
+      "default": "清空",
+      "note": "旧速报会违反新时间线"
+    },
+    {
+      "block": "公告",
+      "default": "重写",
+      "note": "旧日期会误导"
+    },
+    {
+      "block": "赞助 / 转播台",
+      "default": "沿用待确认",
+      "note": "逐条确认"
+    },
+    {
+      "block": "首页文案 / 规则",
+      "default": "沿用待确认",
+      "note": "赛事名/赛制可能变"
+    },
+    {
+      "block": "SEO",
+      "default": "重写",
+      "note": "赛事专属"
+    },
+    {
+      "block": "媒体",
+      "default": "沿用或更新",
+      "note": "无新素材用现有品牌素材"
+    },
+    {
+      "block": "章节标题",
+      "default": "沿用",
+      "note": "一般不变"
+    }
+  ],
+  "archiveBranchFormat": "archive/<届次>-<赛事短名>",
+  "rejects": [
+    {
+      "reject": "赛前发速报",
+      "next": "改用公告"
+    },
+    {
+      "reject": "未通关就进入下一层",
+      "next": "先发「通关」"
+    },
+    {
+      "reject": "血量归零",
+      "next": "用「通关」而不是改血量"
+    },
+    {
+      "reject": "加减队后名次冲突",
+      "next": "交给战况域调整名次，或先修正进度"
+    },
+    {
+      "reject": "结束赛事时数据非法",
+      "next": "先修正进度"
+    },
+    {
+      "reject": "已有未合并内容 PR",
+      "next": "先合并或等待，再提交新指令"
+    }
+  ],
+  "prohibitions": [
+    "不静默继承队伍、成绩、速报",
+    "不把未通关队伍改成 CLEAR",
+    "不在 skill 里复述数值/格式/字段路径",
+    "不自行决定级别或合并方式",
+    "不直推 main",
+    "不修改 commit message 的结构化日志",
+    "不在 L3 自动合并"
+  ]
+}

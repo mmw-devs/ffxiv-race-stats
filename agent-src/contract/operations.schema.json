@@ -1,0 +1,363 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "运营指令契约",
+  "description": "contract/operations.json 的结构约束。语义不变量由 scripts/ops-contract.ts 校验。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "version",
+    "doc",
+    "levels",
+    "levelPolicy",
+    "confirmations",
+    "impacts",
+    "rules",
+    "runtime",
+    "domains",
+    "handoffs",
+    "resetMatrix",
+    "archiveBranchFormat",
+    "rejects",
+    "prohibitions"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1
+    },
+    "doc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "paragraphs", "bullets"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "paragraphs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "bullets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "levels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["L1", "L2", "L3"],
+      "properties": {
+        "L1": {
+          "$ref": "#/definitions/level"
+        },
+        "L2": {
+          "$ref": "#/definitions/level"
+        },
+        "L3": {
+          "$ref": "#/definitions/level"
+        }
+      }
+    },
+    "levelPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultWrite", "l3Commands"],
+      "properties": {
+        "defaultWrite": {
+          "enum": ["L2"]
+        },
+        "l3Commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/commandId"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "confirmations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "text"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "impacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "mode", "calc"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mode": {
+            "enum": ["dynamic", "fixed"]
+          },
+          "calc": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intro", "bullets"],
+      "properties": {
+        "intro": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bullets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text"],
+            "properties": {
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "children": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "domains": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/domain"
+      }
+    },
+    "handoffs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scenario", "owner", "note"],
+        "properties": {
+          "scenario": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "resetMatrix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["block", "default", "note"],
+        "properties": {
+          "block": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "archiveBranchFormat": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rejects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reject", "next"],
+        "properties": {
+          "reject": {
+            "type": "string",
+            "minLength": 1
+          },
+          "next": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "prohibitions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "definitions": {
+    "commandId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$"
+    },
+    "level": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "merge", "mergeText"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "merge": {
+          "enum": ["none", "after-confirm", "human-only"]
+        },
+        "mergeText": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "level"],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/commandId"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "level": {
+          "enum": ["L1", "L2", "L3"]
+        },
+        "confirmation": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "impacts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "uniqueItems": true
+        },
+        "preconditions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "onReject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "level", "commands"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "level": {
+          "enum": ["L1", "L2", "L3"]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/command"
+          }
+        }
+      }
+    }
+  }
+}

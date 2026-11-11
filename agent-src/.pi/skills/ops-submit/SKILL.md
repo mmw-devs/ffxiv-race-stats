@@ -10,7 +10,7 @@ description: >
 
 本 skill 规定“必须发生什么”，不规定“用哪个工具”。
 
-业务层 skill 与 `.pi/commands.md` 不得假设消息渠道、Agent 运行时或具体工具名。
+业务层 skill 与 `COMMANDS.md` 不得假设消息渠道、Agent 运行时或具体工具名。
 
 ## 适配器
 
@@ -34,8 +34,8 @@ description: >
 
 ## 输入
 
-- `level`：`L2` 或 `L3`
-- `command`：指令名（来自 `.pi/commands.md`）
+- `command`：指令 id（如 `event.end`，来自 `COMMANDS.md`）
+- `level`：不再由调用方声明；按 `command` 查契约得到
 - `shortDesc`
 - `changeSet`
 - `operator`
@@ -43,7 +43,7 @@ description: >
 
 ## 流程
 
-1. 运行环境执行本地校验
+1. 按 `command` 在 `COMMANDS.md` 查得级别、确认强度、前置条件与影响标记，再执行本地校验
 2. 生成审计载荷
 3. 选择当前运行环境的适配器；不得假设固定平台
    - 无法判断当前运行环境时，不得猜测；先确认可用工具或拒绝写操作
