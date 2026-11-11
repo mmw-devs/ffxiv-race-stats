@@ -86,6 +86,15 @@ describe("contract — 生成物", () => {
     }
   });
 
+  it("每条指令 id 都渲染进文档（可按 id 查表）", () => {
+    const rendered = renderCommandsDoc(contract);
+    for (const domain of contract.domains) {
+      for (const command of domain.commands) {
+        expect(rendered).toContain(`\`${command.id}\``);
+      }
+    }
+  });
+
   it("L3 清单与契约一致", () => {
     const rendered = renderCommandsDoc(contract);
     const titles = new Map<string, string>();
