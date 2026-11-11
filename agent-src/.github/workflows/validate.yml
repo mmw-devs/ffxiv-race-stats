@@ -65,3 +65,11 @@ jobs:
           git fetch origin "${{ github.base_ref }}"
           npx tsx scripts/validate-op-log.ts "origin/${{ github.base_ref }}"
           echo "::endgroup::"
+
+      - name: Validate command id against contract (content/* PR only)
+        if: startsWith(github.head_ref, 'content/')
+        run: |
+          echo "::group::指令 id 与级别校验（契约 SSOT）"
+          git fetch origin "${{ github.base_ref }}"
+          npx tsx scripts/check-op-command.ts "origin/${{ github.base_ref }}"
+          echo "::endgroup::"
