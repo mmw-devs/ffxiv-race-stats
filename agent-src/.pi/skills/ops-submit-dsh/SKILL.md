@@ -28,6 +28,8 @@ description: >
 
 - 查不到该 id → 拒绝提交
 - 级别不是 `L2` / `L3` → 拒绝提交
+- 该级别的 `agentMerge` 为 `false`（L3）→ 只能提 PR，禁止调用 `pr_merge`
+- 该级别的 `agentMerge` 为 `true`（L2）→ 只有在操作者看过预览、明确要求合并后才可以代合
 - 以下 `draft` / 合并策略均由查得的级别决定，不得由调用方覆盖
 
 ### 1. 读取约束
@@ -91,8 +93,8 @@ L2：确认无误后回复「合并」，由宿主二次确认后合并。
 L3：生命周期操作，请人工在 GitHub 合并。
 ```
 
-- **L2**：操作者明确回复「合并」后，先确认 CI 通过，再调用 `mcp__mmw-tools__pr_merge`；宿主会二次确认。不得自动合并。如果 PR 仍是 draft，先标记 Ready for review。
-- **L3**：禁止调用 `pr_merge`；只能人工在 GitHub 合并。
+- **L2**（`agentMerge: true`）：先把预览 URL 交给操作者；操作者看过预览、明确回复「合并」后，确认 CI 通过，再调用 `mcp__mmw-tools__pr_merge`；宿主会二次确认。不得自动合并，不得在未展示预览时合并。
+- **L3**（`agentMerge: false`）：禁止调用 `pr_merge`；只能人工在 GitHub 合并。
 - 除上述 L2 的显式请求外，不得主动合并。
 
 ### 6. CI 失败
