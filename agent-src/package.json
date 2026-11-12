@@ -15,7 +15,7 @@
     "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.6.6",
     "ajv": "^8.20.0",
     "dependency-cruiser": "^16.10.0",
     "tsx": "^4.23.12",
