@@ -1,0 +1,21 @@
+version: 1
+allowlistPaths:
+  - "public/data.json"
+denylistPaths:
+  - ".github/workflows/**"
+  - "schema/**"
+  - "scripts/**"
+  - "constants.js"
+  - "AGENTS.md"
+  - "README.md"
+  - ".pi/**"
+  - "dist/**"
+branchPrefix: "content/"
+preflight:
+  cmd: "npm run validate"
+  timeoutSeconds: 60
+bootstrap:
+  cmd: ""
+  whenMissing: "node_modules"
+  timeoutSeconds: 300
+prDefaultDraft: true
